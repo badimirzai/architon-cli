@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/badimirzai/robotics-verifier-cli/internal/model"
 	"github.com/badimirzai/robotics-verifier-cli/internal/output"
 	"github.com/badimirzai/robotics-verifier-cli/internal/resolve"
+	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
 	"github.com/badimirzai/robotics-verifier-cli/internal/validate"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -23,6 +25,7 @@ var checkCmd = &cobra.Command{
 
 Output control flags:
   --output json             print machine readable JSON to stdout
+  --style report|classic    force human-readable style
   --pretty                  pretty print JSON to stdout (requires --output json)
   --out-file <path>         write compact JSON to file (requires --output json)
   --debug                   enable debug mode (or use RV_DEBUG=1)
@@ -34,9 +37,12 @@ Examples:
   rv check robot.yaml --output json --pretty --out-file report.json`,
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		outputFormat := strings.ToLower(strings.TrimSpace(getOutputFormat(cmd)))
+		styleFlag, _ := cmd.Flags().GetString("style")
+		styleFlagSet := cmd.Flags().Changed("style")
 		prettyOutput, _ := cmd.Flags().GetBool("pretty")
 		outFile, _ := cmd.Flags().GetString("out-file")
 		var specFile string
+		stdoutTTY := isWriterTTY(cmd.OutOrStdout())
 
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -69,10 +75,19 @@ Examples:
 		if path == "" {
 			return handleCheckError(outputFormat, 3, "", fmt.Errorf("missing spec file (arg or -f/--file)"), nil, prettyOutput, outFile)
 		}
-		if outFile != "" && outputFormat != "json" {
+		mode, modeErr := selectRenderMode(renderModeOptions{
+			OutputFormat:  outputFormat,
+			Style:         styleFlag,
+			StyleProvided: styleFlagSet,
+			StdoutIsTTY:   stdoutTTY,
+		})
+		if modeErr != nil {
+			return handleCheckError(outputFormat, 3, path, modeErr, nil, prettyOutput, outFile)
+		}
+		if outFile != "" && mode != renderModeJSON {
 			return handleCheckError(outputFormat, 3, path, fmt.Errorf("--out-file requires --output json"), nil, prettyOutput, outFile)
 		}
-		if prettyOutput && outputFormat != "json" {
+		if prettyOutput && mode != renderModeJSON {
 			return handleCheckError(outputFormat, 3, path, fmt.Errorf("--pretty requires --output json"), nil, prettyOutput, outFile)
 		}
 
@@ -107,13 +122,25 @@ Examples:
 			exitCode = 2
 		}
 
-		if outputFormat == "json" {
+		if mode == renderModeJSON {
 			if err := renderJSONOutputs(path, rep, exitCode, prettyOutput, outFile, nil); err != nil {
 				return err
 			}
-		} else {
-			fmt.Println(output.RenderReport(rep))
+		} else if mode == renderModeClassic {
+			rendered := output.ClassicRenderer{}.Render(output.CheckResult{
+				Target:   path,
+				Report:   rep,
+				ExitCode: exitCode,
+			}, output.RenderOptions{})
+			fmt.Println(rendered)
 			printExitCode(exitCode)
+		} else {
+			rendered := output.ReportRenderer{}.Render(output.CheckResult{
+				Target:   path,
+				Report:   rep,
+				ExitCode: exitCode,
+			}, output.RenderOptions{Width: 92})
+			fmt.Print(rendered)
 		}
 
 		if exitCode != 0 {
@@ -126,6 +153,7 @@ Examples:
 func init() {
 	checkCmd.Flags().StringP("file", "f", "", "Path to YAML spec")
 	checkCmd.Flags().StringP("output", "o", "text", "Output format: text or json")
+	checkCmd.Flags().String("style", "", "Human output style: report or classic")
 	checkCmd.Flags().Bool("pretty", false, "Pretty print JSON to stdout (requires --output json)")
 	checkCmd.Flags().String("out-file", "", "Write compact JSON to file (requires --output json)")
 	checkCmd.Flags().StringArray("parts-dir", nil, "Additional parts directory (repeatable; after rv_parts and built-in parts)")
@@ -144,6 +172,62 @@ func printExitCode(code int) {
 	fmt.Printf("exit code: %d\n", code)
 }
 
+type renderMode string
+
+const (
+	renderModeJSON    renderMode = "json"
+	renderModeClassic renderMode = "classic"
+	renderModeReport  renderMode = "report"
+)
+
+type renderModeOptions struct {
+	OutputFormat  string
+	Style         string
+	StyleProvided bool
+	StdoutIsTTY   bool
+}
+
+func selectRenderMode(opts renderModeOptions) (renderMode, error) {
+	outputFormat := strings.ToLower(strings.TrimSpace(opts.OutputFormat))
+	switch outputFormat {
+	case "", "text":
+		// Continue below with human style selection.
+	case string(renderModeJSON):
+		return renderModeJSON, nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q (allowed: text, json)", outputFormat)
+	}
+
+	if opts.StyleProvided {
+		style := strings.ToLower(strings.TrimSpace(opts.Style))
+		switch style {
+		case string(renderModeClassic):
+			return renderModeClassic, nil
+		case string(renderModeReport):
+			return renderModeReport, nil
+		default:
+			return "", fmt.Errorf("unsupported style %q (allowed: report, classic)", opts.Style)
+		}
+	}
+
+	if opts.StdoutIsTTY {
+		return renderModeReport, nil
+	}
+	return renderModeClassic, nil
+}
+
+func isWriterTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
 func handleCheckError(outputFormat string, exitCode int, specFile string, err error, debugInfo *output.Debug, pretty bool, outFile string) error {
 	if outputFormat == "json" {
 		if err := renderJSONErrorOutputs(specFile, exitCode, err.Error(), pretty, outFile, debugInfo); err != nil {
@@ -152,12 +236,12 @@ func handleCheckError(outputFormat string, exitCode int, specFile string, err er
 		return silentExit(exitCode)
 	}
 	if debugEnabled && debugInfo != nil && debugInfo.InternalError != "" {
-		fmt.Fprintln(os.Stderr, debugInfo.InternalError)
+		fmt.Fprintln(os.Stderr, ui.Colorize("ERROR", debugInfo.InternalError))
 		if debugInfo.Stacktrace != "" {
 			fmt.Fprintln(os.Stderr, debugInfo.Stacktrace)
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, ui.Colorize("ERROR", err.Error()))
 	}
 	return silentExit(exitCode)
 }

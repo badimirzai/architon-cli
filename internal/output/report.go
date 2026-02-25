@@ -8,7 +8,15 @@ import (
 	"github.com/badimirzai/robotics-verifier-cli/internal/validate"
 )
 
-func RenderReport(r validate.Report) string {
+// ClassicRenderer preserves the original human-readable output format.
+type ClassicRenderer struct{}
+
+// Render renders a report in classic mode.
+func (ClassicRenderer) Render(result CheckResult, _ RenderOptions) string {
+	return renderClassicReport(result.Report)
+}
+
+func renderClassicReport(r validate.Report) string {
 	var b strings.Builder
 	b.WriteString(ui.Colorize("HEADER", "rv check"))
 	b.WriteString("\n")
@@ -31,4 +39,9 @@ func RenderReport(r validate.Report) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// RenderReport is kept for compatibility with existing callers.
+func RenderReport(r validate.Report) string {
+	return renderClassicReport(r)
 }
