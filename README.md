@@ -1,36 +1,29 @@
 # Robotics Verifier (rv-cli) [![CI](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/robotics-verifier-cli?label=release)](https://github.com/badimirzai/robotics-verifier-cli/releases)
 
-A **hardware compatibility linter** for robotics.
+Deterministic hardware architecture verification engine.
 
-Run `rv check` on a YAML spec to catch electrical integration failures **before you build**. Stop frying components and wasting weeks on shipping cycles.
+This repository provides a deterministic validation engine for hardware architecture specifications.
 
-```bash
-# Verify your build in seconds
-rv check robot_spec.yaml 
-```
+It validates compatibility across power, motor-driver integration, logic-level interfaces, and shared buses before hardware integration.
 
-### The Problem
-Most robotics failures happen before the first line of code ever runs. Incorrect voltage ranges, drivers that can't handle stall currents, and logic level mismatches waste time and damage expensive parts.
+Used as the verification core for Architon (under development).
 
-This tool enforces a hardware contract so these "silent killers" surface immediately-both on your local machine and in CI.
+## What this engine does
 
-* **Catch Electrical Mismatches**: Detects logic level gaps (e.g., 3.3V vs 5V), I2C address conflicts, and voltage range violations.
+`rv-cli` runs deterministic validation over a robot hardware spec (`.yaml`) and reports findings with stable rule IDs, severities, and machine-readable output.
 
-* **Mechanical Safety**: Validates motor torque/current requirements against driver peak and continuous limits.
+It is designed to prevent common pre-build integration failures, including:
 
-* **Power Budgeting**: Checks battery C-rate and discharge limits against total peak stall currents.
+- Voltage mismatches
+- Current overload and low headroom conditions
+- Driver incompatibility with selected motors
+- Logic level conflicts between MCU, rail, and motor driver
+- I2C address conflicts on shared buses
+- Battery discharge and C-rate violations under peak motor stall load
 
-* **Deterministic & Private**: No AI hallucinations and no network calls. It only validates the specs you provide.
+Deterministic validation matters because architecture verification must be reproducible in local development, CI, and release gates. A contract either passes or fails given the same input, with no probabilistic behavior.
 
----
-
-## How it works (at a glance)
-
-![Architecture Overview](./assets/rvcli_architecture.png)
-
----
-
-## Quick start (90 seconds)
+## Quick Start
 
 ### Install
 
@@ -48,6 +41,7 @@ rv init --list
 # templates:
 # - 4wd-problem
 # - 4wd-clean
+
 rv init --template 4wd-problem
 # Wrote robot.yaml (template: 4wd-problem)
 
@@ -58,14 +52,25 @@ rv init --template 4wd-clean --out robot.yaml --force
 # Wrote robot.yaml (template: 4wd-clean)
 
 rv check robot.yaml
-# clean (or WARN-only if you intentionally keep some warnings), exit code 0
+# clean (or WARN-only if intentionally retained), exit code 0
 ```
 
+### Parts lookup (quick reference)
 
+You can reference built-in parts (`parts/`) and project-local parts (`./rv_parts`) with `part:`.
 
-### Minimal example
+Resolver lookup order (earlier wins):
 
-Create a file named `spec.yaml`:
+1. `./rv_parts`
+2. `./parts`
+3. `--parts-dir` (repeatable)
+4. `RV_PARTS_DIRS` (OS path separator: `:` on Unix, `;` on Windows)
+
+Detailed field-level behavior is documented in `docs/spec.md`.
+
+## Example
+
+Create `spec.yaml`:
 
 ```yaml
 name: "minimal-voltage-mismatch"
@@ -105,70 +110,54 @@ motors:
 Run:
 
 ```bash
-rv check spec.yaml
+rv check spec.yaml --style classic --no-color
 ```
 
 Example output:
 
-<pre>
+```text
 rv check
 --------------
-<span style="color:#00a6d6">INFO</span> DRV_CHANNELS_OK: channels OK: 1 motors &lt;= 1 motor_driver.channels
-<span style="color:#d10f1a">ERROR</span> DRV_SUPPLY_RANGE: battery 12.00V outside motor_driver motor supply range [18.00, 24.00]V
-<span style="color:#c99200">WARN</span> DRV_CONT_LOW_MARGIN: motor_driver.continuous_per_channel_a 0.60A may be low for motor DC motor nominal 1.00A (want &gt;= 1.25A)
-<span style="color:#00a6d6">INFO</span> RAIL_BUDGET_NOTE: logic rail budget set to 1.00A (v1 does not estimate MCU+driver logic draw yet)
+INFO DRV_CHANNELS_OK: spec.yaml:22 driver channels OK: 1 motor(s) mapped to 1 available channel(s)
+ERROR DRV_SUPPLY_RANGE: spec.yaml:5 battery 12.00V outside motor_driver motor supply range [18.00, 24.00]V
+WARN DRV_CONT_LOW_MARGIN: spec.yaml:20 driver continuous rating 0.60A is below recommended 1.25A for motor DC motor (nominal 1.00A). Risk of overheating or current limiting under sustained load.
+INFO RAIL_BUDGET_NOTE: spec.yaml:9 logic rail budget set to 1.00A. v1 does not estimate MCU and driver logic current yet.
+WARN DRV_PEAK_MARGIN_LOW: spec.yaml:21 Total motor stall 5.00A is close to driver peak 6.00A
+
 exit code: 2
-</pre>
+```
 
-Human-readable output uses color in terminals (header/OK green, INFO cyan, WARN yellow, ERROR red). Disable with `--no-color` or the standard `NO_COLOR` environment variable (set to any non-empty value, e.g. `NO_COLOR=1`).
-
-Interpretation:
-- The supply voltage cannot power the driver. This is a hard stop.
-- The driver continuous current is lower than motor nominal current margin. Proceeding is risky.
-
-
-## Example (video)
+Example run video:
 https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
 
+## CLI usage
 
-Example run catching voltage, current, battery C-rate, logic-level, and I2C conflicts in a 4-wheel mobile robot before anything gets built. 
-
----
-
-
-
-
-
-## What it checks today
-
-- Voltage compatibility between supply and drivers
-- Current sufficiency for stall and nominal loads
-- Driver to motor channel allocation
-- Basic logic level consistency
-- Logic rail compatibility between MCU and motor driver
-- Battery C rate vs total peak stall current (motors)
-- Total motor stall current vs driver peak current across all channels
-- Simple I2C address conflicts on a single bus (duplicate device addresses)
-
-
-### Core commands
+Core commands:
 
 ```text
-rv check <file.yaml>       Run analysis
+rv check <file.yaml>       Run deterministic analysis
 rv version                 Show installed version
-rv check --output json     Emit JSON findings
+rv check --output json     Emit JSON findings to stdout
 rv --help                  Show all commands and flags
 rv check --help            Show check command options
 ```
 
-**Note**: Checks are skipped when required inputs are missing (zero). This keeps partial specs usable.
+Findings severity:
 
-Findings:
-- INFO for context
-- WARN for risk
-- ERROR for violations (non zero exit code)
+- `INFO` context or non-blocking notes
+- `WARN` risk indications
+- `ERROR` rule violations
 
-CI example:
+JSON output examples:
+
+```bash
+rv check specs/robot.yaml --output json
+rv check specs/robot.yaml --output json --pretty
+rv check specs/robot.yaml --output json --out-file report.json
+rv check specs/robot.yaml --output json --pretty --out-file report.json
+```
+
+CI integration example:
 
 ```yaml
 steps:
@@ -176,176 +165,56 @@ steps:
     run: rv check specs/robot.yaml
 ```
 
-JSON example:
+Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
 
-```bash
-rv check specs/robot.yaml --output json
-```
+## Determinism and Trust
 
-JSON file output example:
+This engine is deterministic by design:
 
-```bash
-rv check specs/robot.yaml --output json --out-file report.json
-```
+- No AI
+- No guessing
+- No inference
+- No hallucination
 
-JSON pretty output example:
+Validation operates only on the specification and part data you provide.
 
-```bash
-rv check specs/robot.yaml --output json --pretty
-```
+## Documentation
 
-JSON pretty + file output example:
+Detailed technical documentation is available in the /docs directory:
 
-```bash
-rv check specs/robot.yaml --output json --pretty --out-file report.json
-```
-
-When using `--output json` or `--output json --pretty` in a terminal, severity values are colorized for readability. Colors are never used for JSON files or non-TTY output.
-
----
+- docs/architecture.md — engine architecture and system design
+- docs/spec.md — hardware specification format
+- docs/rules.md — deterministic rule system and validation logic
 
 ## Supported configurations (v0.1)
 
-Focused on early stage mobile robots.
+Focused on early-stage mobile robot electrical architecture checks.
 
 Supported:
+
 - DC motors (one motor per driver channel)
-- TB6612FNG and L298 class H bridge drivers
+- TB6612FNG and L298 class H-bridge driver classes
 - Single logic rail
-- Basic YAML part inheritance
+- YAML part-based configuration with deterministic merge behavior
 
 Not supported yet:
-- Stepper, BLDC, ESC
-- Multi rail power trees
-- Thermal derating
-- Serial or IO protocol arbitration
 
-This is a linter. Not a simulator or optimizer.
+- Stepper, BLDC, ESC powertrain validation
+- Multi-rail power tree validation
+- Thermal derating models
+- Serial/IO arbitration models
 
----
-
-## Using built-in parts
-
-The repo ships with a small parts library under `parts/`. Reference a part by ID using `part:` and override any fields you need; explicit values in your spec always win.
-
-```yaml
-mcu:
-  part: mcus/esp32-s3-devkitc-1
-
-motor_driver:
-  part: drivers/tb6612fng
-
-motors:
-  - part: motors/tt_6v_dc_gearmotor
-    count: 2
-    stall_current_a: 1.8 # override part default
-```
-
-I2C sensor parts (e.g. `sensors/mpu6050`) include default addresses; you can use them under `i2c_buses.devices` with `part:` or set `address_hex` directly.
-
----
-
-## Project-local parts
-
-If you have project-specific parts, put them in `./rv_parts/` relative to where you run `rv`. Example layout:
-
-```
-rv_parts/
-  motors/
-    custom_gear_motor.yaml
-  drivers/
-    custom_driver.yaml
-```
-
-Reference them by ID in your spec:
-
-```yaml
-motor_driver:
-  part: drivers/custom_driver
-
-motors:
-  - part: motors/custom_gear_motor
-    count: 2
-```
-
-The resolver searches directories in this order (earlier wins): `./rv_parts`, built-in `parts/`, `--parts-dir` (repeatable), and `RV_PARTS_DIRS` (split by your OS path list separator, `:` on Unix, `;` on Windows).
-
----
-
-## YAML specification
-
-The core fields used in validation are:
-
-- power.battery.voltage_v
-- power.battery.capacity_ah
-- power.battery.c_rating
-- power.battery.max_discharge_a
-- power.battery.max_current_a
-- motor_driver.motor_supply_min_v
-- motor_driver.motor_supply_max_v
-- motors[].stall_current_a
-- motor_driver.peak_per_channel_a
-
-Battery max discharge uses the following precedence:
-1) power.battery.max_discharge_a
-2) power.battery.capacity_ah * power.battery.c_rating
-3) power.battery.max_current_a
-
-I2C bus structure (addresses accept decimal or 0x hex):
-
-```yaml
-i2c_buses:
-  - name: "bus0"
-    devices:
-      - name: "imu_left"
-        address_hex: 0x68
-      - name: "imu_right"
-        address_hex: 104
-```
-
-Unset or missing fields are treated as unknown. Some required values will surface as errors during resolution.
-
-More examples are available in the `examples/` directory.
-
----
+This is a linter and contract verifier, not a simulator or optimizer.
 
 ## Versioning and stability
 
-The interface is still evolving. Breaking changes may happen before 1.0.
+The interface is still evolving before `v1.0`.
 
-Exit codes and rule identifiers are stable within a minor version:
-- 0 clean
-- 2 rule violations
-- 3+ parser or internal errors
+Exit behavior used by `rv check`:
 
----
-
-## CLI output options
-
-Output control flags (check command):
-- --output json: machine readable JSON to stdout
-- --pretty: pretty print JSON to stdout (requires --output json)
-- --out-file <path>: write compact JSON to file (requires --output json)
-- --debug: enable debug mode (or use RV_DEBUG=1)
-
-Output behavior matrix:
-- rv check spec.yaml: human-readable output
-- rv check spec.yaml --output json: compact JSON to stdout
-- rv check spec.yaml --output json --pretty: pretty JSON to stdout
-- rv check spec.yaml --output json --out-file result.json: writes compact JSON and prints "Written to result.json"
-- rv check spec.yaml --output json --pretty --out-file result.json: pretty JSON to stdout and compact JSON to file
-
-See `CHEATSHEET.md` for a quick command reference.
-
----
-
-## Determinism first
-
-Trust is the primary feature.
-
-This tool does not guess, fetch, or infer part data. It validates what you specify. Assistive or automated layers may come later, but only on top of a proven deterministic core.
-
----
+- `0` clean or WARN-only
+- `2` deterministic rule violations (`ERROR` findings)
+- `3` parse/decode/resolve/internal failures
 
 ## Contributing
 
@@ -353,16 +222,16 @@ Open an issue before starting work so scope can be aligned.
 
 By contributing you agree to the CLA in `CLA.md`.
 
----
+## Status
+
+Early alpha. Interfaces and rule coverage are still evolving before `v1.0`.
 
 ## License
 
 Apache 2.0. See `LICENSE`.
 
----
-
 ## Disclaimer
 
 This tool does not replace datasheets or engineering judgement.
 Not suitable for safety critical systems.
-Use at your own risk. Early alpha.
+Use at your own risk.

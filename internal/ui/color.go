@@ -8,7 +8,7 @@ import (
 const (
 	colorRed    = "\x1b[31m"
 	colorYellow = "\x1b[33m"
-	colorCyan   = "\x1b[36m"
+	colorBlue   = "\x1b[38;2;144;213;255m"
 	colorGreen  = "\x1b[32m"
 	colorReset  = "\x1b[0m"
 )
@@ -48,7 +48,7 @@ func colorForSeverity(severity string) string {
 	case "WARN":
 		return colorYellow
 	case "INFO":
-		return colorCyan
+		return colorBlue
 	case "OK", "HEADER":
 		return colorGreen
 	default:
