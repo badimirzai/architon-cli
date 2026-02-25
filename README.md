@@ -2,9 +2,9 @@
 
 Deterministic hardware architecture verification engine.
 
-This repository provides a deterministic validation engine for hardware architecture specifications.
+Detects electrical compatibility, power, logic-level, and bus integration failures before hardware is built.
 
-It validates compatibility across power, motor-driver integration, logic-level interfaces, and shared buses before hardware integration.
+Run deterministic validation locally or in CI to catch integration errors early and prevent hardware damage.
 
 Used as the verification core for Architon (under development).
 
