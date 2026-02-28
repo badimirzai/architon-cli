@@ -183,6 +183,12 @@ func TestImportKiCadBOM_GroupedReferencesExpand(t *testing.T) {
 		if gotRefs[i] != wantRefs[i] {
 			t.Fatalf("expected refs %v, got %v", wantRefs, gotRefs)
 		}
+		if design.Parts[i].Fields["Reference"] != wantRefs[i] {
+			t.Fatalf("expected part %d Reference field %q, got %q", i, wantRefs[i], design.Parts[i].Fields["Reference"])
+		}
+		if design.Parts[i].Fields["_original_reference_group"] != "R1,R2,R3" {
+			t.Fatalf("expected part %d original reference group to be preserved, got %q", i, design.Parts[i].Fields["_original_reference_group"])
+		}
 	}
 }
 

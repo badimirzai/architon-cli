@@ -41,4 +41,24 @@ func TestNewVerificationReport_CapsParseDiagnostics(t *testing.T) {
 	if result.Summary.ParseWarnings[0] != "warning 1" || result.Summary.ParseWarnings[19] != "warning 20" {
 		t.Fatalf("unexpected reported parse warnings: %v", result.Summary.ParseWarnings)
 	}
+	if result.ReportVersion != SchemaVersion {
+		t.Fatalf("expected report version %q, got %q", SchemaVersion, result.ReportVersion)
+	}
+	if result.DesignIR == nil || result.DesignIR.Version != ir.SchemaVersion {
+		t.Fatalf("expected design IR version %q, got %+v", ir.SchemaVersion, result.DesignIR)
+	}
+}
+
+func TestNewVerificationReport_SetsSchemaVersionForNilDesign(t *testing.T) {
+	result := NewVerificationReport(nil)
+
+	if result.ReportVersion != SchemaVersion {
+		t.Fatalf("expected report version %q, got %q", SchemaVersion, result.ReportVersion)
+	}
+	if result.DesignIR == nil {
+		t.Fatal("expected design IR to be initialized")
+	}
+	if result.DesignIR.Version != ir.SchemaVersion {
+		t.Fatalf("expected design IR version %q, got %q", ir.SchemaVersion, result.DesignIR.Version)
+	}
 }

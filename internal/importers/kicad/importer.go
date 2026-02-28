@@ -42,7 +42,8 @@ func ImportKiCadBOM(path string, mapping ColumnMapping) (*ir.DesignIR, error) {
 	}
 
 	design := &ir.DesignIR{
-		Source: "kicad_bom_csv",
+		Version: ir.SchemaVersion,
+		Source:  "kicad_bom_csv",
 		Metadata: ir.IRMetadata{
 			InputFile: path,
 			ParsedAt:  time.Now().UTC().Format(time.RFC3339),
@@ -146,6 +147,16 @@ func buildPartsFromRecord(record []string, uniqueFieldHeaders []string, headers 
 		part := template
 		part.Ref = ref
 		part.Fields = cloneFields(fields)
+		if part.Fields == nil {
+			part.Fields = make(map[string]string, 2)
+		}
+		part.Fields["Reference"] = ref
+		if columns.ref >= 0 && columns.ref < len(uniqueFieldHeaders) {
+			part.Fields[uniqueFieldHeaders[columns.ref]] = ref
+		}
+		if len(refs) > 1 {
+			part.Fields["_original_reference_group"] = refValue
+		}
 		parts = append(parts, part)
 	}
 

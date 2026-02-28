@@ -167,7 +167,24 @@ KiCad BOM scan examples:
 ```bash
 rv scan bom.csv
 rv scan bom.csv --map examples/mapping.yaml
+rv scan bom.csv --out my-report.json
 ```
+
+## Output Control
+
+Use `--out` to override the default `architon-report.json` output path:
+
+```bash
+rv scan bom.csv --out my-report.json
+```
+
+## Exit Codes
+
+For `rv scan`:
+
+- `0` = success
+- `1` = rule violations
+- `2` = parse errors
 
 Mapping file shape (`examples/mapping.yaml`):
 
@@ -183,6 +200,7 @@ manufacturer: Mfr
 
 ```json
 {
+  "report_version": "0",
   "summary": {
     "source": "kicad_bom_csv",
     "input_file": "bom.csv",
@@ -195,6 +213,7 @@ manufacturer: Mfr
     "parse_warnings": []
   },
   "design_ir": {
+    "version": "0",
     "source": "kicad_bom_csv",
     "parts": [],
     "metadata": {
@@ -205,6 +224,10 @@ manufacturer: Mfr
   "rules": []
 }
 ```
+
+## Schema Versioning
+
+`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
 
 CI integration example:
 

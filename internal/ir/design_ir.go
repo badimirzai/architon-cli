@@ -1,7 +1,10 @@
 package ir
 
+const SchemaVersion = "0"
+
 // DesignIR is a stable internal representation of an imported hardware design.
 type DesignIR struct {
+	Version       string     `json:"version"`
 	Source        string     `json:"source"`
 	Parts         []Part     `json:"parts"`
 	Metadata      IRMetadata `json:"metadata"`

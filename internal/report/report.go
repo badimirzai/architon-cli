@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/badimirzai/robotics-verifier-cli/internal/ir"
 )
+
+const SchemaVersion = "0"
 
 // RuleResult is reserved for deterministic verification rules over DesignIR.
 type RuleResult struct {
@@ -29,25 +32,30 @@ type Summary struct {
 
 // VerificationReport is the output schema for BOM scan results.
 type VerificationReport struct {
-	Summary  Summary      `json:"summary"`
-	DesignIR *ir.DesignIR `json:"design_ir"`
-	Rules    []RuleResult `json:"rules"`
+	ReportVersion string       `json:"report_version"`
+	Summary       Summary      `json:"summary"`
+	DesignIR      *ir.DesignIR `json:"design_ir"`
+	Rules         []RuleResult `json:"rules"`
 }
 
 // NewVerificationReport builds the deterministic JSON payload for scan.
 func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 	if design == nil {
-		design = &ir.DesignIR{}
+		design = &ir.DesignIR{Version: ir.SchemaVersion}
+	}
+	if design.Version == "" {
+		design.Version = ir.SchemaVersion
 	}
 
 	rules := make([]RuleResult, 0)
 	return VerificationReport{
+		ReportVersion: SchemaVersion,
 		Summary: Summary{
 			Source:             design.Source,
 			InputFile:          design.Metadata.InputFile,
 			Parts:              len(design.Parts),
 			Rules:              len(rules),
-			HasFailures:        len(design.ParseErrors) > 0,
+			HasFailures:        len(design.ParseErrors) > 0 || hasRuleFailures(rules),
 			ParseErrorsCount:   len(design.ParseErrors),
 			ParseWarningsCount: len(design.ParseWarnings),
 			ParseErrors:        cappedMessages(design.ParseErrors, 20),
@@ -69,6 +77,16 @@ func WriteVerificationReport(path string, report VerificationReport) error {
 		return fmt.Errorf("write report file: %w", err)
 	}
 	return nil
+}
+
+func hasRuleFailures(rules []RuleResult) bool {
+	for _, rule := range rules {
+		severity := strings.TrimSpace(rule.Severity)
+		if severity == "" || strings.EqualFold(severity, "error") {
+			return true
+		}
+	}
+	return false
 }
 
 func cappedMessages(messages []string, limit int) []string {

@@ -32,10 +32,12 @@ Current supported input:
 
 Examples:
   rv scan bom.csv
-  rv scan bom.csv --map mapping.yaml`,
+  rv scan bom.csv --map mapping.yaml
+  rv scan bom.csv --out result.json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			inputPath := args[0]
 			mappingFile, _ := cmd.Flags().GetString("map")
+			outputPath, _ := cmd.Flags().GetString("out")
 
 			format, err := detectScanInputFormat(inputPath)
 			if err != nil {
@@ -62,19 +64,55 @@ Examples:
 				return userError(fmt.Errorf("unsupported input format for %q (currently supported: CSV)", inputPath))
 			}
 
-			if err := report.WriteVerificationReport(defaultScanReportPath, designReport); err != nil {
+			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
 				return internalError(err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", defaultScanReportPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
 
-			if designReport.Summary.ParseErrorsCount > 0 {
-				return userError(fmt.Errorf("scan completed with %d parse errors; wrote %s", designReport.Summary.ParseErrorsCount, defaultScanReportPath))
+			exitCode := scanExitCode(designReport)
+			if exitCode == 0 {
+				return nil
 			}
-			return nil
+			if exitCode == 2 {
+				return &ExitError{
+					Code: 2,
+					Err:  fmt.Errorf("scan completed with %d parse errors; wrote %s", designReport.Summary.ParseErrorsCount, outputPath),
+				}
+			}
+			return &ExitError{
+				Code: 1,
+				Err:  fmt.Errorf("scan completed with %d rule violations; wrote %s", scanRuleFailureCount(designReport), outputPath),
+			}
 		},
 	}
 	cmd.Flags().String("map", "", "Path to YAML file with explicit BOM header mapping")
+	cmd.Flags().String("out", defaultScanReportPath, "Path to write the scan report JSON")
 	return cmd
+}
+
+// Exit codes are part of the rv scan contract:
+// 0 = report written with no parse errors and no rule failures
+// 1 = report written with one or more rule failures
+// 2 = report written with one or more parse errors
+func scanExitCode(result report.VerificationReport) int {
+	if result.Summary.ParseErrorsCount > 0 {
+		return 2
+	}
+	if scanRuleFailureCount(result) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func scanRuleFailureCount(result report.VerificationReport) int {
+	count := 0
+	for _, rule := range result.Rules {
+		severity := strings.TrimSpace(rule.Severity)
+		if severity == "" || strings.EqualFold(severity, "error") {
+			count++
+		}
+	}
+	return count
 }
 
 func detectScanInputFormat(path string) (string, error) {
