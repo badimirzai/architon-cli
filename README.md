@@ -56,6 +56,9 @@ rv check robot.yaml
 
 rv scan bom.csv
 # Wrote architon-report.json
+
+rv scan bom.csv --out my-report.json
+# Wrote my-report.json
 ```
 
 ### Parts lookup (quick reference)
@@ -226,21 +229,50 @@ manufacturer: Mfr
 }
 ```
 
-On parse failures, `summary` also includes deterministic guidance:
+On parse failures, the report still includes `report_version`, `design_ir.version`, `delimiter`, and deterministic guidance in `summary.next_steps`:
 
 ```json
 {
+  "report_version": "0",
   "summary": {
-    "delimiter": ";",
+    "source": "kicad_bom_csv",
+    "input_file": "bom.csv",
+    "parts": 1,
+    "rules": 0,
+    "has_failures": true,
+    "delimiter": ",",
     "parse_errors_count": 1,
+    "parse_warnings_count": 0,
     "parse_errors": [
       "row 3: malformed CSV row: expected 3 columns from header, got 1"
     ],
+    "parse_warnings": [],
     "next_steps": [
       "Re-export BOM (CSV) and check missing delimiters/quotes",
       "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
     ]
-  }
+  },
+  "design_ir": {
+    "version": "0",
+    "source": "kicad_bom_csv",
+    "parts": [
+      {
+        "ref": "R1",
+        "value": "10k",
+        "footprint": "Resistor_SMD:R_0603_1608Metric",
+        "fields": {
+          "Footprint": "Resistor_SMD:R_0603_1608Metric",
+          "Reference": "R1",
+          "Value": "10k"
+        }
+      }
+    ],
+    "metadata": {
+      "input_file": "bom.csv",
+      "parsed_at": "2026-02-28T00:00:00Z"
+    }
+  },
+  "rules": []
 }
 ```
 
