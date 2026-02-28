@@ -52,6 +52,7 @@ func ImportKiCadBOM(path string, mapping ColumnMapping) (*ir.DesignIR, error) {
 
 	lines := splitNormalizedLines(string(content))
 	delimiter := detectDelimiter(lines)
+	design.Metadata.Delimiter = delimiterToken(delimiter)
 
 	headerLine, headers, columns, err := findHeaderRow(lines, delimiter, mapping)
 	if err != nil {
@@ -243,6 +244,19 @@ func detectDelimiter(lines []string) rune {
 	}
 
 	return bestDelimiter
+}
+
+func delimiterToken(delimiter rune) string {
+	switch delimiter {
+	case ',':
+		return ","
+	case ';':
+		return ";"
+	case '\t':
+		return "\\t"
+	default:
+		return ""
+	}
 }
 
 type delimiterScore struct {

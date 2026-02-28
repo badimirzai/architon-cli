@@ -207,6 +207,7 @@ manufacturer: Mfr
     "parts": 2,
     "rules": 0,
     "has_failures": false,
+    "delimiter": ",",
     "parse_errors_count": 0,
     "parse_warnings_count": 0,
     "parse_errors": [],
@@ -225,9 +226,29 @@ manufacturer: Mfr
 }
 ```
 
+On parse failures, `summary` also includes deterministic guidance:
+
+```json
+{
+  "summary": {
+    "delimiter": ";",
+    "parse_errors_count": 1,
+    "parse_errors": [
+      "row 3: malformed CSV row: expected 3 columns from header, got 1"
+    ],
+    "next_steps": [
+      "Re-export BOM (CSV) and check missing delimiters/quotes",
+      "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
+    ]
+  }
+}
+```
+
 ## Schema Versioning
 
 `rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
+
+`summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\\t"`. `summary.next_steps` appears only when parse failures are present.
 
 CI integration example:
 

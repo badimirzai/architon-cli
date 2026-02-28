@@ -47,6 +47,9 @@ func TestNewVerificationReport_CapsParseDiagnostics(t *testing.T) {
 	if result.DesignIR == nil || result.DesignIR.Version != ir.SchemaVersion {
 		t.Fatalf("expected design IR version %q, got %+v", ir.SchemaVersion, result.DesignIR)
 	}
+	if result.Summary.NextSteps[0] != "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors" {
+		t.Fatalf("expected default parse error next step, got %v", result.Summary.NextSteps)
+	}
 }
 
 func TestNewVerificationReport_SetsSchemaVersionForNilDesign(t *testing.T) {
@@ -60,5 +63,54 @@ func TestNewVerificationReport_SetsSchemaVersionForNilDesign(t *testing.T) {
 	}
 	if result.DesignIR.Version != ir.SchemaVersion {
 		t.Fatalf("expected design IR version %q, got %q", ir.SchemaVersion, result.DesignIR.Version)
+	}
+}
+
+func TestNewVerificationReport_AddsDelimiterAndNextSteps(t *testing.T) {
+	result := NewVerificationReport(&ir.DesignIR{
+		Version: ir.SchemaVersion,
+		Source:  "kicad_bom_csv",
+		Metadata: ir.IRMetadata{
+			InputFile: "bom.csv",
+			Delimiter: ";",
+		},
+		ParseErrors: []string{
+			"row 3: malformed CSV row: expected 3 columns from header, got 1",
+			`row 1: missing required BOM column for "value"`,
+		},
+	})
+
+	if result.Summary.Delimiter != ";" {
+		t.Fatalf("expected delimiter %q, got %q", ";", result.Summary.Delimiter)
+	}
+	wantSteps := []string{
+		"Re-export BOM (CSV) and check missing delimiters/quotes",
+		"Use --map mapping.yaml to map headers",
+		"Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors",
+	}
+	if len(result.Summary.NextSteps) != len(wantSteps) {
+		t.Fatalf("expected next steps %v, got %v", wantSteps, result.Summary.NextSteps)
+	}
+	for i := range wantSteps {
+		if result.Summary.NextSteps[i] != wantSteps[i] {
+			t.Fatalf("expected next step %d to be %q, got %q", i, wantSteps[i], result.Summary.NextSteps[i])
+		}
+	}
+}
+
+func TestNewVerificationReport_OmitsNextStepsWithoutParseErrors(t *testing.T) {
+	result := NewVerificationReport(&ir.DesignIR{
+		Version: ir.SchemaVersion,
+		Source:  "kicad_bom_csv",
+		Metadata: ir.IRMetadata{
+			Delimiter: ",",
+		},
+	})
+
+	if result.Summary.Delimiter != "," {
+		t.Fatalf("expected delimiter %q, got %q", ",", result.Summary.Delimiter)
+	}
+	if len(result.Summary.NextSteps) != 0 {
+		t.Fatalf("expected no next steps, got %v", result.Summary.NextSteps)
 	}
 }

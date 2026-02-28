@@ -24,10 +24,12 @@ type Summary struct {
 	Parts              int      `json:"parts"`
 	Rules              int      `json:"rules"`
 	HasFailures        bool     `json:"has_failures"`
+	Delimiter          string   `json:"delimiter,omitempty"`
 	ParseErrorsCount   int      `json:"parse_errors_count"`
 	ParseWarningsCount int      `json:"parse_warnings_count"`
 	ParseErrors        []string `json:"parse_errors"`
 	ParseWarnings      []string `json:"parse_warnings"`
+	NextSteps          []string `json:"next_steps,omitempty"`
 }
 
 // VerificationReport is the output schema for BOM scan results.
@@ -56,10 +58,12 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 			Parts:              len(design.Parts),
 			Rules:              len(rules),
 			HasFailures:        len(design.ParseErrors) > 0 || hasRuleFailures(rules),
+			Delimiter:          design.Metadata.Delimiter,
 			ParseErrorsCount:   len(design.ParseErrors),
 			ParseWarningsCount: len(design.ParseWarnings),
 			ParseErrors:        cappedMessages(design.ParseErrors, 20),
 			ParseWarnings:      cappedMessages(design.ParseWarnings, 20),
+			NextSteps:          nextSteps(design.ParseErrors),
 		},
 		DesignIR: design,
 		Rules:    rules,
@@ -87,6 +91,41 @@ func hasRuleFailures(rules []RuleResult) bool {
 		}
 	}
 	return false
+}
+
+func nextSteps(parseErrors []string) []string {
+	if len(parseErrors) == 0 {
+		return nil
+	}
+
+	steps := make([]string, 0, 3)
+	addStep := func(step string) {
+		if step == "" || len(steps) == 3 {
+			return
+		}
+		for _, existing := range steps {
+			if existing == step {
+				return
+			}
+		}
+		steps = append(steps, step)
+	}
+
+	for _, err := range parseErrors {
+		if strings.Contains(err, "malformed CSV row") {
+			addStep("Re-export BOM (CSV) and check missing delimiters/quotes")
+			break
+		}
+	}
+	for _, err := range parseErrors {
+		if strings.Contains(err, "missing required BOM column") {
+			addStep("Use --map mapping.yaml to map headers")
+			break
+		}
+	}
+	addStep("Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors")
+
+	return steps
 }
 
 func cappedMessages(messages []string, limit int) []string {

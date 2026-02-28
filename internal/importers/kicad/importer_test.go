@@ -70,6 +70,27 @@ func TestImportKiCadBOM_SemicolonDelimiter(t *testing.T) {
 	if got := design.Parts[1].Ref; got != "C1" {
 		t.Fatalf("expected second ref C1, got %q", got)
 	}
+
+	result := report.NewVerificationReport(design)
+	if result.Summary.Delimiter != ";" {
+		t.Fatalf("expected report delimiter %q, got %q", ";", result.Summary.Delimiter)
+	}
+}
+
+func TestImportKiCadBOM_TabDelimiter(t *testing.T) {
+	design, err := ImportKiCadBOM(fixturePath(t, "bom_tab.csv"), ColumnMapping{})
+	if err != nil {
+		t.Fatalf("ImportKiCadBOM returned error: %v", err)
+	}
+
+	if len(design.Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(design.Parts))
+	}
+
+	result := report.NewVerificationReport(design)
+	if result.Summary.Delimiter != "\\t" {
+		t.Fatalf("expected report delimiter %q, got %q", "\\t", result.Summary.Delimiter)
+	}
 }
 
 func TestImportKiCadBOM_PreambleRows(t *testing.T) {
@@ -152,6 +173,11 @@ func TestImportKiCadBOM_MissingColumnsBecomeParseErrors(t *testing.T) {
 	if !strings.Contains(design.ParseErrors[0], want) {
 		t.Fatalf("expected parse error to contain %q, got %q", want, design.ParseErrors[0])
 	}
+
+	result := report.NewVerificationReport(design)
+	if len(result.Summary.NextSteps) == 0 {
+		t.Fatal("expected next steps for missing required header parse error")
+	}
 }
 
 func TestImportKiCadBOM_ValueHeaderSynonymComponent(t *testing.T) {
@@ -210,6 +236,18 @@ func TestImportKiCadBOM_MalformedShortRowRecorded(t *testing.T) {
 	}
 }
 
+func TestImportKiCadBOM_MissingColumnsReportNextSteps(t *testing.T) {
+	design, err := ImportKiCadBOM(fixturePath(t, "bom_missing_columns.csv"), ColumnMapping{})
+	if err != nil {
+		t.Fatalf("ImportKiCadBOM returned error: %v", err)
+	}
+
+	result := report.NewVerificationReport(design)
+	if len(result.Summary.NextSteps) == 0 {
+		t.Fatal("expected next steps for malformed row parse error")
+	}
+}
+
 func TestImportKiCadBOM_MissingFootprintWarningInReport(t *testing.T) {
 	design, err := ImportKiCadBOM(fixturePath(t, "bom_missing_footprint.csv"), ColumnMapping{})
 	if err != nil {
@@ -236,6 +274,9 @@ func TestImportKiCadBOM_MissingFootprintWarningInReport(t *testing.T) {
 	}
 	if result.Summary.ParseWarnings[0] != wantWarning {
 		t.Fatalf("expected reported warning %q, got %q", wantWarning, result.Summary.ParseWarnings[0])
+	}
+	if len(result.Summary.NextSteps) != 0 {
+		t.Fatalf("expected no next steps for warning-only report, got %v", result.Summary.NextSteps)
 	}
 }
 

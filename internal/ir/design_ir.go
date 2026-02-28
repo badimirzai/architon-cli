@@ -26,4 +26,5 @@ type Part struct {
 type IRMetadata struct {
 	InputFile string `json:"input_file"`
 	ParsedAt  string `json:"parsed_at"`
+	Delimiter string `json:"-"`
 }
