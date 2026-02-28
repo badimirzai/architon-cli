@@ -7,21 +7,21 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
+	"github.com/badimirzai/architon-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "rv",
-	Short: "Robotics Verifier CLI",
-	Long: `Robotics Verifier CLI – early-stage electrical architecture checks for robotics projects.
+	Short: "Architon CLI (rv)",
+	Long: `Architon CLI (rv) - early-stage electrical architecture checks for robotics projects.
 
 Quick help:
   rv check <file.yaml>       Run analysis
+  rv scan <bom.csv>          Import BOM and emit DesignIR report JSON
   rv check --output json     Emit JSON findings
   rv version                 Show installed version
   rv --help                  Show all commands and flags`,
-	Aliases:       []string{"robotics-verifier-cli"},
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

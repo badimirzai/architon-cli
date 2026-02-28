@@ -1,0 +1,3 @@
+Ref,Value,Footprint,MPN,Manufacturer,Notes
+R1,10k,Resistor_SMD:R_0603_1608Metric,RC0603FR-0710KL,Yageo,Pull-up
+C1,100nF,Capacitor_SMD:C_0603_1608Metric,CL10B104KB8NNNC,Samsung,Decoupling

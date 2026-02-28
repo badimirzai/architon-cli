@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
-	"github.com/badimirzai/robotics-verifier-cli/internal/validate"
+	"github.com/badimirzai/architon-cli/internal/ui"
+	"github.com/badimirzai/architon-cli/internal/validate"
 )
 
 // ClassicRenderer preserves the original human-readable output format.

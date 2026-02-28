@@ -1,6 +1,6 @@
 # Deterministic Rule System
 
-`rv-cli` uses a deterministic rule engine implemented in `internal/validate/rules.go`.
+Architon CLI (rv) uses a deterministic rule engine implemented in `internal/validate/rules.go`.
 
 Rules evaluate only the resolved input specification and emit findings with explicit IDs.
 

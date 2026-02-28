@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving Robotics Verifier CLI.
+Thanks for your interest in improving Architon CLI (rv).
 This project aims to provide deterministic, auditable checks for robotics hardware specs.
 
 ---

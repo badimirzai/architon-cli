@@ -1,6 +1,6 @@
 # Architecture
 
-Robotics Verifier (`rv-cli`) is a deterministic verification engine for hardware architecture contracts.
+Architon CLI (rv) is a deterministic verification engine for hardware architecture contracts.
 
 ## System flow
 
@@ -11,6 +11,12 @@ spec.yaml
   -> deterministic rule engine
   -> findings report
   -> CLI renderer (human or JSON) + exit code
+
+bom.csv
+  -> KiCad BOM importer
+  -> DesignIR (stable internal model)
+  -> deterministic report payload
+  -> architon-report.json
 ```
 
 The implementation follows this sequence in `rv check`:
@@ -100,18 +106,73 @@ CLI is implemented with Cobra under `cmd/`.
 Primary command:
 
 - `rv check <spec.yaml>`
+- `rv scan <bom.csv>`
+- `rv scan <bom.csv> --map mapping.yaml`
+- `rv scan <bom.csv> --out my-report.json`
 
 Output modes:
 
 - Human report style (TTY default)
 - Human classic style
 - JSON (`--output json`, optional `--pretty`, optional `--out-file`)
+- Scan JSON file output (`architon-report.json`) with:
+  - `summary`
+  - `design_ir`
+  - `rules`
 
 Exit behavior for `rv check`:
 
 - `0`: no `ERROR` findings
 - `2`: one or more `ERROR` findings
 - `3`: parse/decode/resolve/internal failures
+
+Exit behavior for `rv scan`:
+
+- `0`: success
+- `1`: rule violations
+- `2`: parse errors
+
+`rv scan` writes `architon-report.json` with `report_version`, `summary.delimiter`, and `design_ir.version`. `summary.next_steps` is included only on failure.
+
+Example success snippet:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "delimiter": ","
+  },
+  "design_ir": {
+    "version": "0"
+  }
+}
+```
+
+Example failure snippet:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "delimiter": ",",
+    "next_steps": [
+      "Re-export BOM (CSV) and check missing delimiters/quotes",
+      "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
+    ]
+  },
+  "design_ir": {
+    "version": "0"
+  }
+}
+```
+
+### BOM import path
+
+`rv scan` implementation is intentionally separated:
+
+- `internal/ir`: stable, input-agnostic `DesignIR` model
+- `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion and header mapping
+- `internal/report`: deterministic scan report JSON builder/writer
 
 ## Deterministic design philosophy
 
@@ -134,6 +195,6 @@ Higher-level tooling can recommend options, but contract checks should remain ex
 
 Architecture diagram reference:
 
-![rv-cli architecture](../assets/rvcli_architecture.png)
+![Architon CLI (rv) architecture](../assets/rvcli_architecture.png)
 
 This engine can be embedded into higher-level workflows.

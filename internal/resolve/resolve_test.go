@@ -5,9 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/model"
-	"github.com/badimirzai/robotics-verifier-cli/internal/parts"
-	"github.com/badimirzai/robotics-verifier-cli/internal/resolve"
+	"github.com/badimirzai/architon-cli/internal/model"
+	"github.com/badimirzai/architon-cli/internal/parts"
+	"github.com/badimirzai/architon-cli/internal/resolve"
 )
 
 func testPartsDir(t *testing.T) string {

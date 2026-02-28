@@ -1,0 +1,6 @@
+# KiCad BOM export
+# Generated for verification
+
+Reference,Value,Footprint
+R1,10k,Resistor_SMD:R_0603_1608Metric
+C1,100nF,Capacitor_SMD:C_0603_1608Metric

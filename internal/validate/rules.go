@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/model"
+	"github.com/badimirzai/architon-cli/internal/model"
 )
 
 type Severity string

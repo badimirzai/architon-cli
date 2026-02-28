@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
-	"github.com/badimirzai/robotics-verifier-cli/internal/validate"
+	"github.com/badimirzai/architon-cli/internal/ui"
+	"github.com/badimirzai/architon-cli/internal/validate"
 )
 
 const defaultReportWidth = 92

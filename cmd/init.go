@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/templates"
+	"github.com/badimirzai/architon-cli/templates"
 	"github.com/spf13/cobra"
 )
 

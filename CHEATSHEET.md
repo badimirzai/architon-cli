@@ -1,4 +1,4 @@
-# Robotics Verifier CLI Cheatsheet
+# Architon CLI (rv) Cheatsheet
 
 ## Core commands
 
@@ -11,6 +11,9 @@ rv check <file.yaml> --output json --out-file report.json
                                       Write compact JSON to file, stdout says "Written to ..."
 rv check <file.yaml> --output json --pretty --out-file report.json
                                       Pretty JSON to stdout + compact JSON to file
+rv scan <bom.csv>                      Import KiCad BOM CSV and write architon-report.json
+rv scan <bom.csv> --map mapping.yaml   Use explicit header mapping YAML
+rv scan <bom.csv> --out report.json    Write scan report to a specific path
 rv init --list                        List available templates
 rv init --template <name>             Write a template to robot.yaml
 rv init --template <name> --out path  Write a template to a specific path
@@ -18,6 +21,7 @@ rv init --template <name> --force     Overwrite existing output file
 rv version                             Show installed version
 rv --help                              Show all commands and flags
 rv check --help                        Show check command options
+rv scan --help                         Show scan command options
 ```
 
 ## Output flags (check command)
@@ -30,12 +34,19 @@ rv check --help                        Show check command options
 --debug                   enable debug mode (or use RV_DEBUG=1)
 ```
 
-## Exit codes
+## Scan flags (scan command)
 
 ```text
-0  clean run, no ERROR findings
-2  rule violations (ERROR findings present)
-3+ internal or unexpected errors
+--map <file.yaml>         explicit BOM header mapping file
+--out <report.json>       write scan report to a specific path
+```
+
+## Exit codes (`rv scan`)
+
+```text
+0  success
+1  rule violations
+2  parse errors
 ```
 
 ## Examples
@@ -47,10 +58,53 @@ rv check examples/minimal_voltage_mismatch.yaml --output json --pretty
 rv check examples/minimal_voltage_mismatch.yaml --output json --out-file result.json
 rv check examples/minimal_voltage_mismatch.yaml --output json --pretty --out-file result.json
 NO_COLOR=1 rv check examples/minimal_voltage_mismatch.yaml
+rv scan bom.csv
+rv scan bom.csv --map examples/mapping.yaml
+rv scan bom.csv --out my-report.json
 rv init --template 4wd-problem
 rv check robot.yaml
 rv init --template 4wd-clean --out robot.yaml --force
 rv check robot.yaml
+```
+
+## Scan report summary
+
+`rv scan` report `summary` includes:
+
+- `delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
+- `next_steps` only when `parse_errors_count > 0`
+
+Example success snippet:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "delimiter": ","
+  },
+  "design_ir": {
+    "version": "0"
+  }
+}
+```
+
+Example failure snippet:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "delimiter": "\\t",
+    "parse_errors_count": 1,
+    "next_steps": [
+      "Re-export BOM (CSV) and check missing delimiters/quotes",
+      "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
+    ]
+  },
+  "design_ir": {
+    "version": "0"
+  }
+}
 ```
 
 ## Parts libraries

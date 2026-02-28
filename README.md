@@ -1,4 +1,4 @@
-# Robotics Verifier (rv-cli) [![CI](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/robotics-verifier-cli?label=release)](https://github.com/badimirzai/robotics-verifier-cli/releases)
+# Architon CLI (rv) [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
 
 Deterministic hardware architecture verification engine.
 
@@ -10,7 +10,7 @@ Used as the verification core for Architon (under development).
 
 ## What this engine does
 
-`rv-cli` runs deterministic validation over a robot hardware spec (`.yaml`) and reports findings with stable rule IDs, severities, and machine-readable output.
+Architon CLI (rv) runs deterministic validation over a robot hardware spec (`.yaml`) and can scan KiCad BOM CSV input into a stable DesignIR JSON report.
 
 It is designed to prevent common pre-build integration failures, including:
 
@@ -30,7 +30,7 @@ Deterministic validation matters because architecture verification must be repro
 Requires Go **1.25.5** or newer (https://go.dev/dl/).
 
 ```bash
-go install github.com/badimirzai/robotics-verifier-cli/cmd/rv@latest
+go install github.com/badimirzai/architon-cli/cmd/rv@latest
 rv --help
 ```
 
@@ -53,6 +53,15 @@ rv init --template 4wd-clean --out robot.yaml --force
 
 rv check robot.yaml
 # clean (or WARN-only if intentionally retained), exit code 0
+
+rv scan bom.csv
+# Wrote architon-report.json
+
+rv scan bom.csv --map mapping.yaml
+# Wrote architon-report.json
+
+rv scan bom.csv --out my-report.json
+# Wrote my-report.json
 ```
 
 ### Parts lookup (quick reference)
@@ -128,6 +137,7 @@ exit code: 2
 ```
 
 Example run video:
+
 https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
 
 ## CLI usage
@@ -136,6 +146,7 @@ Core commands:
 
 ```text
 rv check <file.yaml>       Run deterministic analysis
+rv scan <bom.csv>          Import BOM CSV and emit DesignIR report JSON
 rv version                 Show installed version
 rv check --output json     Emit JSON findings to stdout
 rv --help                  Show all commands and flags
@@ -156,6 +167,123 @@ rv check specs/robot.yaml --output json --pretty
 rv check specs/robot.yaml --output json --out-file report.json
 rv check specs/robot.yaml --output json --pretty --out-file report.json
 ```
+
+KiCad BOM scan examples:
+
+```bash
+rv scan bom.csv
+rv scan bom.csv --map examples/mapping.yaml
+rv scan bom.csv --out my-report.json
+```
+
+## Output Control
+
+Use `--out` to override the default `architon-report.json` output path:
+
+```bash
+rv scan bom.csv --out my-report.json
+```
+
+## Exit Codes
+
+For `rv scan`:
+
+- `0` = success
+- `1` = rule violations
+- `2` = parse errors
+
+Mapping file shape (`examples/mapping.yaml`):
+
+```yaml
+ref: Designator
+value: Component
+footprint: Package
+mpn: Part Number
+manufacturer: Mfr
+```
+
+`rv scan` writes `architon-report.json` with this schema:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "source": "kicad_bom_csv",
+    "input_file": "bom.csv",
+    "parts": 2,
+    "rules": 0,
+    "has_failures": false,
+    "delimiter": ",",
+    "parse_errors_count": 0,
+    "parse_warnings_count": 0,
+    "parse_errors": [],
+    "parse_warnings": []
+  },
+  "design_ir": {
+    "version": "0",
+    "source": "kicad_bom_csv",
+    "parts": [],
+    "metadata": {
+      "input_file": "bom.csv",
+      "parsed_at": "2026-02-26T00:00:00Z"
+    }
+  },
+  "rules": []
+}
+```
+
+On parse failures, the report still includes `report_version`, `design_ir.version`, `delimiter`, and deterministic guidance in `summary.next_steps`:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "source": "kicad_bom_csv",
+    "input_file": "bom.csv",
+    "parts": 1,
+    "rules": 0,
+    "has_failures": true,
+    "delimiter": ",",
+    "parse_errors_count": 1,
+    "parse_warnings_count": 0,
+    "parse_errors": [
+      "row 3: malformed CSV row: expected 3 columns from header, got 1"
+    ],
+    "parse_warnings": [],
+    "next_steps": [
+      "Re-export BOM (CSV) and check missing delimiters/quotes",
+      "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
+    ]
+  },
+  "design_ir": {
+    "version": "0",
+    "source": "kicad_bom_csv",
+    "parts": [
+      {
+        "ref": "R1",
+        "value": "10k",
+        "footprint": "Resistor_SMD:R_0603_1608Metric",
+        "fields": {
+          "Footprint": "Resistor_SMD:R_0603_1608Metric",
+          "Reference": "R1",
+          "Value": "10k"
+        }
+      }
+    ],
+    "metadata": {
+      "input_file": "bom.csv",
+      "parsed_at": "2026-02-28T00:00:00Z"
+    }
+  },
+  "rules": []
+}
+```
+
+## Schema Versioning
+
+`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
+
+`summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\\t"`. `summary.next_steps` appears only when parse failures are present.
 
 CI integration example:
 
