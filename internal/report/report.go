@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ir"
+	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
 const SchemaVersion = "0"

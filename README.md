@@ -1,4 +1,4 @@
-# Robotics Verifier (rv-cli) [![CI](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/robotics-verifier-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/robotics-verifier-cli?label=release)](https://github.com/badimirzai/robotics-verifier-cli/releases)
+# Architon CLI (rv) [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
 
 Deterministic hardware architecture verification engine.
 
@@ -10,7 +10,7 @@ Used as the verification core for Architon (under development).
 
 ## What this engine does
 
-`rv-cli` runs deterministic validation over a robot hardware spec (`.yaml`) and can scan KiCad BOM CSV input into a stable DesignIR JSON report.
+Architon CLI (rv) runs deterministic validation over a robot hardware spec (`.yaml`) and can scan KiCad BOM CSV input into a stable DesignIR JSON report.
 
 It is designed to prevent common pre-build integration failures, including:
 
@@ -30,7 +30,7 @@ Deterministic validation matters because architecture verification must be repro
 Requires Go **1.25.5** or newer (https://go.dev/dl/).
 
 ```bash
-go install github.com/badimirzai/robotics-verifier-cli/cmd/rv@latest
+go install github.com/badimirzai/architon-cli/cmd/rv@latest
 rv --help
 ```
 
@@ -55,6 +55,9 @@ rv check robot.yaml
 # clean (or WARN-only if intentionally retained), exit code 0
 
 rv scan bom.csv
+# Wrote architon-report.json
+
+rv scan bom.csv --map mapping.yaml
 # Wrote architon-report.json
 
 rv scan bom.csv --out my-report.json

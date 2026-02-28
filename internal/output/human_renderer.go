@@ -1,6 +1,6 @@
 package output
 
-import "github.com/badimirzai/robotics-verifier-cli/internal/validate"
+import "github.com/badimirzai/architon-cli/internal/validate"
 
 // HumanRenderer renders human-readable output.
 type HumanRenderer interface {

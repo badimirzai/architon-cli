@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
+	"github.com/badimirzai/architon-cli/internal/ui"
 )
 
 // FormatJSON renders the payload as JSON, optionally pretty printed.

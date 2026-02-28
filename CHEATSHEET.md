@@ -1,4 +1,4 @@
-# Robotics Verifier CLI Cheatsheet
+# Architon CLI (rv) Cheatsheet
 
 ## Core commands
 
@@ -41,12 +41,12 @@ rv scan --help                         Show scan command options
 --out <report.json>       write scan report to a specific path
 ```
 
-## Exit codes
+## Exit codes (`rv scan`)
 
 ```text
-0  clean run, no ERROR findings
-2  rule violations (ERROR findings present)
-3+ internal or unexpected errors
+0  success
+1  rule violations
+2  parse errors
 ```
 
 ## Examples
@@ -74,10 +74,25 @@ rv check robot.yaml
 - `delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
 - `next_steps` only when `parse_errors_count > 0`
 
+Example success snippet:
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "delimiter": ","
+  },
+  "design_ir": {
+    "version": "0"
+  }
+}
+```
+
 Example failure snippet:
 
 ```json
 {
+  "report_version": "0",
   "summary": {
     "delimiter": "\\t",
     "parse_errors_count": 1,
@@ -85,6 +100,9 @@ Example failure snippet:
       "Re-export BOM (CSV) and check missing delimiters/quotes",
       "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
     ]
+  },
+  "design_ir": {
+    "version": "0"
   }
 }
 ```

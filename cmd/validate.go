@@ -7,11 +7,11 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/model"
-	"github.com/badimirzai/robotics-verifier-cli/internal/output"
-	"github.com/badimirzai/robotics-verifier-cli/internal/resolve"
-	"github.com/badimirzai/robotics-verifier-cli/internal/ui"
-	"github.com/badimirzai/robotics-verifier-cli/internal/validate"
+	"github.com/badimirzai/architon-cli/internal/model"
+	"github.com/badimirzai/architon-cli/internal/output"
+	"github.com/badimirzai/architon-cli/internal/resolve"
+	"github.com/badimirzai/architon-cli/internal/ui"
+	"github.com/badimirzai/architon-cli/internal/validate"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )

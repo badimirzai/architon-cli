@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/parts"
+	"github.com/badimirzai/architon-cli/internal/parts"
 )
 
 func buildPartsStore(cliDirs []string, envVar string) (*parts.Store, error) {

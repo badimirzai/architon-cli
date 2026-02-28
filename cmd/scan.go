@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/importers/kicad"
-	"github.com/badimirzai/robotics-verifier-cli/internal/report"
+	"github.com/badimirzai/architon-cli/internal/importers/kicad"
+	"github.com/badimirzai/architon-cli/internal/report"
 	"github.com/spf13/cobra"
 )
 

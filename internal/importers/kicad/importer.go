@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ir"
+	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
 var defaultSynonyms = map[string][]string{

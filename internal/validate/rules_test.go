@@ -3,7 +3,7 @@ package validate
 import (
 	"testing"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/model"
+	"github.com/badimirzai/architon-cli/internal/model"
 )
 
 func baseSpec() model.RobotSpec {

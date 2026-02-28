@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ir"
+	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
 func TestNewVerificationReport_CapsParseDiagnostics(t *testing.T) {

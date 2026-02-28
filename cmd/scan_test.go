@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/ir"
-	reportpkg "github.com/badimirzai/robotics-verifier-cli/internal/report"
+	"github.com/badimirzai/architon-cli/internal/ir"
+	reportpkg "github.com/badimirzai/architon-cli/internal/report"
 )
 
 type scanReport struct {

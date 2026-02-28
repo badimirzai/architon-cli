@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/badimirzai/robotics-verifier-cli/internal/model"
+	"github.com/badimirzai/architon-cli/internal/model"
 	"gopkg.in/yaml.v3"
 )
 
