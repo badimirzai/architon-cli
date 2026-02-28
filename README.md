@@ -10,7 +10,7 @@ Used as the verification core for Architon (under development).
 
 ## What this engine does
 
-`rv-cli` runs deterministic validation over a robot hardware spec (`.yaml`) and reports findings with stable rule IDs, severities, and machine-readable output.
+`rv-cli` runs deterministic validation over a robot hardware spec (`.yaml`) and can scan KiCad BOM CSV input into a stable DesignIR JSON report.
 
 It is designed to prevent common pre-build integration failures, including:
 
@@ -53,6 +53,9 @@ rv init --template 4wd-clean --out robot.yaml --force
 
 rv check robot.yaml
 # clean (or WARN-only if intentionally retained), exit code 0
+
+rv scan bom.csv
+# Wrote architon-report.json
 ```
 
 ### Parts lookup (quick reference)
@@ -128,6 +131,7 @@ exit code: 2
 ```
 
 Example run video:
+
 https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
 
 ## CLI usage
@@ -136,6 +140,7 @@ Core commands:
 
 ```text
 rv check <file.yaml>       Run deterministic analysis
+rv scan <bom.csv>          Import BOM CSV and emit DesignIR report JSON
 rv version                 Show installed version
 rv check --output json     Emit JSON findings to stdout
 rv --help                  Show all commands and flags
@@ -155,6 +160,50 @@ rv check specs/robot.yaml --output json
 rv check specs/robot.yaml --output json --pretty
 rv check specs/robot.yaml --output json --out-file report.json
 rv check specs/robot.yaml --output json --pretty --out-file report.json
+```
+
+KiCad BOM scan examples:
+
+```bash
+rv scan bom.csv
+rv scan bom.csv --map examples/mapping.yaml
+```
+
+Mapping file shape (`examples/mapping.yaml`):
+
+```yaml
+ref: Designator
+value: Component
+footprint: Package
+mpn: Part Number
+manufacturer: Mfr
+```
+
+`rv scan` writes `architon-report.json` with this schema:
+
+```json
+{
+  "summary": {
+    "source": "kicad_bom_csv",
+    "input_file": "bom.csv",
+    "parts": 2,
+    "rules": 0,
+    "has_failures": false,
+    "parse_errors_count": 0,
+    "parse_warnings_count": 0,
+    "parse_errors": [],
+    "parse_warnings": []
+  },
+  "design_ir": {
+    "source": "kicad_bom_csv",
+    "parts": [],
+    "metadata": {
+      "input_file": "bom.csv",
+      "parsed_at": "2026-02-26T00:00:00Z"
+    }
+  },
+  "rules": []
+}
 ```
 
 CI integration example:

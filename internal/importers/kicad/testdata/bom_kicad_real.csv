@@ -1,0 +1,3 @@
+Designator,Value,Package,Part Number,Mfr,Description
+U1,ESP32-S3-WROOM-1,RF_Module:ESP32-S3-WROOM-1-N16R8,ESP32-S3-WROOM-1-N16R8,Espressif,Wi-Fi module
+J1,Conn_01x04,Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical,61300411121,Wurth,Programming header

@@ -18,6 +18,7 @@ var rootCmd = &cobra.Command{
 
 Quick help:
   rv check <file.yaml>       Run analysis
+  rv scan <bom.csv>          Import BOM and emit DesignIR report JSON
   rv check --output json     Emit JSON findings
   rv version                 Show installed version
   rv --help                  Show all commands and flags`,

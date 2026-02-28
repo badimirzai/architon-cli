@@ -11,6 +11,12 @@ spec.yaml
   -> deterministic rule engine
   -> findings report
   -> CLI renderer (human or JSON) + exit code
+
+bom.csv
+  -> KiCad BOM importer
+  -> DesignIR (stable internal model)
+  -> deterministic report payload
+  -> architon-report.json
 ```
 
 The implementation follows this sequence in `rv check`:
@@ -100,18 +106,33 @@ CLI is implemented with Cobra under `cmd/`.
 Primary command:
 
 - `rv check <spec.yaml>`
+- `rv scan <bom.csv>`
 
 Output modes:
 
 - Human report style (TTY default)
 - Human classic style
 - JSON (`--output json`, optional `--pretty`, optional `--out-file`)
+- Scan JSON file output (`architon-report.json`) with:
+  - `summary`
+  - `design_ir`
+  - `rules`
 
 Exit behavior for `rv check`:
 
 - `0`: no `ERROR` findings
 - `2`: one or more `ERROR` findings
 - `3`: parse/decode/resolve/internal failures
+
+For `rv scan`, successful import writes `architon-report.json`; import/parse failures return CLI errors.
+
+### BOM import path
+
+`rv scan` implementation is intentionally separated:
+
+- `internal/ir`: stable, input-agnostic `DesignIR` model
+- `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion and header mapping
+- `internal/report`: deterministic scan report JSON builder/writer
 
 ## Deterministic design philosophy
 
