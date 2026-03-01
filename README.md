@@ -2,19 +2,27 @@
 [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
 
 Deterministic hardware architecture verification for robotics and embedded systems.
+Runs before PCB fabrication and firmware bring-up to catch integration failures early.
 
-Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built**.
+Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**
 Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
 ---
 
 ## Why Architon exists
 
-Software has compilers and static analysis.
+Software has compilers and static analysis.  
 Hardware lacks a deterministic **system-level** verification step before fabrication.
 
-Architon fills this gap by enforcing architecture contracts across **power, interfaces, and components**.
+Architon fills this gap by enforcing architecture contracts across **power, interfaces, and components**.  
 It catches failures that typically appear during bring-up, after hardware has already been built.
+
+**Where Architon fits in the hardware lifecycle:**
+
+```text
+Design              Verification        Build              Firmware              Physical
+KiCad / Altium  →   Architon        →   PCB fabrication → STM32 / ESP32 / ROS → Hardware bring-up
+```
 
 ---
 
@@ -34,8 +42,8 @@ These checks are deterministic and reproducible across local development and CI.
 ---
 
 ## What Architon does
-
-Architon CLI validates hardware architecture from a specification (`.yaml`) and can ingest KiCad BOM CSV files to produce a normalized, deterministic **DesignIR** JSON report.
+Architon runs after schematic design but before PCB fabrication and firmware bring-up (STM32, ESP32, ROS, etc).
+Architon CLI validates hardware architecture from a specification (`.yaml`) and ingests KiCad BOM CSV files and produces a normalized, deterministic DesignIR JSON report.
 
 **Inputs**
 - YAML hardware architecture specification (`rv check`)
@@ -45,6 +53,35 @@ Architon CLI validates hardware architecture from a specification (`.yaml`) and 
 - Deterministic exit codes for CI gating
 - Machine-readable `report.json` for automation
 - Stable normalized DesignIR representation
+
+---
+
+## Example
+
+![Architon CLI demo](docs/demo-readme.gif)
+
+Full workflow demo (YAML → failure → fix → pass):
+
+
+https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
+
+Architon detects integration failures deterministically before hardware is built.
+
+```bash
+rv check robot.yaml
+```
+
+Example output:
+
+```text
+ERROR DRV_SUPPLY_RANGE: battery 16.8V exceeds motor_driver supply range [6.0V, 15.0V]
+WARN RAIL_I_UNKNOWN: logic rail current capacity not specified
+INFO DRV_CHANNELS_OK: driver channels correctly mapped
+
+exit code: 2
+```
+
+
 
 ---
 
@@ -88,28 +125,6 @@ rv scan bom.csv --map mapping.yaml
 rv scan bom.csv --out my-report.json
 # Wrote my-report.json
 ```
-
----
-
-## Example
-
-```bash
-rv check robot.yaml
-```
-
-Example output:
-
-```text
-ERROR DRV_SUPPLY_RANGE: battery 16.8V exceeds motor_driver supply range [6.0V, 15.0V]
-WARN RAIL_I_UNKNOWN: logic rail current capacity not specified
-INFO DRV_CHANNELS_OK: driver channels correctly mapped
-
-exit code: 2
-```
-
-Example run video:
-
-https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
 
 ---
 
