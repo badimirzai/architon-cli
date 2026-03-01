@@ -122,9 +122,12 @@ Output modes:
 
 Exit behavior for `rv check`:
 
-- `0`: no `ERROR` findings
-- `2`: one or more `ERROR` findings
-- `3`: parse/decode/resolve/internal failures
+- `0`: no `ERROR` or `WARN` findings (`INFO` notes allowed)
+- `1`: one or more `WARN` findings and no `ERROR` findings
+- `2`: one or more `ERROR` findings, regardless of warnings
+- `3`: parse/decode/resolve/import/schema/IO failures
+
+With `--warn-as-error`, warning-only results also return `2`.
 
 Exit behavior for `rv scan`:
 

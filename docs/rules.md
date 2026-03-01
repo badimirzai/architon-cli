@@ -38,9 +38,12 @@ This order is stable and produces reproducible findings for identical input.
 
 ## Exit codes (`rv check`)
 
-- `0`: no `ERROR` findings (clean or WARN-only)
-- `2`: one or more `ERROR` findings
-- `3`: parse/decode/resolve/internal failure path
+- `0`: analysis completed with no `ERROR` or `WARN` findings (`INFO` notes are allowed)
+- `1`: one or more `WARN` findings and no `ERROR` findings
+- `2`: one or more `ERROR` findings, regardless of warnings
+- `3`: parse/decode/resolve/import/schema/IO failure path
+
+With `--warn-as-error`, warning-only results also return `2`.
 
 ## Rule catalog
 

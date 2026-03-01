@@ -16,16 +16,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var checkCmd = &cobra.Command{
-	Use:     "check <spec.yaml>",
-	Aliases: []string{"validate"},
-	Args:    cobra.MaximumNArgs(1),
-	Short:   "Validate a robot spec against deterministic electrical rules",
-	Long: `Validate a robot spec against deterministic electrical rules.
+var checkCmd = newCheckCmd()
+
+type checkRunResult struct {
+	Target   string
+	Report   validate.Report
+	Errors   int
+	Warnings int
+	Notes    int
+}
+
+func newCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "check",
+		Aliases: []string{"validate"},
+		Args:    cobra.MaximumNArgs(1),
+		Short:   "Validate a robot spec against deterministic electrical rules",
+		Long: `Validate a robot spec against deterministic electrical rules.
 
 Output control flags:
   --output json             print machine readable JSON to stdout
   --style report|classic    force human-readable style
+  --warn-as-error           treat WARN findings as exit code 2
   --pretty                  pretty print JSON to stdout (requires --output json)
   --out-file <path>         write compact JSON to file (requires --output json)
   --debug                   enable debug mode (or use RV_DEBUG=1)
@@ -35,129 +47,112 @@ Examples:
   rv check robot.yaml --output json --pretty
   rv check robot.yaml --output json --out-file report.json
   rv check robot.yaml --output json --pretty --out-file report.json`,
-	RunE: func(cmd *cobra.Command, args []string) (err error) {
-		outputFormat := strings.ToLower(strings.TrimSpace(getOutputFormat(cmd)))
-		styleFlag, _ := cmd.Flags().GetString("style")
-		styleFlagSet := cmd.Flags().Changed("style")
-		prettyOutput, _ := cmd.Flags().GetBool("pretty")
-		outFile, _ := cmd.Flags().GetString("out-file")
-		var specFile string
-		stdoutTTY := isWriterTTY(cmd.OutOrStdout())
-
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				msg := fmt.Sprintf("panic: %v", recovered)
-				stack := string(debug.Stack())
-				if outputFormat == "json" {
-					var dbg *output.Debug
-					if debugEnabled {
-						dbg = &output.Debug{InternalError: msg, Stacktrace: stack}
-					}
-					_ = renderJSONErrorOutputs(specFile, 3, "internal error: unexpected panic", prettyOutput, outFile, dbg)
-				} else {
-					if debugEnabled {
-						fmt.Fprintln(os.Stderr, msg)
-						fmt.Fprintln(os.Stderr, stack)
-					} else {
-						fmt.Fprintln(os.Stderr, "internal error: unexpected panic (run with --debug or RV_DEBUG=1)")
-					}
-					printExitCode(3)
-				}
-				err = silentExit(3)
-			}
-		}()
-
-		path, _ := cmd.Flags().GetString("file")
-		if path == "" && len(args) > 0 {
-			path = args[0]
-		}
-		specFile = path
-		if path == "" {
-			return handleCheckError(outputFormat, 3, "", fmt.Errorf("missing spec file (arg or -f/--file)"), nil, prettyOutput, outFile)
-		}
-		mode, modeErr := selectRenderMode(renderModeOptions{
-			OutputFormat:  outputFormat,
-			Style:         styleFlag,
-			StyleProvided: styleFlagSet,
-			StdoutIsTTY:   stdoutTTY,
-		})
-		if modeErr != nil {
-			return handleCheckError(outputFormat, 3, path, modeErr, nil, prettyOutput, outFile)
-		}
-		if outFile != "" && mode != renderModeJSON {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("--out-file requires --output json"), nil, prettyOutput, outFile)
-		}
-		if prettyOutput && mode != renderModeJSON {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("--pretty requires --output json"), nil, prettyOutput, outFile)
-		}
-
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("read spec: %w", err), nil, prettyOutput, outFile)
-		}
-
-		var raw model.RobotSpec
-		var doc yaml.Node
-		if err := yaml.Unmarshal(b, &doc); err != nil {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("parse yaml: %w", err), nil, prettyOutput, outFile)
-		}
-		if err := doc.Decode(&raw); err != nil {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("decode yaml: %w", err), nil, prettyOutput, outFile)
-		}
-
-		partsDirs, _ := cmd.Flags().GetStringArray("parts-dir")
-		store, err := buildPartsStore(partsDirs, os.Getenv("RV_PARTS_DIRS"))
-		if err != nil {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("build parts search paths: %w", err), nil, prettyOutput, outFile)
-		}
-		resolved, err := resolve.ResolveAll(raw, store)
-		if err != nil {
-			return handleCheckError(outputFormat, 3, path, fmt.Errorf("resolve spec with parts: %w", err), nil, prettyOutput, outFile)
-		}
-
-		locs := buildLocationMap(path, &doc)
-		rep := validate.RunAll(resolved, locs)
-		exitCode := 0
-		if rep.HasErrors() {
-			exitCode = 2
-		}
-
-		if mode == renderModeJSON {
-			if err := renderJSONOutputs(path, rep, exitCode, prettyOutput, outFile, nil); err != nil {
-				return err
-			}
-		} else if mode == renderModeClassic {
-			rendered := output.ClassicRenderer{}.Render(output.CheckResult{
-				Target:   path,
-				Report:   rep,
-				ExitCode: exitCode,
-			}, output.RenderOptions{})
-			fmt.Println(rendered)
-			printExitCode(exitCode)
-		} else {
-			rendered := output.ReportRenderer{}.Render(output.CheckResult{
-				Target:   path,
-				Report:   rep,
-				ExitCode: exitCode,
-			}, output.RenderOptions{Width: 92})
-			fmt.Print(rendered)
-		}
-
-		if exitCode != 0 {
-			return silentExit(exitCode)
-		}
-		return nil
-	},
+		RunE: runCheckCommand,
+	}
+	cmd.Flags().StringP("file", "f", "", "Path to YAML spec")
+	cmd.Flags().StringP("output", "o", "text", "Output format: text or json")
+	cmd.Flags().String("style", "", "Human output style: report or classic")
+	cmd.Flags().Bool("warn-as-error", false, "Treat WARN findings as exit code 2")
+	cmd.Flags().Bool("pretty", false, "Pretty print JSON to stdout (requires --output json)")
+	cmd.Flags().String("out-file", "", "Write compact JSON to file (requires --output json)")
+	cmd.Flags().StringArray("parts-dir", nil, "Additional parts directory (repeatable; after rv_parts and built-in parts)")
+	return cmd
 }
 
 func init() {
-	checkCmd.Flags().StringP("file", "f", "", "Path to YAML spec")
-	checkCmd.Flags().StringP("output", "o", "text", "Output format: text or json")
-	checkCmd.Flags().String("style", "", "Human output style: report or classic")
-	checkCmd.Flags().Bool("pretty", false, "Pretty print JSON to stdout (requires --output json)")
-	checkCmd.Flags().String("out-file", "", "Write compact JSON to file (requires --output json)")
-	checkCmd.Flags().StringArray("parts-dir", nil, "Additional parts directory (repeatable; after rv_parts and built-in parts)")
 	rootCmd.AddCommand(checkCmd)
+}
+
+func runCheckCommand(cmd *cobra.Command, args []string) (err error) {
+	outputFormat := strings.ToLower(strings.TrimSpace(getOutputFormat(cmd)))
+	styleFlag, _ := cmd.Flags().GetString("style")
+	styleFlagSet := cmd.Flags().Changed("style")
+	prettyOutput, _ := cmd.Flags().GetBool("pretty")
+	outFile, _ := cmd.Flags().GetString("out-file")
+	warnAsError, _ := cmd.Flags().GetBool("warn-as-error")
+	stdout := cmd.OutOrStdout()
+	stderr := cmd.ErrOrStderr()
+	stdoutTTY := isWriterTTY(stdout)
+	var specFile string
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			msg := fmt.Sprintf("panic: %v", recovered)
+			stack := string(debug.Stack())
+			if outputFormat == "json" {
+				var dbg *output.Debug
+				if debugEnabled {
+					dbg = &output.Debug{InternalError: msg, Stacktrace: stack}
+				}
+				_ = renderJSONErrorOutputs(stdout, stderr, specFile, 3, "internal error: unexpected panic", prettyOutput, outFile, dbg)
+			} else {
+				if debugEnabled {
+					fmt.Fprintln(stderr, msg)
+					fmt.Fprintln(stderr, stack)
+				} else {
+					fmt.Fprintln(stderr, "internal error: unexpected panic (run with --debug or RV_DEBUG=1)")
+				}
+				printExitCode(stdout, 3)
+			}
+			err = silentExit(3)
+		}
+	}()
+
+	path, _ := cmd.Flags().GetString("file")
+	if path == "" && len(args) > 0 {
+		path = args[0]
+	}
+	specFile = path
+	if path == "" {
+		return handleCheckError(stdout, stderr, outputFormat, 3, "", fmt.Errorf("missing spec file (arg or -f/--file)"), nil, prettyOutput, outFile)
+	}
+
+	mode, modeErr := selectRenderMode(renderModeOptions{
+		OutputFormat:  outputFormat,
+		Style:         styleFlag,
+		StyleProvided: styleFlagSet,
+		StdoutIsTTY:   stdoutTTY,
+	})
+	if modeErr != nil {
+		return handleCheckError(stdout, stderr, outputFormat, 3, path, modeErr, nil, prettyOutput, outFile)
+	}
+	if outFile != "" && mode != renderModeJSON {
+		return handleCheckError(stdout, stderr, outputFormat, 3, path, fmt.Errorf("--out-file requires --output json"), nil, prettyOutput, outFile)
+	}
+	if prettyOutput && mode != renderModeJSON {
+		return handleCheckError(stdout, stderr, outputFormat, 3, path, fmt.Errorf("--pretty requires --output json"), nil, prettyOutput, outFile)
+	}
+
+	partsDirs, _ := cmd.Flags().GetStringArray("parts-dir")
+	result, runErr := executeCheck(path, partsDirs, os.Getenv("RV_PARTS_DIRS"))
+	if runErr != nil {
+		return handleCheckError(stdout, stderr, outputFormat, 3, path, runErr, nil, prettyOutput, outFile)
+	}
+
+	exitCode := checkExitCode(result, warnAsError)
+	renderResult := output.CheckResult{
+		Target:   result.Target,
+		Report:   result.Report,
+		ExitCode: exitCode,
+	}
+
+	if mode == renderModeJSON {
+		if err := renderJSONOutputs(stdout, stderr, result.Target, result.Report, exitCode, prettyOutput, outFile, nil); err != nil {
+			return err
+		}
+	} else if mode == renderModeClassic {
+		rendered := output.ClassicRenderer{}.Render(renderResult, output.RenderOptions{})
+		fmt.Fprintln(stdout, rendered)
+		printExitCode(stdout, exitCode)
+	} else {
+		rendered := output.ReportRenderer{}.Render(renderResult, output.RenderOptions{Width: 92})
+		fmt.Fprint(stdout, rendered)
+	}
+
+	if exitCode != 0 {
+		return silentExit(exitCode)
+	}
+	return nil
 }
 
 func getOutputFormat(cmd *cobra.Command) string {
@@ -168,8 +163,67 @@ func getOutputFormat(cmd *cobra.Command) string {
 	return outputFormat
 }
 
-func printExitCode(code int) {
-	fmt.Printf("exit code: %d\n", code)
+func executeCheck(path string, partsDirs []string, partsEnv string) (*checkRunResult, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read spec: %w", err)
+	}
+
+	var raw model.RobotSpec
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("parse yaml: %w", err)
+	}
+	if err := doc.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode yaml: %w", err)
+	}
+
+	store, err := buildPartsStore(partsDirs, partsEnv)
+	if err != nil {
+		return nil, fmt.Errorf("build parts search paths: %w", err)
+	}
+	resolved, err := resolve.ResolveAll(raw, store)
+	if err != nil {
+		return nil, fmt.Errorf("resolve spec with parts: %w", err)
+	}
+
+	locs := buildLocationMap(path, &doc)
+	rep := validate.RunAll(resolved, locs)
+	result := &checkRunResult{
+		Target: path,
+		Report: rep,
+	}
+	for _, finding := range rep.Findings {
+		switch finding.Severity {
+		case validate.SevError:
+			result.Errors++
+		case validate.SevWarn:
+			result.Warnings++
+		case validate.SevInfo:
+			result.Notes++
+		}
+	}
+	return result, nil
+}
+
+func checkExitCode(result *checkRunResult, warnAsError bool) int {
+	if result == nil {
+		return 3
+	}
+	if result.Errors > 0 {
+		return 2
+	}
+	if result.Warnings > 0 {
+		if warnAsError {
+			return 2
+		}
+		return 1
+	}
+	return 0
+}
+
+func printExitCode(w io.Writer, code int) {
+	fmt.Fprintf(w, "exit code: %d\n", code)
 }
 
 type renderMode string
@@ -228,25 +282,26 @@ func isWriterTTY(w io.Writer) bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
-func handleCheckError(outputFormat string, exitCode int, specFile string, err error, debugInfo *output.Debug, pretty bool, outFile string) error {
+func handleCheckError(stdout io.Writer, stderr io.Writer, outputFormat string, exitCode int, specFile string, err error, debugInfo *output.Debug, pretty bool, outFile string) error {
 	if outputFormat == "json" {
-		if err := renderJSONErrorOutputs(specFile, exitCode, err.Error(), pretty, outFile, debugInfo); err != nil {
+		if err := renderJSONErrorOutputs(stdout, stderr, specFile, exitCode, err.Error(), pretty, outFile, debugInfo); err != nil {
 			return err
 		}
 		return silentExit(exitCode)
 	}
 	if debugEnabled && debugInfo != nil && debugInfo.InternalError != "" {
-		fmt.Fprintln(os.Stderr, ui.Colorize("ERROR", debugInfo.InternalError))
+		fmt.Fprintln(stderr, ui.Colorize("ERROR", debugInfo.InternalError))
 		if debugInfo.Stacktrace != "" {
-			fmt.Fprintln(os.Stderr, debugInfo.Stacktrace)
+			fmt.Fprintln(stderr, debugInfo.Stacktrace)
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, ui.Colorize("ERROR", err.Error()))
+		fmt.Fprintln(stderr, ui.Colorize("ERROR", err.Error()))
 	}
+	printExitCode(stdout, exitCode)
 	return silentExit(exitCode)
 }
 
-func renderJSONOutputs(path string, report validate.Report, exitCode int, pretty bool, outFile string, debugInfo *output.Debug) error {
+func renderJSONOutputs(stdout io.Writer, stderr io.Writer, path string, report validate.Report, exitCode int, pretty bool, outFile string, debugInfo *output.Debug) error {
 	payload, summary, err := output.RenderJSONReport(path, report, exitCode, debugInfo)
 	if err != nil {
 		return internalError(err)
@@ -259,7 +314,7 @@ func renderJSONOutputs(path string, report validate.Report, exitCode int, pretty
 			return internalError(err)
 		}
 		if writeErr := os.WriteFile(outFile, compact, 0o644); writeErr != nil {
-			fmt.Fprintln(os.Stderr, "write json:", writeErr)
+			fmt.Fprintln(stderr, "write json:", writeErr)
 			return silentExit(3)
 		}
 	}
@@ -269,21 +324,21 @@ func renderJSONOutputs(path string, report validate.Report, exitCode int, pretty
 		return internalError(err)
 	}
 	prettyBytes = output.ColorizeJSON(prettyBytes)
-	fmt.Println(string(prettyBytes))
+	fmt.Fprintln(stdout, string(prettyBytes))
 	if outFile != "" && !pretty {
-		fmt.Printf("Written to %s\n", outFile)
+		fmt.Fprintf(stdout, "Written to %s\n", outFile)
 	}
 	return nil
 }
 
-func renderJSONErrorOutputs(specFile string, exitCode int, message string, pretty bool, outFile string, debugInfo *output.Debug) error {
+func renderJSONErrorOutputs(stdout io.Writer, stderr io.Writer, specFile string, exitCode int, message string, pretty bool, outFile string, debugInfo *output.Debug) error {
 	path := specFile
 	if path == "" {
 		path = "spec.yaml"
 	}
 	payload, summary, err := output.RenderJSONError(path, exitCode, message, debugInfo)
 	if err != nil {
-		fmt.Printf(`{"spec_file":"%s","summary":{"errors":1,"warnings":0,"infos":0,"exit_code":%d},"findings":[{"id":"PARSER_ERROR","severity":"ERROR","message":"failed to render json error","path":null,"location":null,"meta":{}}]}`+"\n", path, exitCode)
+		fmt.Fprintf(stdout, `{"spec_file":"%s","summary":{"errors":1,"warnings":0,"infos":0,"exit_code":%d},"findings":[{"id":"PARSER_ERROR","severity":"ERROR","message":"failed to render json error","path":null,"location":null,"meta":{}}]}`+"\n", path, exitCode)
 		return nil
 	}
 	_ = summary
@@ -294,7 +349,7 @@ func renderJSONErrorOutputs(specFile string, exitCode int, message string, prett
 			return internalError(err)
 		}
 		if writeErr := os.WriteFile(outFile, compact, 0o644); writeErr != nil {
-			fmt.Fprintln(os.Stderr, "write json:", writeErr)
+			fmt.Fprintln(stderr, "write json:", writeErr)
 			return silentExit(3)
 		}
 	}
@@ -304,9 +359,9 @@ func renderJSONErrorOutputs(specFile string, exitCode int, message string, prett
 		return internalError(err)
 	}
 	b = output.ColorizeJSON(b)
-	fmt.Println(string(b))
+	fmt.Fprintln(stdout, string(b))
 	if outFile != "" && !pretty {
-		fmt.Printf("Written to %s\n", outFile)
+		fmt.Fprintf(stdout, "Written to %s\n", outFile)
 	}
 	return nil
 }
