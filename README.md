@@ -1,27 +1,52 @@
-# Architon CLI (rv) [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
+# Architon CLI (rv)
+[![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
 
-Deterministic hardware architecture verification engine.
+Deterministic hardware architecture verification for robotics and embedded systems.
 
-Detects electrical compatibility, power, logic-level, and bus integration failures before hardware is built.
+Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built**.
+Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
-Run deterministic validation locally or in CI to catch integration errors early and prevent hardware damage.
+---
 
-Used as the verification core for Architon (under development).
+## Why Architon exists
 
-## What this engine does
+Software has compilers and static analysis.
+Hardware lacks a deterministic **system-level** verification step before fabrication.
 
-Architon CLI (rv) runs deterministic validation over a robot hardware spec (`.yaml`) and can scan KiCad BOM CSV input into a stable DesignIR JSON report.
+Architon fills this gap by enforcing architecture contracts across **power, interfaces, and components**.
+It catches failures that typically appear during bring-up, after hardware has already been built.
 
-It is designed to prevent common pre-build integration failures, including:
+---
 
-- Voltage mismatches
-- Current overload and low headroom conditions
-- Driver incompatibility with selected motors
-- Logic level conflicts between MCU, rail, and motor driver
-- I2C address conflicts on shared buses
-- Battery discharge and C-rate violations under peak motor stall load
+## What Architon verifies
 
-Deterministic validation matters because architecture verification must be reproducible in local development, CI, and release gates. A contract either passes or fails given the same input, with no probabilistic behavior.
+Architon validates system-level compatibility between components, including:
+
+- Supply voltage compatibility
+- Driver and motor electrical compatibility
+- Power rail capacity and margin
+- Logic voltage compatibility
+- I2C address conflicts
+- Current margin and stall load conditions
+
+These checks are deterministic and reproducible across local development and CI.
+
+---
+
+## What Architon does
+
+Architon CLI validates hardware architecture from a specification (`.yaml`) and can ingest KiCad BOM CSV files to produce a normalized, deterministic **DesignIR** JSON report.
+
+**Inputs**
+- YAML hardware architecture specification (`rv check`)
+- KiCad BOM CSV (`rv scan`)
+
+**Outputs**
+- Deterministic exit codes for CI gating
+- Machine-readable `report.json` for automation
+- Stable normalized DesignIR representation
+
+---
 
 ## Quick Start
 
@@ -64,7 +89,217 @@ rv scan bom.csv --out my-report.json
 # Wrote my-report.json
 ```
 
-### Parts lookup (quick reference)
+---
+
+## Example
+
+```bash
+rv check robot.yaml
+```
+
+Example output:
+
+```text
+ERROR DRV_SUPPLY_RANGE: battery 16.8V exceeds motor_driver supply range [6.0V, 15.0V]
+WARN RAIL_I_UNKNOWN: logic rail current capacity not specified
+INFO DRV_CHANNELS_OK: driver channels correctly mapped
+
+exit code: 2
+```
+
+Example run video:
+
+https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
+
+---
+
+## CLI usage
+
+`rv check` validates system architecture from YAML specification.  
+`rv scan` imports BOM data and generates a normalized DesignIR report.
+
+Core commands:
+
+```text
+rv check <file.yaml>       Run deterministic analysis
+rv scan <bom.csv>          Import BOM CSV and emit DesignIR report JSON
+rv version                 Show installed version
+rv check --output json     Emit JSON findings to stdout
+rv --help                  Show all commands and flags
+rv check --help            Show check command options
+```
+
+Findings severity:
+
+- `INFO` context or non-blocking notes
+- `WARN` risk indications
+- `ERROR` rule violations
+
+JSON output examples:
+
+```bash
+rv check specs/robot.yaml --output json
+rv check specs/robot.yaml --output json --pretty
+rv check specs/robot.yaml --output json --out-file report.json
+rv check specs/robot.yaml --output json --pretty --out-file report.json
+```
+
+KiCad BOM scan examples:
+
+```bash
+rv scan bom.csv
+rv scan bom.csv --map examples/mapping.yaml
+rv scan bom.csv --out my-report.json
+```
+
+---
+
+## Exit codes
+
+`rv check` returns deterministic exit codes designed for CI and automation. Exit codes distinguish between architecture problems and tool execution failures.
+
+| Code | Meaning |
+|-----:|---------|
+| 0 | Clean or informational only. No warnings or violations. |
+| 1 | Warnings detected, but no violations. |
+| 2 | Architecture violations detected. |
+| 3 | Tool execution failure (analysis could not complete). |
+
+### Exit code 1 — Warnings
+
+Exit code 1 means Architon successfully analyzed the architecture and found one or more warnings, but no violations.
+
+Warnings indicate elevated risk or incomplete constraints, such as:
+- Missing current limits
+- Low electrical margin conditions
+- Incomplete architecture specification
+
+The architecture may still function, but warnings should be reviewed.
+CI may allow exit code 1 or treat it as failure using `--warn-as-error`.
+
+### Exit code 2 — Violations
+
+Exit code 2 means Architon successfully analyzed the architecture and found one or more violations (HARD STOPS / errors).
+This indicates the architecture is invalid and must be fixed.
+
+### Exit code 3 — Tool failure
+
+Exit code 3 means Architon could not complete analysis. This is not an architecture violation.
+It indicates an input or runtime problem, such as:
+- Invalid YAML syntax
+- Missing input file
+- Schema validation failure
+- Import or resolution failure
+- Internal tool error
+
+Exit codes 0–2 indicate successful analysis. Exit code 3 indicates analysis could not run.
+
+---
+
+## CI integration
+
+Many CI systems fail on any non-zero exit code. To allow warnings but fail on violations:
+
+```yaml
+- name: Architon check
+  run: |
+    rv check robot.yaml
+    code=$?
+    if [ "$code" -ge 2 ]; then exit "$code"; fi
+```
+
+Strict mode (fail on warnings):
+
+```bash
+rv check --warn-as-error robot.yaml
+```
+
+---
+
+## Structured report output
+
+Architon produces deterministic structured reports for automation.
+
+Default output path:
+
+```bash
+architon-report.json
+```
+
+Custom output path:
+
+```bash
+rv check robot.yaml --out report.json
+rv scan bom.csv --out report.json
+```
+
+The report includes:
+- summary counts
+- violations / warnings / notes
+- normalized architecture model (DesignIR for scans)
+
+Exit codes indicate pass/fail. The JSON report provides detailed structured results for CI integration and tooling.
+
+### Example: `report.json` from `rv scan bom.csv`
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "source": "kicad_bom_csv",
+    "input_file": "bom.csv",
+    "parts": 2,
+    "rules": 0,
+    "has_failures": false,
+    "delimiter": ",",
+    "parse_errors_count": 0,
+    "parse_warnings_count": 0,
+    "parse_errors": [],
+    "parse_warnings": []
+  },
+  "design_ir": {
+    "version": "0",
+    "source": "kicad_bom_csv",
+    "parts": [],
+    "metadata": {
+      "input_file": "bom.csv",
+      "parsed_at": "2026-02-26T00:00:00Z"
+    }
+  },
+  "rules": []
+}
+```
+
+On parse failures, the report still includes `report_version`, `design_ir.version`, `delimiter`, and deterministic guidance in `summary.next_steps`.
+
+### Example: `report.json` from `rv check robot.yaml`
+
+```json
+{
+  "report_version": "0",
+  "summary": {
+    "input_file": "robot.yaml",
+    "violations": 1,
+    "warnings": 2,
+    "notes": 1,
+    "has_failures": true
+  },
+  "violations": [
+    {
+      "rule": "DRV_SUPPLY_RANGE",
+      "severity": "error",
+      "message": "battery voltage exceeds driver supply range",
+      "fix": "Use compatible driver or adjust battery voltage"
+    }
+  ],
+  "warnings": [],
+  "notes": []
+}
+```
+
+---
+
+## Parts lookup (quick reference)
 
 You can reference built-in parts (`parts/`) and project-local parts (`./rv_parts`) with `part:`.
 
@@ -77,7 +312,9 @@ Resolver lookup order (earlier wins):
 
 Detailed field-level behavior is documented in `docs/spec.md`.
 
-## Example
+---
+
+## Full example spec
 
 Create `spec.yaml`:
 
@@ -136,228 +373,95 @@ WARN DRV_PEAK_MARGIN_LOW: spec.yaml:21 Total motor stall 5.00A is close to drive
 exit code: 2
 ```
 
-Example run video:
+---
 
-https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
+## Deterministic by design
 
-## CLI usage
-
-Core commands:
-
-```text
-rv check <file.yaml>       Run deterministic analysis
-rv scan <bom.csv>          Import BOM CSV and emit DesignIR report JSON
-rv version                 Show installed version
-rv check --output json     Emit JSON findings to stdout
-rv --help                  Show all commands and flags
-rv check --help            Show check command options
-```
-
-Findings severity:
-
-- `INFO` context or non-blocking notes
-- `WARN` risk indications
-- `ERROR` rule violations
-
-JSON output examples:
-
-```bash
-rv check specs/robot.yaml --output json
-rv check specs/robot.yaml --output json --pretty
-rv check specs/robot.yaml --output json --out-file report.json
-rv check specs/robot.yaml --output json --pretty --out-file report.json
-```
-
-KiCad BOM scan examples:
-
-```bash
-rv scan bom.csv
-rv scan bom.csv --map examples/mapping.yaml
-rv scan bom.csv --out my-report.json
-```
-
-## Output Control
-
-Use `--out` to override the default `architon-report.json` output path:
-
-```bash
-rv scan bom.csv --out my-report.json
-```
-
-## Exit Codes
-
-For `rv scan`:
-
-- `0` = success
-- `1` = rule violations
-- `2` = parse errors
-
-Mapping file shape (`examples/mapping.yaml`):
-
-```yaml
-ref: Designator
-value: Component
-footprint: Package
-mpn: Part Number
-manufacturer: Mfr
-```
-
-`rv scan` writes `architon-report.json` with this schema:
-
-```json
-{
-  "report_version": "0",
-  "summary": {
-    "source": "kicad_bom_csv",
-    "input_file": "bom.csv",
-    "parts": 2,
-    "rules": 0,
-    "has_failures": false,
-    "delimiter": ",",
-    "parse_errors_count": 0,
-    "parse_warnings_count": 0,
-    "parse_errors": [],
-    "parse_warnings": []
-  },
-  "design_ir": {
-    "version": "0",
-    "source": "kicad_bom_csv",
-    "parts": [],
-    "metadata": {
-      "input_file": "bom.csv",
-      "parsed_at": "2026-02-26T00:00:00Z"
-    }
-  },
-  "rules": []
-}
-```
-
-On parse failures, the report still includes `report_version`, `design_ir.version`, `delimiter`, and deterministic guidance in `summary.next_steps`:
-
-```json
-{
-  "report_version": "0",
-  "summary": {
-    "source": "kicad_bom_csv",
-    "input_file": "bom.csv",
-    "parts": 1,
-    "rules": 0,
-    "has_failures": true,
-    "delimiter": ",",
-    "parse_errors_count": 1,
-    "parse_warnings_count": 0,
-    "parse_errors": [
-      "row 3: malformed CSV row: expected 3 columns from header, got 1"
-    ],
-    "parse_warnings": [],
-    "next_steps": [
-      "Re-export BOM (CSV) and check missing delimiters/quotes",
-      "Run rv scan <bom.csv> --out report.json and inspect summary.parse_errors"
-    ]
-  },
-  "design_ir": {
-    "version": "0",
-    "source": "kicad_bom_csv",
-    "parts": [
-      {
-        "ref": "R1",
-        "value": "10k",
-        "footprint": "Resistor_SMD:R_0603_1608Metric",
-        "fields": {
-          "Footprint": "Resistor_SMD:R_0603_1608Metric",
-          "Reference": "R1",
-          "Value": "10k"
-        }
-      }
-    ],
-    "metadata": {
-      "input_file": "bom.csv",
-      "parsed_at": "2026-02-28T00:00:00Z"
-    }
-  },
-  "rules": []
-}
-```
-
-## Schema Versioning
-
-`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
-
-`summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\\t"`. `summary.next_steps` appears only when parse failures are present.
-
-CI integration example:
-
-```yaml
-steps:
-  - name: Verify hardware spec
-    run: rv check specs/robot.yaml
-```
-
-Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
-
-## Determinism and Trust
-
-This engine is deterministic by design:
-
+Architon is deterministic by design:
 - No AI
 - No guessing
-- No inference
+- No probabilistic inference
 - No hallucination
 
 Validation operates only on the specification and part data you provide.
+The same input always produces the same result.
+
+---
+
+## Schema versioning
+
+`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
+
+`summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
+`summary.next_steps` appears only when parse failures are present.
+
+Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
+
+---
 
 ## Documentation
 
-Detailed technical documentation is available in the /docs directory:
+Detailed technical documentation is available in `/docs`:
 
-- docs/architecture.md — engine architecture and system design
-- docs/spec.md — hardware specification format
-- docs/rules.md — deterministic rule system and validation logic
+- `docs/architecture.md` — engine architecture and system design
+- `docs/spec.md` — hardware specification format
+- `docs/rules.md` — deterministic rule system and validation logic
 
-## Supported configurations (v0.1)
+---
 
-Focused on early-stage mobile robot electrical architecture checks.
+## Supported configurations
+
+Architon CLI currently focuses on deterministic verification of mobile robot electrical architecture and BOM integrity.
 
 Supported:
 
-- DC motors (one motor per driver channel)
-- TB6612FNG and L298 class H-bridge driver classes
-- Single logic rail
-- YAML part-based configuration with deterministic merge behavior
+Electrical architecture validation (`rv check`):
+- DC motors (single motor per driver channel)
+- H-bridge motor drivers (TB6612FNG, L298 class, and compatible)
+- Battery supply and driver supply compatibility checks
+- Logic rail voltage compatibility between MCU and drivers
+- Driver continuous and peak current margin checks
+- Power budget validation where current limits are specified
+- YAML-based architecture specification
+- Deterministic exit codes and CI integration
+
+BOM ingestion and normalization (`rv scan`):
+- KiCad BOM CSV import
+- Automatic delimiter detection (comma, semicolon, tab)
+- Deterministic DesignIR JSON generation
+- Parse error reporting with remediation guidance
+- Stable versioned report format (`report_version`, `design_ir.version`)
 
 Not supported yet:
+- BLDC and ESC validation
+- Stepper motor driver validation
+- Multi-rail power tree modeling
+- Thermal and derating models
+- Detailed signal integrity validation
+- ROS URDF or firmware-level integration
 
-- Stepper, BLDC, ESC powertrain validation
-- Multi-rail power tree validation
-- Thermal derating models
-- Serial/IO arbitration models
+Architon CLI is a deterministic architecture verifier, not a circuit simulator.
 
-This is a linter and contract verifier, not a simulator or optimizer.
-
-## Versioning and stability
-
-The interface is still evolving before `v1.0`.
-
-Exit behavior used by `rv check`:
-
-- `0` analysis completed with no `ERROR` or `WARN` findings (`INFO`/notes are allowed)
-- `1` warning-only result (`WARN` findings, no `ERROR` findings)
-- `2` deterministic rule violations (`ERROR` findings), regardless of warnings
-- `3` parse/decode/resolve/import/schema/IO failures that prevent analysis from completing
+---
 
 ## Contributing
 
 Open an issue before starting work so scope can be aligned.
-
 By contributing you agree to the CLA in `CLA.md`.
+
+---
 
 ## Status
 
-Early alpha. Interfaces and rule coverage are still evolving before `v1.0`.
+Early alpha. Interfaces and rule coverage evolving toward `v1.0`.
+
+---
 
 ## License
 
-Apache 2.0. See `LICENSE`.
+Apache 2.0
+
+---
 
 ## Disclaimer
 

@@ -192,10 +192,49 @@ func TestCheckExitCodeWarningOnlyIsOne(t *testing.T) {
 	}
 }
 
+func TestCheckExitCodeWarningOnlyIsTwoWithWarnAsError(t *testing.T) {
+	specPath := writeCheckSpec(t, warningOnlyCheckSpec)
+
+	stdout, stderr, err := executeCheckCommandForTest(t, "--warn-as-error", specPath)
+	if code := exitCodeFromError(t, err); code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "WARN RAIL_I_UNKNOWN") {
+		t.Fatalf("expected warning finding in output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "exit code: 2") {
+		t.Fatalf("expected exit code 2 in output, got %q", stdout)
+	}
+}
+
 func TestCheckExitCodeErrorsTakePrecedenceOverWarnings(t *testing.T) {
 	specPath := writeCheckSpec(t, errorAndWarningCheckSpec)
 
 	stdout, stderr, err := executeCheckCommandForTest(t, specPath)
+	if code := exitCodeFromError(t, err); code != 2 {
+		t.Fatalf("expected exit code 2, got %d", code)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "ERROR DRV_SUPPLY_RANGE") {
+		t.Fatalf("expected error finding in output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "WARN RAIL_I_UNKNOWN") {
+		t.Fatalf("expected warning finding in output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "exit code: 2") {
+		t.Fatalf("expected exit code 2 in output, got %q", stdout)
+	}
+}
+
+func TestCheckExitCodeErrorsRemainTwoWithWarnAsError(t *testing.T) {
+	specPath := writeCheckSpec(t, errorAndWarningCheckSpec)
+
+	stdout, stderr, err := executeCheckCommandForTest(t, "--warn-as-error", specPath)
 	if code := exitCodeFromError(t, err); code != 2 {
 		t.Fatalf("expected exit code 2, got %d", code)
 	}

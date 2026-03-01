@@ -127,6 +127,8 @@ Exit behavior for `rv check`:
 - `2`: one or more `ERROR` findings, regardless of warnings
 - `3`: parse/decode/resolve/import/schema/IO failures
 
+With `--warn-as-error`, warning-only results also return `2`.
+
 Exit behavior for `rv scan`:
 
 - `0`: success

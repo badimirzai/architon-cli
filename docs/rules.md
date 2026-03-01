@@ -43,6 +43,8 @@ This order is stable and produces reproducible findings for identical input.
 - `2`: one or more `ERROR` findings, regardless of warnings
 - `3`: parse/decode/resolve/import/schema/IO failure path
 
+With `--warn-as-error`, warning-only results also return `2`.
+
 ## Rule catalog
 
 ### Driver channel allocation

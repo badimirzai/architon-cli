@@ -28,7 +28,7 @@ type checkRunResult struct {
 
 func newCheckCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "check <spec.yaml>",
+		Use:     "check",
 		Aliases: []string{"validate"},
 		Args:    cobra.MaximumNArgs(1),
 		Short:   "Validate a robot spec against deterministic electrical rules",
@@ -37,6 +37,7 @@ func newCheckCmd() *cobra.Command {
 Output control flags:
   --output json             print machine readable JSON to stdout
   --style report|classic    force human-readable style
+  --warn-as-error           treat WARN findings as exit code 2
   --pretty                  pretty print JSON to stdout (requires --output json)
   --out-file <path>         write compact JSON to file (requires --output json)
   --debug                   enable debug mode (or use RV_DEBUG=1)
@@ -51,6 +52,7 @@ Examples:
 	cmd.Flags().StringP("file", "f", "", "Path to YAML spec")
 	cmd.Flags().StringP("output", "o", "text", "Output format: text or json")
 	cmd.Flags().String("style", "", "Human output style: report or classic")
+	cmd.Flags().Bool("warn-as-error", false, "Treat WARN findings as exit code 2")
 	cmd.Flags().Bool("pretty", false, "Pretty print JSON to stdout (requires --output json)")
 	cmd.Flags().String("out-file", "", "Write compact JSON to file (requires --output json)")
 	cmd.Flags().StringArray("parts-dir", nil, "Additional parts directory (repeatable; after rv_parts and built-in parts)")
@@ -67,6 +69,7 @@ func runCheckCommand(cmd *cobra.Command, args []string) (err error) {
 	styleFlagSet := cmd.Flags().Changed("style")
 	prettyOutput, _ := cmd.Flags().GetBool("pretty")
 	outFile, _ := cmd.Flags().GetString("out-file")
+	warnAsError, _ := cmd.Flags().GetBool("warn-as-error")
 	stdout := cmd.OutOrStdout()
 	stderr := cmd.ErrOrStderr()
 	stdoutTTY := isWriterTTY(stdout)
@@ -126,7 +129,7 @@ func runCheckCommand(cmd *cobra.Command, args []string) (err error) {
 		return handleCheckError(stdout, stderr, outputFormat, 3, path, runErr, nil, prettyOutput, outFile)
 	}
 
-	exitCode := checkExitCode(result)
+	exitCode := checkExitCode(result, warnAsError)
 	renderResult := output.CheckResult{
 		Target:   result.Target,
 		Report:   result.Report,
@@ -203,7 +206,7 @@ func executeCheck(path string, partsDirs []string, partsEnv string) (*checkRunRe
 	return result, nil
 }
 
-func checkExitCode(result *checkRunResult) int {
+func checkExitCode(result *checkRunResult, warnAsError bool) int {
 	if result == nil {
 		return 3
 	}
@@ -211,6 +214,9 @@ func checkExitCode(result *checkRunResult) int {
 		return 2
 	}
 	if result.Warnings > 0 {
+		if warnAsError {
+			return 2
+		}
 		return 1
 	}
 	return 0
