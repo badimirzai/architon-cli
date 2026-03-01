@@ -1,0 +1,27 @@
+name: "exit-3-missing-required"
+
+power:
+  battery:
+    voltage_v: 12
+    max_current_a: 30
+  logic_rail:
+    voltage_v: 3.3
+    max_current_a: 2
+
+motor_driver:
+  name: "Driver"
+  motor_supply_min_v: 6
+  motor_supply_max_v: 15
+  continuous_per_channel_a: 2.0
+  peak_per_channel_a: 6.0
+  channels: 2
+  logic_voltage_min_v: 3.0
+  logic_voltage_max_v: 5.5
+
+motors:
+  - name: "Wheel motor"
+    count: 1
+    voltage_min_v: 6
+    voltage_max_v: 12
+    stall_current_a: 2.0
+    nominal_current_a: 1.0

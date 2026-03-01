@@ -52,7 +52,7 @@ rv init --template 4wd-clean --out robot.yaml --force
 # Wrote robot.yaml (template: 4wd-clean)
 
 rv check robot.yaml
-# clean (or WARN-only if intentionally retained), exit code 0
+# clean or notes-only, exit code 0
 
 rv scan bom.csv
 # Wrote architon-report.json
@@ -340,9 +340,10 @@ The interface is still evolving before `v1.0`.
 
 Exit behavior used by `rv check`:
 
-- `0` clean or WARN-only
-- `2` deterministic rule violations (`ERROR` findings)
-- `3` parse/decode/resolve/internal failures
+- `0` analysis completed with no `ERROR` or `WARN` findings (`INFO`/notes are allowed)
+- `1` warning-only result (`WARN` findings, no `ERROR` findings)
+- `2` deterministic rule violations (`ERROR` findings), regardless of warnings
+- `3` parse/decode/resolve/import/schema/IO failures that prevent analysis from completing
 
 ## Contributing
 
