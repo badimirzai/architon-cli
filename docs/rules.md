@@ -51,11 +51,12 @@ With `--warn-as-error`, warning-only results also return `2`.
 
 - `DRV_CHANNELS_INVALID` (`ERROR`): `motor_driver.channels <= 0`
 - `DRV_CHANNELS_INSUFFICIENT` (`ERROR`): total motor count exceeds channel count
-- `DRV_CHANNELS_OK` (`INFO`): channels sufficient
+
+When channels are sufficient, this rule emits no finding.
 
 ### Motor supply compatibility
 
-- `BAT_V_INVALID` (`ERROR`): negative battery voltage
+- `BAT_V_INVALID` (`ERROR`): negative battery voltage; `0` means unset and the rule skips
 - `DRV_SUPPLY_RANGE` (`ERROR`): battery voltage outside driver motor supply range
 
 ### Driver current headroom
@@ -65,20 +66,21 @@ With `--warn-as-error`, warning-only results also return `2`.
 
 ### Logic voltage compatibility
 
-- `RAIL_V_INVALID` (`ERROR`): negative logic rail voltage
+- `RAIL_V_INVALID` (`ERROR`): negative logic rail voltage; `0` means unset and the rule skips
 - `LOGIC_V_DRIVER_MISMATCH` (`ERROR`): logic rail outside driver logic range
 - `LOGIC_V_MCU_MISMATCH` (`WARN`): MCU logic voltage differs from logic rail by more than `0.25V`
 
 ### Logic rail budget signal
 
 - `RAIL_I_UNKNOWN` (`WARN`): `power.logic_rail.max_current_a` missing or `<= 0`
-- `RAIL_BUDGET_NOTE` (`INFO`): rail current budget present (v1 note, not full logic-current model)
+
+When `power.logic_rail.max_current_a > 0`, this rule emits no finding.
 
 ### MCU-driver logic level checks
 
-- `MCU_LOGIC_V_INVALID` (`ERROR`): negative MCU logic voltage
-- `DRV_LOGIC_MIN_V_INVALID` (`ERROR`): negative driver logic min voltage
-- `DRV_LOGIC_MAX_V_INVALID` (`ERROR`): negative driver logic max voltage
+- `MCU_LOGIC_V_INVALID` (`ERROR`): negative MCU logic voltage; `0` means unset and the rule skips
+- `DRV_LOGIC_MIN_V_INVALID` (`ERROR`): negative driver logic min voltage; `0` means unset and the rule skips
+- `DRV_LOGIC_MAX_V_INVALID` (`ERROR`): negative driver logic max voltage; `0` means unset and the rule skips
 - `DRV_LOGIC_RANGE_INVALID` (`ERROR`): driver logic min > max
 - `LOGIC_LEVEL_MISMATCH` (`ERROR`): MCU logic outside driver logic window
 
