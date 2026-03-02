@@ -107,11 +107,7 @@ func ruleDriverChannels(spec model.RobotSpec, locs map[string]Location) []Findin
 			Message:  fmt.Sprintf("motors require %d channels but motor_driver.channels is %d", totalMotors, spec.Driver.Channels),
 		})}
 	}
-	return []Finding{withLocation(locs, "motor_driver.channels", Finding{
-		Severity: SevInfo,
-		Code:     "DRV_CHANNELS_OK",
-		Message:  fmt.Sprintf("driver channels OK: %d motor(s) mapped to %d available channel(s)", totalMotors, spec.Driver.Channels),
-	})}
+	return nil
 }
 
 func ruleMotorSupplyVoltage(spec model.RobotSpec, locs map[string]Location) []Finding {
@@ -120,7 +116,7 @@ func ruleMotorSupplyVoltage(spec model.RobotSpec, locs map[string]Location) []Fi
 		return []Finding{withLocation(locs, "power.battery.voltage_v", Finding{
 			Severity: SevError,
 			Code:     "BAT_V_INVALID",
-			Message:  "power.battery.voltage_v must be > 0",
+			Message:  "power.battery.voltage_v must be >= 0 (0 means unset)",
 		})}
 	}
 	if batV == 0 || spec.Driver.MotorSupplyMinV == 0 || spec.Driver.MotorSupplyMaxV == 0 {
@@ -186,7 +182,7 @@ func ruleLogicVoltageCompat(spec model.RobotSpec, locs map[string]Location) []Fi
 		return []Finding{withLocation(locs, "power.logic_rail.voltage_v", Finding{
 			Severity: SevError,
 			Code:     "RAIL_V_INVALID",
-			Message:  "power.logic_rail.voltage_v must be > 0",
+			Message:  "power.logic_rail.voltage_v must be >= 0 (0 means unset)",
 		})}
 	} else if lv == 0 {
 		return nil
@@ -229,12 +225,7 @@ func ruleRailCurrentBudget(spec model.RobotSpec, locs map[string]Location) []Fin
 			Message:  "power.logic_rail.max_current_a not set, cannot budget logic rail current",
 		})}
 	}
-	// For v1 we do not model currents precisely. We just nudge the user.
-	return []Finding{withLocation(locs, "power.logic_rail.max_current_a", Finding{
-		Severity: SevInfo,
-		Code:     "RAIL_BUDGET_NOTE",
-		Message:  fmt.Sprintf("logic rail budget set to %.2fA. v1 does not estimate MCU and driver logic current yet.", railMax),
-	})}
+	return nil
 }
 
 func ruleLogicLevelMisMatch(spec model.RobotSpec, locs map[string]Location) []Finding {
@@ -248,21 +239,21 @@ func ruleLogicLevelMisMatch(spec model.RobotSpec, locs map[string]Location) []Fi
 		out = append(out, withLocation(locs, "mcu.logic_voltage_v", Finding{
 			Severity: SevError,
 			Code:     "MCU_LOGIC_V_INVALID",
-			Message:  "mcu.logic_voltage_v must be > 0",
+			Message:  "mcu.logic_voltage_v must be >= 0 (0 means unset)",
 		}))
 	}
 	if driverMinV < 0 {
 		out = append(out, withLocation(locs, "motor_driver.logic_voltage_min_v", Finding{
 			Severity: SevError,
 			Code:     "DRV_LOGIC_MIN_V_INVALID",
-			Message:  "motor_driver.logic_voltage_min_v must be > 0",
+			Message:  "motor_driver.logic_voltage_min_v must be >= 0 (0 means unset)",
 		}))
 	}
 	if driverMaxV < 0 {
 		out = append(out, withLocation(locs, "motor_driver.logic_voltage_max_v", Finding{
 			Severity: SevError,
 			Code:     "DRV_LOGIC_MAX_V_INVALID",
-			Message:  "motor_driver.logic_voltage_max_v must be > 0",
+			Message:  "motor_driver.logic_voltage_max_v must be >= 0 (0 means unset)",
 		}))
 	}
 	if driverMinV > 0 && driverMaxV > 0 && driverMinV > driverMaxV {

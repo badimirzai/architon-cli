@@ -76,7 +76,6 @@ Example output:
 ```text
 ERROR DRV_SUPPLY_RANGE: battery 16.8V exceeds motor_driver supply range [6.0V, 15.0V]
 WARN RAIL_I_UNKNOWN: logic rail current capacity not specified
-INFO DRV_CHANNELS_OK: driver channels correctly mapped
 
 exit code: 2
 ```
@@ -379,10 +378,8 @@ Example output:
 ```text
 rv check
 --------------
-INFO DRV_CHANNELS_OK: spec.yaml:22 driver channels OK: 1 motor(s) mapped to 1 available channel(s)
 ERROR DRV_SUPPLY_RANGE: spec.yaml:5 battery 12.00V outside motor_driver motor supply range [18.00, 24.00]V
 WARN DRV_CONT_LOW_MARGIN: spec.yaml:20 driver continuous rating 0.60A is below recommended 1.25A for motor DC motor (nominal 1.00A). Risk of overheating or current limiting under sustained load.
-INFO RAIL_BUDGET_NOTE: spec.yaml:9 logic rail budget set to 1.00A. v1 does not estimate MCU and driver logic current yet.
 WARN DRV_PEAK_MARGIN_LOW: spec.yaml:21 Total motor stall 5.00A is close to driver peak 6.00A
 
 exit code: 2

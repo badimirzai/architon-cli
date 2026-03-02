@@ -41,11 +41,38 @@ func baseSpec() model.RobotSpec {
 }
 
 func reportCodes(r Report) map[string]bool {
+	return findingCodes(r.Findings)
+}
+
+func findingCodes(findings []Finding) map[string]bool {
 	codes := make(map[string]bool)
-	for _, f := range r.Findings {
+	for _, f := range findings {
 		codes[f.Code] = true
 	}
 	return codes
+}
+
+func countSeverity(findings []Finding, severity Severity) int {
+	count := 0
+	for _, f := range findings {
+		if f.Severity == severity {
+			count++
+		}
+	}
+	return count
+}
+
+func requireCodeSeverity(t *testing.T, findings []Finding, code string, severity Severity) {
+	t.Helper()
+	for _, f := range findings {
+		if f.Code == code {
+			if f.Severity != severity {
+				t.Fatalf("expected code %q to have severity %q, got %q", code, severity, f.Severity)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected code %q, got %#v", code, findings)
 }
 
 func requireHasCode(t *testing.T, codes map[string]bool, code string) {
@@ -64,18 +91,22 @@ func requireNoCode(t *testing.T, codes map[string]bool, code string) {
 
 func TestRuleDriverChannels(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*model.RobotSpec)
-		want   []string
-		not    []string
+		name           string
+		mutate         func(*model.RobotSpec)
+		want           []string
+		not            []string
+		wantSeverities map[string]Severity
+		wantNotes      int
 	}{
 		{
 			name: "invalid_channels",
 			mutate: func(s *model.RobotSpec) {
 				s.Driver.Channels = 0
 			},
-			want: []string{"DRV_CHANNELS_INVALID"},
-			not:  []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INSUFFICIENT"},
+			want:           []string{"DRV_CHANNELS_INVALID"},
+			not:            []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INSUFFICIENT"},
+			wantSeverities: map[string]Severity{"DRV_CHANNELS_INVALID": SevError},
+			wantNotes:      0,
 		},
 		{
 			name: "insufficient_channels",
@@ -83,14 +114,24 @@ func TestRuleDriverChannels(t *testing.T) {
 				s.Driver.Channels = 2
 				s.Motors[0].Count = 3
 			},
-			want: []string{"DRV_CHANNELS_INSUFFICIENT"},
-			not:  []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INVALID"},
+			want:           []string{"DRV_CHANNELS_INSUFFICIENT"},
+			not:            []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INVALID"},
+			wantSeverities: map[string]Severity{"DRV_CHANNELS_INSUFFICIENT": SevError},
+			wantNotes:      0,
 		},
 		{
-			name:   "ok_channels",
-			mutate: func(s *model.RobotSpec) {},
-			want:   []string{"DRV_CHANNELS_OK"},
-			not:    []string{"DRV_CHANNELS_INVALID", "DRV_CHANNELS_INSUFFICIENT"},
+			name:      "exact_match_has_no_success_note",
+			mutate:    func(s *model.RobotSpec) {},
+			not:       []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INVALID", "DRV_CHANNELS_INSUFFICIENT"},
+			wantNotes: 0,
+		},
+		{
+			name: "extra_capacity_has_no_success_note",
+			mutate: func(s *model.RobotSpec) {
+				s.Driver.Channels = 4
+			},
+			not:       []string{"DRV_CHANNELS_OK", "DRV_CHANNELS_INVALID", "DRV_CHANNELS_INSUFFICIENT"},
+			wantNotes: 0,
 		},
 	}
 
@@ -98,12 +139,19 @@ func TestRuleDriverChannels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := baseSpec()
 			tt.mutate(&spec)
-			codes := reportCodes(RunAll(spec, nil))
+			findings := ruleDriverChannels(spec, nil)
+			codes := findingCodes(findings)
 			for _, c := range tt.want {
 				requireHasCode(t, codes, c)
 			}
 			for _, c := range tt.not {
 				requireNoCode(t, codes, c)
+			}
+			for code, severity := range tt.wantSeverities {
+				requireCodeSeverity(t, findings, code, severity)
+			}
+			if got := countSeverity(findings, SevInfo); got != tt.wantNotes {
+				t.Fatalf("expected %d info finding(s), got %d (%#v)", tt.wantNotes, got, findings)
 			}
 		})
 	}
@@ -363,24 +411,28 @@ func TestRuleLogicLevelMismatch(t *testing.T) {
 
 func TestRuleRailCurrentBudget(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*model.RobotSpec)
-		want   []string
-		not    []string
+		name           string
+		mutate         func(*model.RobotSpec)
+		want           []string
+		not            []string
+		wantSeverities map[string]Severity
+		wantNotes      int
 	}{
 		{
 			name: "rail_current_unknown",
 			mutate: func(s *model.RobotSpec) {
 				s.Power.Rail.MaxCurrentA = 0
 			},
-			want: []string{"RAIL_I_UNKNOWN"},
-			not:  []string{"RAIL_BUDGET_NOTE"},
+			want:           []string{"RAIL_I_UNKNOWN"},
+			not:            []string{"RAIL_BUDGET_NOTE"},
+			wantSeverities: map[string]Severity{"RAIL_I_UNKNOWN": SevWarn},
+			wantNotes:      0,
 		},
 		{
-			name:   "rail_current_set",
-			mutate: func(s *model.RobotSpec) {},
-			want:   []string{"RAIL_BUDGET_NOTE"},
-			not:    []string{"RAIL_I_UNKNOWN"},
+			name:      "rail_current_set_has_no_success_note",
+			mutate:    func(s *model.RobotSpec) {},
+			not:       []string{"RAIL_BUDGET_NOTE", "RAIL_I_UNKNOWN"},
+			wantNotes: 0,
 		},
 	}
 
@@ -388,12 +440,19 @@ func TestRuleRailCurrentBudget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			spec := baseSpec()
 			tt.mutate(&spec)
-			codes := reportCodes(RunAll(spec, nil))
+			findings := ruleRailCurrentBudget(spec, nil)
+			codes := findingCodes(findings)
 			for _, c := range tt.want {
 				requireHasCode(t, codes, c)
 			}
 			for _, c := range tt.not {
 				requireNoCode(t, codes, c)
+			}
+			for code, severity := range tt.wantSeverities {
+				requireCodeSeverity(t, findings, code, severity)
+			}
+			if got := countSeverity(findings, SevInfo); got != tt.wantNotes {
+				t.Fatalf("expected %d info finding(s), got %d (%#v)", tt.wantNotes, got, findings)
 			}
 		})
 	}
