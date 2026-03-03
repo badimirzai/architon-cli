@@ -30,3 +30,7 @@ func silentExit(code int) *ExitError {
 func internalError(err error) *ExitError {
 	return &ExitError{Code: 3, Err: err, Internal: true}
 }
+
+func fatalError(err error) *ExitError {
+	return &ExitError{Code: 3, Err: err}
+}
