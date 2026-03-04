@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/badimirzai/architon-cli/templates"
 	"github.com/spf13/cobra"
 )
 
@@ -54,9 +56,18 @@ type initProjectResult struct {
 func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize Architon project metadata",
+		Short: "Initialize Architon metadata or write a starter robot spec",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			list, _ := cmd.Flags().GetBool("list")
+			templateName, _ := cmd.Flags().GetString("template")
+			templateName = strings.TrimSpace(templateName)
+			outPathChanged := cmd.Flags().Changed("out")
+
+			if list || templateName != "" || outPathChanged {
+				return runTemplateInit(cmd, list, templateName)
+			}
+
 			force, _ := cmd.Flags().GetBool("force")
 
 			result, err := initializeArchitonProject(force)
@@ -76,9 +87,54 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().Bool("force", false, "Overwrite .architon files if they already exist")
+	cmd.Flags().String("template", "", "Template name")
+	cmd.Flags().String("out", "robot.yaml", "Output path for template mode")
+	cmd.Flags().Bool("list", false, "List available templates")
+	cmd.Flags().Bool("force", false, "Overwrite output files if they already exist")
 
 	return cmd
+}
+
+func runTemplateInit(cmd *cobra.Command, list bool, templateName string) error {
+	if list {
+		for _, name := range templates.Names() {
+			fmt.Fprintln(cmd.OutOrStdout(), name)
+		}
+		return nil
+	}
+
+	if templateName == "" {
+		if err := cmd.Help(); err != nil {
+			return err
+		}
+		return userError(fmt.Errorf("missing --template (use --list to see available templates)"))
+	}
+
+	outPath, _ := cmd.Flags().GetString("out")
+	outPath = strings.TrimSpace(outPath)
+	if outPath == "" {
+		outPath = "robot.yaml"
+	}
+
+	if info, err := os.Stat(outPath); err == nil && info != nil {
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			return userError(fmt.Errorf("output file exists: %s (use --force to overwrite)", outPath))
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return userError(fmt.Errorf("check output file: %w", err))
+	}
+
+	data, err := templates.Load(templateName)
+	if err != nil {
+		return userError(err)
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return userError(fmt.Errorf("write template: %w", err))
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s (template: %s)\n", outPath, templateName)
+	return nil
 }
 
 func initializeArchitonProject(force bool) (initProjectResult, error) {

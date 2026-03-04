@@ -1,0 +1,8 @@
+Reference,Qty,Value,Footprint,Datasheet,Description
+C1,1,100nF,,~,Unpolarized capacitor
+R1,1,10k,,~,Resistor
+U2,1,TB6612FNG,Package_SO:SSOP-24_5.3x8.2mm_P0.65mm,https://toshiba.semicon-storage.com/us/product/linear/motordriver/detail.TB6612FNG.html,Driver IC for Dual DC motor, SSOP-24
+M1,1,3,3V,,~,DC Motor
+U1,1,ESP32-C3-WROOM-02,RF_Module:ESP32-C3-WROOM-02,https://www.espressif.com/sites/default/files/documentation/esp32-c3-wroom-02_datasheet_en.pdf,802.11 b/g/n Wi­Fi and Bluetooth 5 module, ESP32­C3 SoC, RISC­V microprocessor, On-board antenna
+U3,1,TPS70245_HTSSOP20,Package_SO:HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm_ThermalVias,http://www.ti.com/lit/ds/symlink/tps702.pdf,3.3V 500mA/1.2V 250mA Dual Low Drop-out Regulator with Voltage Supervisor, PowerPAD TSSOP-20
+J1,1,CUI_PD-30,Connector:CUI_PD-30,http://www.cui.com/product/resource/pd-30.pdf,3 pin connector, PD-30

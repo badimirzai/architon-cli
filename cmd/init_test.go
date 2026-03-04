@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/badimirzai/architon-cli/templates"
 )
 
 func runInitCommand(t *testing.T, cwd string, args ...string) (string, error) {
@@ -47,6 +49,16 @@ func writeArchitonFile(t *testing.T, cwd string, name string, contents string) {
 	if err := os.WriteFile(filepath.Join(cwd, architonDirName, name), []byte(contents), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(data)
 }
 
 func TestInitFreshDirectoryCreatesArchitonProject(t *testing.T) {
@@ -147,5 +159,85 @@ func TestInitDirectoryAlreadyExistsBeforeInit(t *testing.T) {
 	}
 	if got := readArchitonFile(t, tmpDir, "README.md"); got != architonReadme {
 		t.Fatalf("unexpected README.md contents:\n%s", got)
+	}
+}
+
+func TestInitListTemplates(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runInitCommand(t, tmpDir, "--list")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	for _, name := range templates.Names() {
+		if !strings.Contains(stdout, name+"\n") {
+			t.Fatalf("expected template %q in output, got %q", name, stdout)
+		}
+	}
+}
+
+func TestInitTemplateWritesDefaultOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runInitCommand(t, tmpDir, "--template", "4wd-problem")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(stdout, "Wrote robot.yaml (template: 4wd-problem)") {
+		t.Fatalf("unexpected output: %q", stdout)
+	}
+
+	want, err := templates.Load("4wd-problem")
+	if err != nil {
+		t.Fatalf("load template: %v", err)
+	}
+	got := readFile(t, filepath.Join(tmpDir, "robot.yaml"))
+	if got != string(want) {
+		t.Fatalf("unexpected robot.yaml contents:\n%s", got)
+	}
+}
+
+func TestInitTemplateRefusesOverwriteWithoutForce(t *testing.T) {
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "robot.yaml")
+
+	if err := os.WriteFile(target, []byte("keep me\n"), 0o644); err != nil {
+		t.Fatalf("seed robot.yaml: %v", err)
+	}
+
+	_, err := runInitCommand(t, tmpDir, "--template", "4wd-clean")
+	if err == nil {
+		t.Fatal("expected overwrite error, got nil")
+	}
+	if !strings.Contains(err.Error(), "output file exists") {
+		t.Fatalf("expected output file exists error, got %v", err)
+	}
+	if got := readFile(t, target); got != "keep me\n" {
+		t.Fatalf("expected existing contents to remain, got %q", got)
+	}
+}
+
+func TestInitTemplateForceOverwritesOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	target := filepath.Join(tmpDir, "robot.yaml")
+
+	if err := os.WriteFile(target, []byte("old contents\n"), 0o644); err != nil {
+		t.Fatalf("seed robot.yaml: %v", err)
+	}
+
+	stdout, err := runInitCommand(t, tmpDir, "--template", "4wd-clean", "--force")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(stdout, "Wrote robot.yaml (template: 4wd-clean)") {
+		t.Fatalf("unexpected output: %q", stdout)
+	}
+
+	want, err := templates.Load("4wd-clean")
+	if err != nil {
+		t.Fatalf("load template: %v", err)
+	}
+	if got := readFile(t, target); got != string(want) {
+		t.Fatalf("expected robot.yaml to be overwritten, got:\n%s", got)
 	}
 }

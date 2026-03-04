@@ -1,0 +1,6 @@
+(export
+  (components
+    (comp (ref R1) (value 10k)))
+  (nets
+    (net (code 1)
+      (node (ref R1) (pin 1)))))

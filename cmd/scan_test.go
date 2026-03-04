@@ -18,15 +18,20 @@ type scanReport struct {
 	ReportVersion string `json:"report_version"`
 	Summary       struct {
 		Parts            int      `json:"parts"`
+		Nets             int      `json:"nets"`
 		ParseErrorsCount int      `json:"parse_errors_count"`
 		ParseWarnings    []string `json:"parse_warnings"`
 		ParseErrors      []string `json:"parse_errors"`
 	} `json:"summary"`
 	DesignIR struct {
 		Version string `json:"version"`
+		Source  string `json:"source"`
 		Parts   []struct {
 			Ref string `json:"ref"`
 		} `json:"parts"`
+		Nets []struct {
+			Name string `json:"name"`
+		} `json:"nets"`
 	} `json:"design_ir"`
 }
 
@@ -136,6 +141,24 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected clean scan to succeed, got %v", err)
 	}
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Target: "+kicadFixturePath(t, "bom_minimal.csv")+"\n") {
+		t.Fatalf("expected target line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 2\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 0\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Errors: 0\n") {
+		t.Fatalf("expected errors line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Warnings: 0\n") {
+		t.Fatalf("expected warnings line, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
 	}
@@ -182,15 +205,18 @@ func TestResolveScanInput(t *testing.T) {
 		writeScanTestFile(t, filepath.Join(tmpDir, "exports", "bom.csv"), "Ref,Qty\nR3,1\n")
 		writeScanTestFile(t, filepath.Join(tmpDir, "demo1.bom.csv"), "Ref,Qty\nR4,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -200,15 +226,18 @@ func TestResolveScanInput(t *testing.T) {
 		writeScanTestFile(t, expected, "Ref,Qty\nR1,1\n")
 		writeScanTestFile(t, filepath.Join(tmpDir, "exports", "project-bom.csv"), "Ref,Qty\nR2,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -218,15 +247,18 @@ func TestResolveScanInput(t *testing.T) {
 		writeScanTestFile(t, expected, "Ref,Qty\nR1,1\n")
 		writeScanTestFile(t, filepath.Join(tmpDir, "demo1.bom.csv"), "Ref,Qty\nR2,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -237,15 +269,18 @@ func TestResolveScanInput(t *testing.T) {
 		writeScanTestFile(t, filepath.Join(tmpDir, "exports", "kicad_bom.csv"), "Ref,Qty\nR2,1\n")
 		writeScanTestFile(t, filepath.Join(tmpDir, "demo1.bom.csv"), "Ref,Qty\nR3,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -254,15 +289,18 @@ func TestResolveScanInput(t *testing.T) {
 		expected := filepath.Join(tmpDir, "demo1.bom.csv")
 		writeScanTestFile(t, expected, "Ref,Qty\nR1,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -272,16 +310,19 @@ func TestResolveScanInput(t *testing.T) {
 		writeScanTestFile(t, filepath.Join(tmpDir, "bom", "alpha-bom.csv"), "Ref,Qty\nR1,1\n")
 		writeScanTestFile(t, filepath.Join(tmpDir, "nested", "ignored.bom.csv"), "Ref,Qty\nR3,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if !discovered {
+		if !got.Directory {
 			t.Fatalf("expected directory discovery")
 		}
 		expected := filepath.Join(tmpDir, "bom", "alpha-bom.csv")
-		if got != expected {
-			t.Fatalf("expected %q, got %q", expected, got)
+		if !got.BOMDiscovered {
+			t.Fatalf("expected BOM discovery")
+		}
+		if got.BOMPath != expected {
+			t.Fatalf("expected %q, got %q", expected, got.BOMPath)
 		}
 	})
 
@@ -289,36 +330,30 @@ func TestResolveScanInput(t *testing.T) {
 		tmpDir := t.TempDir()
 		writeScanTestFile(t, filepath.Join(tmpDir, "notes.csv"), "Ref,Qty\nR1,1\n")
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		if !discovered {
-			t.Fatalf("expected directory discovery")
+		if got != (resolvedScanInput{}) {
+			t.Fatalf("expected empty resolution, got %+v", got)
 		}
-		if got != "" {
-			t.Fatalf("expected empty resolved path, got %q", got)
-		}
-		if err.Error() != noBOMFoundInProjectDirMessage {
-			t.Fatalf("expected exact error %q, got %q", noBOMFoundInProjectDirMessage, err.Error())
+		if err.Error() != noScanInputsFoundInProjectDirMessage {
+			t.Fatalf("expected exact error %q, got %q", noScanInputsFoundInProjectDirMessage, err.Error())
 		}
 	})
 
-	t.Run("directory with no BOM returns exact error", func(t *testing.T) {
+	t.Run("directory with no scan inputs returns exact error", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		got, discovered, err := resolveScanInput(tmpDir)
+		got, err := resolveScanInput(tmpDir, "", "")
 		if err == nil {
 			t.Fatal("expected error")
 		}
-		if !discovered {
-			t.Fatalf("expected directory discovery")
+		if got != (resolvedScanInput{}) {
+			t.Fatalf("expected empty resolution, got %+v", got)
 		}
-		if got != "" {
-			t.Fatalf("expected empty resolved path, got %q", got)
-		}
-		if err.Error() != noBOMFoundInProjectDirMessage {
-			t.Fatalf("expected exact error %q, got %q", noBOMFoundInProjectDirMessage, err.Error())
+		if err.Error() != noScanInputsFoundInProjectDirMessage {
+			t.Fatalf("expected exact error %q, got %q", noScanInputsFoundInProjectDirMessage, err.Error())
 		}
 	})
 
@@ -327,15 +362,15 @@ func TestResolveScanInput(t *testing.T) {
 		inputPath := filepath.Join(tmpDir, "input.csv")
 		writeScanTestFile(t, inputPath, "Ref,Qty\nR1,1\n")
 
-		got, discovered, err := resolveScanInput(inputPath)
+		got, err := resolveScanInput(inputPath, "", "")
 		if err != nil {
 			t.Fatalf("expected no error, got %v", err)
 		}
-		if discovered {
+		if got.Directory {
 			t.Fatalf("expected file input to skip discovery")
 		}
-		if got != inputPath {
-			t.Fatalf("expected %q, got %q", inputPath, got)
+		if got.DirectPath != inputPath {
+			t.Fatalf("expected %q, got %q", inputPath, got.DirectPath)
 		}
 	})
 }
@@ -348,11 +383,16 @@ func TestScan_DirectoryInputDetectsBOMAndWritesReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected clean scan to succeed, got %v", err)
 	}
-	detectedLine := strings.Split(strings.TrimSpace(stdout), "\n")[0]
-	if !strings.HasPrefix(detectedLine, "Detected BOM: ") {
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Target: .\n") {
+		t.Fatalf("expected target line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Detected BOM: ") {
 		t.Fatalf("expected detected BOM message, got %q", stdout)
 	}
-	if !strings.HasSuffix(detectedLine, filepath.Join("bom", "bom.csv")) {
+	if !strings.Contains(stdout, filepath.Join("bom", "bom.csv")) {
 		t.Fatalf("expected detected BOM message, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
@@ -365,7 +405,86 @@ func TestScan_DirectoryInputDetectsBOMAndWritesReport(t *testing.T) {
 	}
 }
 
-func TestScan_DirectoryInputWithoutBOMReturnsExitCodeThree(t *testing.T) {
+func TestScan_NetlistFileWritesReport(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "netlist_simple.net"))
+	if err != nil {
+		t.Fatalf("expected clean netlist scan to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 3\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 2\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Errors: 0\n") {
+		t.Fatalf("expected errors line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Warnings: 0\n") {
+		t.Fatalf("expected warnings line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
+		t.Fatalf("expected stdout to mention written report, got %q", stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if report.Summary.Parts != 3 {
+		t.Fatalf("expected 3 parts in report, got %d", report.Summary.Parts)
+	}
+	if report.Summary.Nets != 2 {
+		t.Fatalf("expected 2 nets in report summary, got %d", report.Summary.Nets)
+	}
+	if len(report.DesignIR.Nets) != 2 {
+		t.Fatalf("expected 2 nets in design IR, got %d", len(report.DesignIR.Nets))
+	}
+}
+
+func TestScan_DirectoryInputMergesBOMAndNetlist(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "bom", "bom.csv"), kicadFixtureData(t, "bom_minimal.csv"))
+	writeScanTestFile(t, filepath.Join(tmpDir, "exports", "example.net"), kicadFixtureData(t, "netlist_simple.net"))
+
+	stdout, err := runScanCommand(t, tmpDir, ".")
+	if err != nil {
+		t.Fatalf("expected merged directory scan to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "Detected BOM: ") {
+		t.Fatalf("expected detected BOM message, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Detected Netlist: ") {
+		t.Fatalf("expected detected netlist message, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 3\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 2\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if report.DesignIR.Source != "kicad_project" {
+		t.Fatalf("expected merged design source kicad_project, got %q", report.DesignIR.Source)
+	}
+	if report.Summary.Parts != 3 {
+		t.Fatalf("expected merged report to contain 3 parts, got %d", report.Summary.Parts)
+	}
+	if report.Summary.Nets != 2 {
+		t.Fatalf("expected merged report to contain 2 nets, got %d", report.Summary.Nets)
+	}
+	gotRefs := []string{report.DesignIR.Parts[0].Ref, report.DesignIR.Parts[1].Ref, report.DesignIR.Parts[2].Ref}
+	wantRefs := []string{"C1", "R1", "U1"}
+	for i := range wantRefs {
+		if gotRefs[i] != wantRefs[i] {
+			t.Fatalf("expected refs %v, got %v", wantRefs, gotRefs)
+		}
+	}
+}
+
+func TestScan_DirectoryInputWithoutInputsReturnsExitCodeThree(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	_, err := runScanCommand(t, tmpDir, ".")
@@ -380,8 +499,8 @@ func TestScan_DirectoryInputWithoutBOMReturnsExitCodeThree(t *testing.T) {
 	if exitErr.Code != 3 {
 		t.Fatalf("expected exit code 3, got %d", exitErr.Code)
 	}
-	if exitErr.Err == nil || exitErr.Err.Error() != noBOMFoundInProjectDirMessage {
-		t.Fatalf("expected exact error %q, got %v", noBOMFoundInProjectDirMessage, exitErr.Err)
+	if exitErr.Err == nil || exitErr.Err.Error() != noScanInputsFoundInProjectDirMessage {
+		t.Fatalf("expected exact error %q, got %v", noScanInputsFoundInProjectDirMessage, exitErr.Err)
 	}
 }
 

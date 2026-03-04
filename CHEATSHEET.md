@@ -11,9 +11,12 @@ rv check <file.yaml> --output json --out-file report.json
                                       Write compact JSON to file, stdout says "Written to ..."
 rv check <file.yaml> --output json --pretty --out-file report.json
                                       Pretty JSON to stdout + compact JSON to file
-rv scan <bom.csv>                      Import KiCad BOM CSV and write architon-report.json
+rv scan <path>                         Import KiCad BOM CSV, KiCad .net, or project directory
 rv scan <bom.csv> --map mapping.yaml   Use explicit header mapping YAML
 rv scan <bom.csv> --out report.json    Write scan report to a specific path
+rv scan .                              Auto-detect BOM and/or netlist in current directory
+rv scan . --bom bom/bom.csv --netlist exports/project.net
+                                      Override detected project files
 rv init --list                        List available templates
 rv init --template <name>             Write a template to robot.yaml
 rv init --template <name> --out path  Write a template to a specific path
@@ -38,6 +41,8 @@ rv scan --help                         Show scan command options
 
 ```text
 --map <file.yaml>         explicit BOM header mapping file
+--bom <file>              override BOM file path for project directory scans
+--netlist <file>          override netlist file path for project directory scans
 --out <report.json>       write scan report to a specific path
 ```
 
@@ -47,6 +52,7 @@ rv scan --help                         Show scan command options
 0  success
 1  rule violations
 2  parse errors
+3  tool failure / internal error
 ```
 
 ## Examples
@@ -59,6 +65,9 @@ rv check examples/minimal_voltage_mismatch.yaml --output json --out-file result.
 rv check examples/minimal_voltage_mismatch.yaml --output json --pretty --out-file result.json
 NO_COLOR=1 rv check examples/minimal_voltage_mismatch.yaml
 rv scan bom.csv
+rv scan exports/example.net
+rv scan .
+rv scan . --bom bom/bom.csv --netlist exports/project.net
 rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
 rv init --template 4wd-problem
@@ -72,7 +81,19 @@ rv check robot.yaml
 `rv scan` report `summary` includes:
 
 - `delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
+- `nets` when KiCad netlist data is present
 - `next_steps` only when `parse_errors_count > 0`
+
+Directory scan detection order:
+
+- BOM: `bom/bom.csv`, `bom.csv`, `exports/bom.csv`, then lexical `*bom*.csv`
+- Netlist: lexical `exports/*.net`, then lexical `*.net` in project root
+
+Successful `rv scan` terminal output includes:
+
+- `ARCHITON SCAN`
+- `Target`, `Parts`, `Nets`, `Errors`, `Warnings`
+- `Detected BOM` and `Detected Netlist` when directory scan auto-detects files
 
 Example success snippet:
 

@@ -10,6 +10,7 @@ type DesignIR struct {
 	Metadata      IRMetadata `json:"metadata"`
 	ParseErrors   []string   `json:"-"`
 	ParseWarnings []string   `json:"-"`
+	Nets          []Net      `json:"nets,omitempty"`
 }
 
 // Part is an input-agnostic component entry.
@@ -27,4 +28,14 @@ type IRMetadata struct {
 	InputFile string `json:"input_file"`
 	ParsedAt  string `json:"parsed_at"`
 	Delimiter string `json:"-"`
+}
+
+type Net struct {
+	Name string   `json:"name"`
+	Pins []PinRef `json:"pins"`
+}
+
+type PinRef struct {
+	Ref string `json:"ref"`
+	Pin string `json:"pin"`
 }

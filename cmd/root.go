@@ -18,8 +18,8 @@ var rootCmd = &cobra.Command{
 
 Quick help:
   rv check <file.yaml>       Run analysis
-  rv scan <path>             Import BOM and emit DesignIR report JSON
-  rv init                    Initialize Architon project metadata
+  rv scan <path>             Import KiCad BOM/netlist and emit DesignIR report JSON
+  rv init                    Initialize Architon metadata or write a starter robot spec
   rv check --output json     Emit JSON findings
   rv version                 Show installed version
   rv --help                  Show all commands and flags`,
