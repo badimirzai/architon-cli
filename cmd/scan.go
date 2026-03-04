@@ -69,6 +69,16 @@ Examples:
 			}
 			designReport := report.NewVerificationReport(design)
 
+			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
+				return internalError(err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "ARCHITON SCAN\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Target: %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "Parts: %d\n", designReport.Summary.Parts)
+			fmt.Fprintf(cmd.OutOrStdout(), "Nets: %d\n", designReport.Summary.Nets)
+			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
+			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
+
 			if resolvedInput.BOMDiscovered {
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected BOM: %s\n", resolvedInput.BOMPath)
 			}
@@ -76,10 +86,7 @@ Examples:
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected Netlist: %s\n", resolvedInput.NetlistPath)
 			}
 
-			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
-				return internalError(err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "\nWrote %s\n", outputPath)
 
 			exitCode := scanExitCode(designReport)
 			if exitCode == 0 {

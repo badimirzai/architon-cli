@@ -141,6 +141,24 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected clean scan to succeed, got %v", err)
 	}
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Target: "+kicadFixturePath(t, "bom_minimal.csv")+"\n") {
+		t.Fatalf("expected target line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 2\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 0\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Errors: 0\n") {
+		t.Fatalf("expected errors line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Warnings: 0\n") {
+		t.Fatalf("expected warnings line, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
 	}
@@ -365,11 +383,16 @@ func TestScan_DirectoryInputDetectsBOMAndWritesReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected clean scan to succeed, got %v", err)
 	}
-	detectedLine := strings.Split(strings.TrimSpace(stdout), "\n")[0]
-	if !strings.HasPrefix(detectedLine, "Detected BOM: ") {
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Target: .\n") {
+		t.Fatalf("expected target line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Detected BOM: ") {
 		t.Fatalf("expected detected BOM message, got %q", stdout)
 	}
-	if !strings.HasSuffix(detectedLine, filepath.Join("bom", "bom.csv")) {
+	if !strings.Contains(stdout, filepath.Join("bom", "bom.csv")) {
 		t.Fatalf("expected detected BOM message, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
@@ -388,6 +411,21 @@ func TestScan_NetlistFileWritesReport(t *testing.T) {
 	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "netlist_simple.net"))
 	if err != nil {
 		t.Fatalf("expected clean netlist scan to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "ARCHITON SCAN\n") {
+		t.Fatalf("expected scan summary header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 3\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 2\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Errors: 0\n") {
+		t.Fatalf("expected errors line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Warnings: 0\n") {
+		t.Fatalf("expected warnings line, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
@@ -419,6 +457,12 @@ func TestScan_DirectoryInputMergesBOMAndNetlist(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Detected Netlist: ") {
 		t.Fatalf("expected detected netlist message, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Parts: 3\n") {
+		t.Fatalf("expected parts line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Nets: 2\n") {
+		t.Fatalf("expected nets line, got %q", stdout)
 	}
 
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
