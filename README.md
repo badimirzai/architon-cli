@@ -59,30 +59,10 @@ Architon CLI validates hardware architecture from a specification (`.yaml`) and 
 ---
 
 ## Example
+Run Architon on a real hardware design and detect an integration failure:
 
-![Architon CLI demo](docs/demo-readme.gif)
-
-Full workflow demo (YAML → failure → fix → pass):
-
-
-https://github.com/user-attachments/assets/3c73410f-bda8-49a3-9171-b888dff7446e
-
+![Architon scanning KiCad project demo](docs/demo-readme.gif)
 Architon detects integration failures deterministically before hardware is built.
-
-```bash
-rv check robot.yaml
-```
-
-Example output:
-
-```text
-ERROR DRV_SUPPLY_RANGE: battery 16.8V exceeds motor_driver supply range [6.0V, 15.0V]
-WARN RAIL_I_UNKNOWN: logic rail current capacity not specified
-
-exit code: 2
-```
-
-
 
 ---
 
