@@ -114,3 +114,18 @@ func TestNewVerificationReport_OmitsNextStepsWithoutParseErrors(t *testing.T) {
 		t.Fatalf("expected no next steps, got %v", result.Summary.NextSteps)
 	}
 }
+
+func TestNewVerificationReport_SetsNetCount(t *testing.T) {
+	result := NewVerificationReport(&ir.DesignIR{
+		Version: ir.SchemaVersion,
+		Source:  "kicad_netlist_sexpr",
+		Nets: []ir.Net{
+			{Name: "GND"},
+			{Name: "VBUS"},
+		},
+	})
+
+	if result.Summary.Nets != 2 {
+		t.Fatalf("expected 2 nets, got %d", result.Summary.Nets)
+	}
+}

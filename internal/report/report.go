@@ -30,6 +30,7 @@ type Summary struct {
 	ParseErrors        []string `json:"parse_errors"`
 	ParseWarnings      []string `json:"parse_warnings"`
 	NextSteps          []string `json:"next_steps,omitempty"`
+	Nets               int      `json:"nets,omitempty"`
 }
 
 // VerificationReport is the output schema for BOM scan results.
@@ -64,6 +65,7 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 			ParseErrors:        cappedMessages(design.ParseErrors, 20),
 			ParseWarnings:      cappedMessages(design.ParseWarnings, 20),
 			NextSteps:          nextSteps(design.ParseErrors),
+			Nets:               len(design.Nets),
 		},
 		DesignIR: design,
 		Rules:    rules,
