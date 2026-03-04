@@ -106,8 +106,11 @@ CLI is implemented with Cobra under `cmd/`.
 Primary command:
 
 - `rv check <spec.yaml>`
-- `rv scan <bom.csv>`
+- `rv scan <path>`
 - `rv scan <bom.csv> --map mapping.yaml`
+- `rv scan <project.net>`
+- `rv scan .`
+- `rv scan . --bom bom/bom.csv --netlist exports/project.net`
 - `rv scan <bom.csv> --out my-report.json`
 
 Output modes:
@@ -134,8 +137,23 @@ Exit behavior for `rv scan`:
 - `0`: success
 - `1`: rule violations
 - `2`: parse errors
+- `3`: tool failure / internal error
 
-`rv scan` writes `architon-report.json` with `report_version`, `summary.delimiter`, and `design_ir.version`. `summary.next_steps` is included only on failure.
+`rv scan` writes `architon-report.json` with `report_version`, `design_ir.version`, and:
+
+- `summary.delimiter` for BOM-backed scans
+- `summary.nets` and `design_ir.nets` for netlist-backed scans
+- `summary.next_steps` only on parse failure
+
+Successful CLI output also prints a short deterministic terminal summary with:
+
+- `ARCHITON SCAN`
+- `Target`
+- `Parts`
+- `Nets`
+- `Errors`
+- `Warnings`
+- `Detected BOM` / `Detected Netlist` for directory auto-detection
 
 Example success snippet:
 
@@ -169,12 +187,14 @@ Example failure snippet:
 }
 ```
 
-### BOM import path
+### Scan import path
 
 `rv scan` implementation is intentionally separated:
 
 - `internal/ir`: stable, input-agnostic `DesignIR` model
-- `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion and header mapping
+- `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion, header mapping, and KiCad `.net` S-expression parsing
+- `cmd/scan.go`: deterministic single-file or project-directory scan input resolution
+- `internal/ir`: deterministic BOM + netlist merge into one project-level DesignIR
 - `internal/report`: deterministic scan report JSON builder/writer
 
 ## Deterministic design philosophy

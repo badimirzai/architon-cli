@@ -86,7 +86,7 @@ Examples:
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected Netlist: %s\n", resolvedInput.NetlistPath)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "\nWrote %s\n", outputPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
 
 			exitCode := scanExitCode(designReport)
 			if exitCode == 0 {

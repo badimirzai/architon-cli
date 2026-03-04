@@ -7,6 +7,8 @@ Runs before PCB fabrication and firmware bring-up to catch integration failures 
 Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**
 Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
+⭐ If Architon helps you catch a hardware integration issue early, consider starring the repo.
+
 ---
 
 ## Why Architon exists
@@ -43,11 +45,11 @@ These checks are deterministic and reproducible across local development and CI.
 
 ## What Architon does
 Architon runs after schematic design but before PCB fabrication and firmware bring-up (STM32, ESP32, ROS, etc).
-Architon CLI validates hardware architecture from a specification (`.yaml`) and ingests KiCad BOM CSV files and produces a normalized, deterministic DesignIR JSON report.
+Architon CLI validates hardware architecture from a specification (`.yaml`) and ingests KiCad BOM CSV files and KiCad `.net` netlists to produce a normalized, deterministic DesignIR JSON report.
 
 **Inputs**
 - YAML hardware architecture specification (`rv check`)
-- KiCad BOM CSV (`rv scan`)
+- KiCad BOM CSV, KiCad `.net` netlists, or a KiCad project directory (`rv scan`)
 
 **Outputs**
 - Deterministic exit codes for CI gating
@@ -92,10 +94,38 @@ Requires Go **1.25.5** or newer (https://go.dev/dl/).
 
 ```bash
 go install github.com/badimirzai/architon-cli/cmd/rv@latest
+rv version
 rv --help
 ```
 
-### Try it in 30 seconds
+
+---
+
+## Scan a real KiCad project (30 seconds)
+Try Architon on a real KiCad project:
+
+```bash
+git clone https://github.com/badimirzai/architon-kicad-demo.git demos
+cd demos/demo1-esp32-motor/kicad
+rv scan .
+```
+
+Expected output example:
+```bash
+ARCHITON SCAN
+Target: .
+Parts: 7
+Nets: 59
+Errors: 0
+Warnings: 0
+Detected Netlist: <path>
+Wrote architon-report.json
+```
+Architon automatically detects KiCad .net netlists and BOM CSV files
+and produces a deterministic DesignIR report.
+
+### Try the architecture checker (YAML)
+
 
 ```bash
 rv init --list
@@ -115,28 +145,35 @@ rv init --template 4wd-clean --out robot.yaml --force
 rv check robot.yaml
 # clean or notes-only, exit code 0
 
-rv scan bom.csv
+rv scan examples/bom/bom.csv
+# ARCHITON SCAN
+# Target: examples/bom/bom.csv
+# Parts: 2
+# Nets: 0
+# Errors: 0
+# Warnings: 0
 # Wrote architon-report.json
 
-rv scan bom.csv --map mapping.yaml
+rv scan examples/bom/bom.csv --map examples/mapping.yaml
 # Wrote architon-report.json
 
-rv scan bom.csv --out my-report.json
+rv scan examples/bom/bom.csv --out my-report.json
 # Wrote my-report.json
+
 ```
 
----
+
 
 ## CLI usage
 
 `rv check` validates system architecture from YAML specification.  
-`rv scan` imports BOM data and generates a normalized DesignIR report.
+`rv scan` imports KiCad BOM/netlist data and generates a normalized DesignIR report.
 
 Core commands:
 
 ```text
 rv check <file.yaml>       Run deterministic analysis
-rv scan <bom.csv>          Import BOM CSV and emit DesignIR report JSON
+rv scan <path>             Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
 rv version                 Show installed version
 rv check --output json     Emit JSON findings to stdout
 rv --help                  Show all commands and flags
@@ -158,13 +195,52 @@ rv check specs/robot.yaml --output json --out-file report.json
 rv check specs/robot.yaml --output json --pretty --out-file report.json
 ```
 
-KiCad BOM scan examples:
+KiCad scan examples:
 
 ```bash
-rv scan bom.csv
-rv scan bom.csv --map examples/mapping.yaml
-rv scan bom.csv --out my-report.json
+rv scan examples/bom/bom.csv
+rv scan examples/bom/bom.csv --map examples/mapping.yaml
+rv scan examples/bom/bom.csv --out my-report.json
+
+# KiCad project folder scan (demo repo)
+git clone https://github.com/badimirzai/architon-kicad-demo.git demos
+cd demos/demo1-esp32-motor/kicad
+rv scan .
 ```
+
+
+
+Architon automatically detects:
+- KiCad .net netlists
+- KiCad BOM CSV files
+and produces a normalized deterministic DesignIR report. 
+
+`rv scan .` supports three input modes:
+
+- BOM CSV input such as `bom.csv`
+- KiCad `.net` S-expression netlist input such as `exports/project.net`
+- Project directory input such as `.`
+
+When you scan a directory, Architon looks for:
+
+- BOM candidates using the existing BOM detection rules: `bom/bom.csv`, `bom.csv`, `exports/bom.csv`, then lexical `*bom*.csv` matches in `bom/`, `exports/`, and the project root
+- Netlist candidates in this order: lexical `exports/*.net`, then lexical `*.net` in the project root
+
+If both a BOM and a netlist are found, Architon merges them deterministically into one DesignIR:
+
+- BOM remains the base source of parts and raw `fields`
+- Missing BOM `value` and `footprint` fields are filled from matching netlist parts
+- Net connectivity is taken from the netlist and exported as `design_ir.nets`
+
+You can override discovery explicitly:
+
+```bash
+rv scan . --bom bom/bom.csv --netlist exports/project.net
+```
+
+Default output path: `architon-report.json`.
+
+
 
 ---
 
@@ -250,9 +326,11 @@ rv scan bom.csv --out report.json
 The report includes:
 - summary counts
 - violations / warnings / notes
-- normalized architecture model (DesignIR for scans)
+- normalized architecture model (DesignIR for scans, including nets when imported)
 
 Exit codes indicate pass/fail. The JSON report provides detailed structured results for CI integration and tooling.
+
+For netlist-backed scans, `summary.nets` and `design_ir.nets` are populated. For BOM-only scans, these fields remain omitted to keep the JSON stable.
 
 ### Example: `report.json` from `rv scan bom.csv`
 
@@ -405,6 +483,7 @@ The same input always produces the same result.
 `rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
 
 `summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
+`summary.nets` is set when netlist data is present.
 `summary.next_steps` appears only when parse failures are present.
 
 Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
@@ -439,6 +518,9 @@ Electrical architecture validation (`rv check`):
 
 BOM ingestion and normalization (`rv scan`):
 - KiCad BOM CSV import
+- KiCad `.net` S-expression netlist import
+- Deterministic project-folder scan (`rv scan .`) with BOM + netlist auto-detection
+- Deterministic BOM + netlist merge into one DesignIR
 - Automatic delimiter detection (comma, semicolon, tab)
 - Deterministic DesignIR JSON generation
 - Parse error reporting with remediation guidance

@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 
 Quick help:
   rv check <file.yaml>       Run analysis
-  rv scan <path>             Import BOM and emit DesignIR report JSON
+  rv scan <path>             Import KiCad BOM/netlist and emit DesignIR report JSON
   rv init                    Initialize Architon project metadata
   rv check --output json     Emit JSON findings
   rv version                 Show installed version
