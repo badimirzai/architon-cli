@@ -12,7 +12,10 @@ import (
 
 	"github.com/badimirzai/architon-cli/internal/importers/kicad"
 	"github.com/badimirzai/architon-cli/internal/ir"
+	"github.com/badimirzai/architon-cli/internal/meta"
+	"github.com/badimirzai/architon-cli/internal/propagate"
 	"github.com/badimirzai/architon-cli/internal/report"
+	"github.com/badimirzai/architon-cli/internal/rules"
 	"github.com/spf13/cobra"
 )
 
@@ -57,6 +60,7 @@ Examples:
 			outputPath, _ := cmd.Flags().GetString("out")
 			bomOverride, _ := cmd.Flags().GetString("bom")
 			netlistOverride, _ := cmd.Flags().GetString("netlist")
+			metaOverride, _ := cmd.Flags().GetString("meta")
 
 			resolvedInput, err := resolveScanInput(args[0], bomOverride, netlistOverride)
 			if err != nil {
@@ -67,11 +71,145 @@ Examples:
 			if err != nil {
 				return userError(err)
 			}
+
 			designReport := report.NewVerificationReport(design)
 
+			// -------------------------
+			// META: auto-discover + skeleton generation (directory scans only)
+			// -------------------------
+			metaPath := strings.TrimSpace(metaOverride)
+			metaExplicit := metaPath != ""
+			skeletonCreated := false
+
+			if resolvedInput.Directory {
+				defaultMetaPath := filepath.Join(resolvedInput.ProjectPath, ".architon", "meta.yaml")
+
+				if !metaExplicit {
+					// Auto-discover existing meta.yaml
+					if _, err := os.Stat(defaultMetaPath); err == nil {
+						metaPath = defaultMetaPath
+					} else if os.IsNotExist(err) {
+						// Auto-generate skeleton only if netlist/nets exist
+						if designReport.Summary.Nets > 0 {
+							if err := meta.WriteSkeleton(defaultMetaPath, scanDetectURefs(design)); err != nil {
+								return internalError(fmt.Errorf("create meta skeleton: %w", err))
+							}
+							skeletonCreated = true
+							fmt.Fprintf(cmd.OutOrStdout(), "Created .architon/meta.yaml — fill sources/components to enable voltage rules\n")
+							// Do not run rules on the same run.
+							metaPath = ""
+						}
+					} else {
+						return internalError(fmt.Errorf("stat default meta: %w", err))
+					}
+				} else {
+					// If user explicitly set --meta, respect it as-is
+					metaPath = filepath.Clean(metaPath)
+				}
+			}
+
+			// -------------------------
+			// META: load + decide whether to run rules
+			// -------------------------
+			var metaObj *meta.Meta
+			metaUsed := false
+
+			if metaPath != "" && !skeletonCreated {
+				// meta-based rules require nets
+				if designReport.Summary.Nets == 0 {
+					return &ExitError{
+						Code: 3,
+						Err:  errors.New("--meta requires a netlist (no nets present in DesignIR)"),
+					}
+				}
+
+				parsed, err := meta.Parse(metaPath)
+				if err != nil {
+					return &ExitError{
+						Code: 3,
+						Err:  fmt.Errorf("meta load failed: %w", err),
+					}
+				}
+
+				if metaExplicit {
+					// Explicit override: must be valid, otherwise tool failure
+					if err := meta.ValidateStrict(parsed); err != nil {
+						return &ExitError{
+							Code: 3,
+							Err:  fmt.Errorf("meta invalid: %w", err),
+						}
+					}
+					metaObj = parsed
+					metaUsed = true
+				} else {
+					// Auto-discovered: only run rules when configured
+					if meta.IsConfigured(parsed) {
+						if err := meta.ValidateStrict(parsed); err != nil {
+							return &ExitError{
+								Code: 3,
+								Err:  fmt.Errorf("meta invalid: %w", err),
+							}
+						}
+						metaObj = parsed
+						metaUsed = true
+					} else {
+						fmt.Fprintf(cmd.OutOrStdout(), "Hint: edit .architon/meta.yaml (sources/components) to enable voltage rules\n")
+					}
+				}
+			}
+
+			// -------------------------
+			// VOLTAGE PROPAGATION + RULES
+			// -------------------------
+			if metaUsed {
+				propRes := propagate.Propagate(design, metaObj)
+
+				// Attach derived voltages in stable ordering (by net name)
+				netVolts := make([]report.NetVoltage, 0, len(propRes.NetVoltages))
+				for _, nv := range propRes.NetVoltages {
+					netVolts = append(netVolts, report.NetVoltage{
+						Net:     nv.Net,
+						Voltage: nv.Voltage,
+						Source:  nv.Source,
+					})
+				}
+				sort.Slice(netVolts, func(i, j int) bool { return netVolts[i].Net < netVolts[j].Net })
+
+				designReport.Derived = &report.Derived{
+					NetVoltages: netVolts,
+					Conflicts:   propRes.Conflicts,
+				}
+
+				// Conflicts are violations (severity error => exit 2)
+				for _, c := range propRes.Conflicts {
+					designReport.Rules = append(designReport.Rules, report.RuleResult{
+						ID:       "RULE_VOLTAGE_CONFLICT",
+						Severity: "error",
+						Message:  c,
+					})
+				}
+
+				// Overvoltage violations
+				designReport.Rules = append(designReport.Rules, rules.Overvoltage(design, metaObj, propRes.NetVoltages)...)
+
+				// Deterministic rule ordering
+				sort.SliceStable(designReport.Rules, func(i, j int) bool {
+					if designReport.Rules[i].ID == designReport.Rules[j].ID {
+						return designReport.Rules[i].Message < designReport.Rules[j].Message
+					}
+					return designReport.Rules[i].ID < designReport.Rules[j].ID
+				})
+
+				// Update summary (because report.NewVerificationReport() computed these before rules existed)
+				designReport.Summary.Rules = len(designReport.Rules)
+				designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
+			}
+
+			// Write report JSON after derived/rules are attached
 			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
 				return internalError(err)
 			}
+
 			fmt.Fprintf(cmd.OutOrStdout(), "ARCHITON SCAN\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "Target: %s\n", args[0])
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts: %d\n", designReport.Summary.Parts)
@@ -88,26 +226,47 @@ Examples:
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
 
+			// -------------------------
+			// 0 clean/info only
+			// 1 warnings detected
+			// 2 violations detected (severity error)
+			// 3 tool execution failure
+			// -------------------------
 			exitCode := scanExitCode(designReport)
 			if exitCode == 0 {
 				return nil
 			}
-			if exitCode == 2 {
+
+			switch exitCode {
+			case 1:
+				return &ExitError{
+					Code: 1,
+					Err:  fmt.Errorf("scan completed with %d warning(s); wrote %s", scanRuleWarningCount(designReport), outputPath),
+				}
+			case 2:
 				return &ExitError{
 					Code: 2,
-					Err:  fmt.Errorf("scan completed with %d parse errors; wrote %s", designReport.Summary.ParseErrorsCount, outputPath),
+					Err:  fmt.Errorf("scan completed with %d violation(s); wrote %s", scanRuleViolationCount(designReport), outputPath),
 				}
-			}
-			return &ExitError{
-				Code: 1,
-				Err:  fmt.Errorf("scan completed with %d rule violations; wrote %s", scanRuleFailureCount(designReport), outputPath),
+			case 3:
+				return &ExitError{
+					Code: 3,
+					Err:  fmt.Errorf("scan completed with %d parse error(s); wrote %s", designReport.Summary.ParseErrorsCount, outputPath),
+				}
+			default:
+				return &ExitError{
+					Code: 3,
+					Err:  fmt.Errorf("scan failed with unexpected exit code %d", exitCode),
+				}
 			}
 		},
 	}
+
 	cmd.Flags().String("map", "", "Path to YAML file with explicit BOM header mapping")
 	cmd.Flags().String("out", defaultScanReportPath, "Path to write the scan report JSON")
 	cmd.Flags().String("bom", "", "Override BOM file path when scanning a project directory")
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
+	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present; auto-generated if missing)")
 	return cmd
 }
 
@@ -380,29 +539,91 @@ func matchesNetlistPattern(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".net")
 }
 
-// Exit codes are part of the rv scan contract:
-// 0 = report written with no parse errors and no rule failures
-// 1 = report written with one or more rule failures
-// 2 = report written with one or more parse errors
+// Exit codes (consistent with rv check contract):
+// 0 = clean/info only
+// 1 = warnings detected
+// 2 = violations detected (severity=error)
+// 3 = tool execution failure (analysis could not complete)
 func scanExitCode(result report.VerificationReport) int {
+	// Parse errors mean analysis could not complete reliably.
 	if result.Summary.ParseErrorsCount > 0 {
+		return 3
+	}
+
+	hasWarn := false
+	hasErr := false
+	for _, rule := range result.Rules {
+		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
+		if sev == "" || sev == "error" {
+			hasErr = true
+		} else if sev == "warning" {
+			hasWarn = true
+		}
+	}
+
+	// Also treat parse warnings as warnings when no violations exist
+	if !hasErr && result.Summary.ParseWarningsCount > 0 {
+		hasWarn = true
+	}
+
+	if hasErr {
 		return 2
 	}
-	if scanRuleFailureCount(result) > 0 {
+	if hasWarn {
 		return 1
 	}
 	return 0
 }
 
-func scanRuleFailureCount(result report.VerificationReport) int {
-	count := 0
+func scanRuleViolationCount(result report.VerificationReport) int {
+	n := 0
 	for _, rule := range result.Rules {
-		severity := strings.TrimSpace(rule.Severity)
-		if severity == "" || strings.EqualFold(severity, "error") {
-			count++
+		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
+		if sev == "" || sev == "error" {
+			n++
 		}
 	}
-	return count
+	return n
+}
+
+func scanRuleWarningCount(result report.VerificationReport) int {
+	n := 0
+	for _, rule := range result.Rules {
+		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
+		if sev == "warning" {
+			n++
+		}
+	}
+	// include parse warnings as warnings too
+	n += result.Summary.ParseWarningsCount
+	return n
+}
+
+func scanDetectURefs(design *ir.DesignIR) []string {
+	seen := map[string]struct{}{}
+	refs := make([]string, 0, 16)
+
+	for _, net := range design.Nets {
+		for _, p := range net.Pins {
+			r := strings.TrimSpace(p.Ref)
+			if r == "" {
+				continue
+			}
+			if strings.HasPrefix(strings.ToUpper(r), "U") {
+				if _, ok := seen[r]; ok {
+					continue
+				}
+				seen[r] = struct{}{}
+				refs = append(refs, r)
+			}
+		}
+	}
+
+	sort.Strings(refs)
+	if len(refs) > 10 {
+		refs = refs[:10]
+	}
+	return refs
 }
 
 func detectScanInputFormat(path string) (string, error) {

@@ -4,7 +4,7 @@
 Deterministic hardware architecture verification for robotics and embedded systems.
 Runs before PCB fabrication and firmware bring-up to catch integration failures early.
 
-Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**
+Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**.
 Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
 ⭐ If Architon helps you catch a hardware integration issue early, consider starring the repo.
