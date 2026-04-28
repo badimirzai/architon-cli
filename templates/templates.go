@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 var (
@@ -11,8 +12,9 @@ var (
 	templateFS embed.FS
 
 	templateFiles = map[string]string{
-		"4wd-clean":   "4wd-clean.yaml",
-		"4wd-problem": "4wd-problem.yaml",
+		"4wd-clean":          "4wd-clean.yaml",
+		"4wd-problem":        "4wd-problem.yaml",
+		"robot-over_voltage": "robot-over_voltage.yaml",
 	}
 )
 
@@ -29,6 +31,9 @@ func Names() []string {
 // Load returns the template contents for the given name.
 func Load(name string) ([]byte, error) {
 	path, ok := templateFiles[name]
+	if !ok && strings.HasSuffix(name, ".yaml") {
+		path, ok = templateFiles[strings.TrimSuffix(name, ".yaml")]
+	}
 	if !ok {
 		return nil, fmt.Errorf("unknown template %q (use --list to see available templates)", name)
 	}

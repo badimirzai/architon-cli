@@ -39,6 +39,18 @@ type VerificationReport struct {
 	Summary       Summary      `json:"summary"`
 	DesignIR      *ir.DesignIR `json:"design_ir"`
 	Rules         []RuleResult `json:"rules"`
+	Derived       *Derived     `json:"derived,omitempty"`
+}
+
+type Derived struct {
+	NetVoltages []NetVoltage `json:"net_voltages,omitempty"`
+	Conflicts   []string     `json:"conflicts,omitempty"`
+}
+
+type NetVoltage struct {
+	Net     string  `json:"net"`
+	Voltage float64 `json:"voltage"`
+	Source  string  `json:"source"`
 }
 
 // NewVerificationReport builds the deterministic JSON payload for scan.

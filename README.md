@@ -4,7 +4,7 @@
 Deterministic hardware architecture verification for robotics and embedded systems.
 Runs before PCB fabrication and firmware bring-up to catch integration failures early.
 
-Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**
+Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**.
 Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
 ⭐ If Architon helps you catch a hardware integration issue early, consider starring the repo.
@@ -98,6 +98,8 @@ Parts: 7
 Nets: 59
 Errors: 0
 Warnings: 0
+Rules: 0
+Violations: 0
 Detected Netlist: <path>
 Wrote architon-report.json
 ```
@@ -132,6 +134,8 @@ rv scan examples/bom/bom.csv
 # Nets: 0
 # Errors: 0
 # Warnings: 0
+# Rules: 0
+# Violations: 0
 # Wrote architon-report.json
 
 rv scan examples/bom/bom.csv --map examples/mapping.yaml
@@ -181,6 +185,7 @@ KiCad scan examples:
 rv scan examples/bom/bom.csv
 rv scan examples/bom/bom.csv --map examples/mapping.yaml
 rv scan examples/bom/bom.csv --out my-report.json
+rv scan exports/project.net --meta .architon/meta.yaml
 
 # KiCad project folder scan (demo repo)
 git clone https://github.com/badimirzai/architon-kicad-demo.git demos
@@ -218,6 +223,63 @@ You can override discovery explicitly:
 rv scan . --bom bom/bom.csv --netlist exports/project.net
 ```
 
+### Voltage rules for KiCad netlists
+
+KiCad netlists provide connectivity, but they do not reliably provide electrical intent such as source voltages, regulator outputs, or component maximum voltage ratings. Architon uses `.architon/meta.yaml` or `--meta` for that data.
+
+For a direct netlist scan, pass the metadata file explicitly:
+
+```bash
+rv scan exports/project.net --meta .architon/meta.yaml
+```
+
+For a project directory scan, Architon auto-discovers `.architon/meta.yaml`:
+
+```bash
+rv scan .
+```
+
+For now, voltages and component limits come from `meta.yaml`. Future releases may infer safe values from net names and KiCad fields.
+
+Minimal voltage-rule metadata:
+
+```yaml
+version: "0"
+
+sources:
+  - net: /VBAT
+    voltage: 24.0
+
+regulators:
+  - ref: U2
+    in_pin: "1"
+    out_pin: "3"
+    out_voltage: 5.0
+
+components:
+  - ref: U1
+    max_voltage: 3.3
+```
+
+Example overvoltage output:
+
+```text
+ARCHITON SCAN
+Target: exports/project.net
+Parts: 3
+Nets: 3
+Errors: 0
+Warnings: 0
+Rules: 1
+Violations: 1
+Rule findings:
+- ERROR RULE_OVERVOLTAGE: U1 pin 1 on net /+5V is 5.00V (max 3.30V)
+Wrote architon-report.json
+scan completed with 1 violation(s); wrote architon-report.json
+```
+
+`Errors` are parse/import errors. Rule failures are reported as `Violations`.
+
 Default output path: `architon-report.json`.
 
 
@@ -226,14 +288,14 @@ Default output path: `architon-report.json`.
 
 ## Exit codes
 
-`rv check` returns deterministic exit codes designed for CI and automation. Exit codes distinguish between architecture problems and tool execution failures.
+`rv check` and `rv scan` return deterministic exit codes designed for CI and automation. Exit codes distinguish between rule findings and tool execution failures.
 
 | Code | Meaning |
 |-----:|---------|
 | 0 | Clean or informational only. No warnings or violations. |
 | 1 | Warnings detected, but no violations. |
-| 2 | Architecture violations detected. |
-| 3 | Tool execution failure (analysis could not complete). |
+| 2 | Rule violations detected. |
+| 3 | Tool execution failure, including scan parse errors where analysis could not complete reliably. |
 
 ### Exit code 1 — Warnings
 
@@ -249,18 +311,20 @@ CI may allow exit code 1 or treat it as failure using `--warn-as-error`.
 
 ### Exit code 2 — Violations
 
-Exit code 2 means Architon successfully analyzed the architecture and found one or more violations (HARD STOPS / errors).
-This indicates the architecture is invalid and must be fixed.
+Exit code 2 means Architon successfully analyzed the input and found one or more violations (HARD STOPS / errors).
+This indicates the architecture or scanned design is invalid and must be fixed.
 
 ### Exit code 3 — Tool failure
 
-Exit code 3 means Architon could not complete analysis. This is not an architecture violation.
+Exit code 3 means Architon could not complete analysis. This is not an architecture or design-rule violation.
 It indicates an input or runtime problem, such as:
 - Invalid YAML syntax
 - Missing input file
 - Schema validation failure
 - Import or resolution failure
 - Internal tool error
+
+For `rv scan`, malformed BOM rows and other parse failures still write a report when possible, then exit 3. This separates bad input/export data from valid analysis that found design-rule violations.
 
 Exit codes 0–2 indicate successful analysis. Exit code 3 indicates analysis could not run.
 
@@ -501,6 +565,7 @@ BOM ingestion and normalization (`rv scan`):
 - KiCad `.net` S-expression netlist import
 - Deterministic project-folder scan (`rv scan .`) with BOM + netlist auto-detection
 - Deterministic BOM + netlist merge into one DesignIR
+- Metadata-backed voltage propagation and overvoltage rule findings for netlist scans
 - Automatic delimiter detection (comma, semicolon, tab)
 - Deterministic DesignIR JSON generation
 - Parse error reporting with remediation guidance

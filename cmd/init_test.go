@@ -197,6 +197,27 @@ func TestInitTemplateWritesDefaultOutput(t *testing.T) {
 	}
 }
 
+func TestInitTemplateAcceptsRobotOverVoltageFilename(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runInitCommand(t, tmpDir, "--template", "robot-over_voltage.yaml")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(stdout, "Wrote robot.yaml (template: robot-over_voltage.yaml)") {
+		t.Fatalf("unexpected output: %q", stdout)
+	}
+
+	want, err := templates.Load("robot-over_voltage.yaml")
+	if err != nil {
+		t.Fatalf("load template: %v", err)
+	}
+	got := readFile(t, filepath.Join(tmpDir, "robot.yaml"))
+	if got != string(want) {
+		t.Fatalf("unexpected robot.yaml contents:\n%s", got)
+	}
+}
+
 func TestInitTemplateRefusesOverwriteWithoutForce(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "robot.yaml")
