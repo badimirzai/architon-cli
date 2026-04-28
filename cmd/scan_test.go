@@ -12,6 +12,7 @@ import (
 
 	"github.com/badimirzai/architon-cli/internal/ir"
 	reportpkg "github.com/badimirzai/architon-cli/internal/report"
+	"github.com/badimirzai/architon-cli/internal/ui"
 )
 
 type scanReport struct {
@@ -46,6 +47,11 @@ func kicadFixturePath(t *testing.T, name string) string {
 
 func runScanCommand(t *testing.T, cwd string, args ...string) (string, error) {
 	t.Helper()
+	ui.EnableColors(false)
+	t.Cleanup(func() {
+		ui.EnableColors(ui.DefaultColorEnabled())
+	})
+
 	oldWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get wd: %v", err)
@@ -147,6 +153,9 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if !strings.Contains(stdout, "Target: "+kicadFixturePath(t, "bom_minimal.csv")+"\n") {
 		t.Fatalf("expected target line, got %q", stdout)
 	}
+	if !strings.Contains(stdout, "Result: OK") {
+		t.Fatalf("expected clean result line, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "Parts: 2\n") {
 		t.Fatalf("expected parts line, got %q", stdout)
 	}
@@ -161,6 +170,9 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "exit code: 0\n") {
+		t.Fatalf("expected exit code line, got %q", stdout)
 	}
 
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))

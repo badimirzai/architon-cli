@@ -1,0 +1,33 @@
+name: "robot-over-voltage"
+
+power:
+  battery:
+    chemistry: "Li-ion"
+    voltage_v: 20
+    capacity_ah: 2.0
+    c_rating: 12
+  logic_rail:
+    voltage_v: 5.0
+
+mcu:
+  name: "ESP32"
+  logic_voltage_v: 5.0
+  max_gpio_current_ma: 12
+
+motor_driver:
+  name: "TB6612FNG-like"
+  motor_supply_min_v: 6
+  motor_supply_max_v: 15
+  continuous_per_channel_a: 1.5
+  peak_per_channel_a: 6.0
+  channels: 4
+  logic_voltage_min_v: 4.5
+  logic_voltage_max_v: 5.5
+
+motors:
+  - name: "12V DC gearmotor"
+    count: 4
+    voltage_min_v: 9
+    voltage_max_v: 12
+    stall_current_a: 4
+    nominal_current_a: 1

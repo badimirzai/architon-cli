@@ -60,6 +60,9 @@ func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 	if !strings.Contains(output, "Rules: 1\n") {
 		t.Fatalf("expected output to show 1 rule finding\n%s", output)
 	}
+	if !strings.Contains(output, "Result: FAIL") {
+		t.Fatalf("expected output to show failed result\n%s", output)
+	}
 	if !strings.Contains(output, "Violations: 1\n") {
 		t.Fatalf("expected output to show 1 violation\n%s", output)
 	}
@@ -68,5 +71,8 @@ func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 	}
 	if !strings.Contains(output, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
 		t.Fatalf("expected output to show overvoltage message\n%s", output)
+	}
+	if !strings.Contains(output, "exit code: 2\n") {
+		t.Fatalf("expected output to show exit code 2\n%s", output)
 	}
 }

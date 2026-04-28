@@ -16,6 +16,7 @@ import (
 	"github.com/badimirzai/architon-cli/internal/propagate"
 	"github.com/badimirzai/architon-cli/internal/report"
 	"github.com/badimirzai/architon-cli/internal/rules"
+	"github.com/badimirzai/architon-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -210,8 +211,22 @@ Examples:
 				return internalError(err)
 			}
 
+			// -------------------------
+			// 0 clean/info only
+			// 1 warnings detected
+			// 2 violations detected (severity error)
+			// 3 tool execution failure
+			// -------------------------
+			exitCode := scanExitCode(designReport)
+
 			fmt.Fprintf(cmd.OutOrStdout(), "ARCHITON SCAN\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "Target: %s\n", args[0])
+			fmt.Fprintf(
+				cmd.OutOrStdout(),
+				"Result: %s — %s\n",
+				ui.Colorize(scanExitColorToken(exitCode), scanResultLabel(exitCode)),
+				scanResultExplanation(exitCode),
+			)
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts: %d\n", designReport.Summary.Parts)
 			fmt.Fprintf(cmd.OutOrStdout(), "Nets: %d\n", designReport.Summary.Nets)
 			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
@@ -226,7 +241,8 @@ Examples:
 					if severity == "" {
 						severity = "ERROR"
 					}
-					fmt.Fprintf(cmd.OutOrStdout(), "- %s %s: %s\n", severity, rule.ID, rule.Message)
+					line := fmt.Sprintf("- %s %s: %s", severity, rule.ID, rule.Message)
+					fmt.Fprintln(cmd.OutOrStdout(), ui.Colorize(scanRuleColorToken(severity), line))
 				}
 			}
 
@@ -238,14 +254,8 @@ Examples:
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
+			fmt.Fprintln(cmd.OutOrStdout(), ui.Colorize(scanExitColorToken(exitCode), fmt.Sprintf("exit code: %d", exitCode)))
 
-			// -------------------------
-			// 0 clean/info only
-			// 1 warnings detected
-			// 2 violations detected (severity error)
-			// 3 tool execution failure
-			// -------------------------
-			exitCode := scanExitCode(designReport)
 			if exitCode == 0 {
 				return nil
 			}
@@ -254,17 +264,17 @@ Examples:
 			case 1:
 				return &ExitError{
 					Code: 1,
-					Err:  fmt.Errorf("scan completed with %d warning(s); wrote %s", scanRuleWarningCount(designReport), outputPath),
+					Err:  errors.New(ui.Colorize("WARN", fmt.Sprintf("scan completed with %d warning(s); wrote %s", scanRuleWarningCount(designReport), outputPath))),
 				}
 			case 2:
 				return &ExitError{
 					Code: 2,
-					Err:  fmt.Errorf("scan completed with %d violation(s); wrote %s", scanRuleViolationCount(designReport), outputPath),
+					Err:  errors.New(ui.Colorize("ERROR", fmt.Sprintf("scan completed with %d violation(s); wrote %s", scanRuleViolationCount(designReport), outputPath))),
 				}
 			case 3:
 				return &ExitError{
 					Code: 3,
-					Err:  fmt.Errorf("scan completed with %d parse error(s); wrote %s", designReport.Summary.ParseErrorsCount, outputPath),
+					Err:  errors.New(ui.Colorize("ERROR", fmt.Sprintf("scan completed with %d parse error(s); wrote %s", designReport.Summary.ParseErrorsCount, outputPath))),
 				}
 			default:
 				return &ExitError{
@@ -557,6 +567,56 @@ func matchesNetlistPattern(name string) bool {
 // 1 = warnings detected
 // 2 = violations detected (severity=error)
 // 3 = tool execution failure (analysis could not complete)
+func scanResultLabel(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "OK"
+	case 1:
+		return "WARN"
+	case 2:
+		return "FAIL"
+	default:
+		return "ERROR"
+	}
+}
+
+func scanResultExplanation(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "no scan violations detected"
+	case 1:
+		return "scan warnings detected"
+	case 2:
+		return "scan violations detected"
+	default:
+		return "scan could not complete reliably"
+	}
+}
+
+func scanExitColorToken(exitCode int) string {
+	switch exitCode {
+	case 0:
+		return "OK"
+	case 1:
+		return "WARN"
+	default:
+		return "ERROR"
+	}
+}
+
+func scanRuleColorToken(severity string) string {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "", "error":
+		return "ERROR"
+	case "warn", "warning":
+		return "WARN"
+	case "info":
+		return "INFO"
+	default:
+		return ""
+	}
+}
+
 func scanExitCode(result report.VerificationReport) int {
 	// Parse errors mean analysis could not complete reliably.
 	if result.Summary.ParseErrorsCount > 0 {
