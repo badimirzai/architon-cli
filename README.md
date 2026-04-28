@@ -239,6 +239,8 @@ For a project directory scan, Architon auto-discovers `.architon/meta.yaml`:
 rv scan .
 ```
 
+For now, voltages and component limits come from `meta.yaml`. Future releases may infer safe values from net names and KiCad fields.
+
 Minimal voltage-rule metadata:
 
 ```yaml
