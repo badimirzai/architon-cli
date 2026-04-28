@@ -109,8 +109,8 @@ func TestScan_WritesReportWhenParseErrorsExist(t *testing.T) {
 	if !errors.As(err, &exitErr) {
 		t.Fatalf("expected ExitError, got %T", err)
 	}
-	if exitErr.Code != 2 {
-		t.Fatalf("expected exit code 2, got %d", exitErr.Code)
+	if exitErr.Code != 3 {
+		t.Fatalf("expected exit code 3, got %d", exitErr.Code)
 	}
 
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
@@ -540,7 +540,7 @@ func TestScanExitCode(t *testing.T) {
 			report: reportpkg.VerificationReport{
 				Summary: reportpkg.Summary{ParseErrorsCount: 1},
 			},
-			want: 2,
+			want: 3,
 		},
 		{
 			name: "rule failure",
@@ -549,7 +549,7 @@ func TestScanExitCode(t *testing.T) {
 					{ID: "BOM_RULE", Severity: "ERROR", Message: "bad part"},
 				},
 			},
-			want: 1,
+			want: 2,
 		},
 		{
 			name:   "clean scan",

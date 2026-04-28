@@ -216,6 +216,19 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Nets: %d\n", designReport.Summary.Nets)
 			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
+			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
+			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
+
+			if len(designReport.Rules) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Rule findings:\n")
+				for _, rule := range designReport.Rules {
+					severity := strings.ToUpper(strings.TrimSpace(rule.Severity))
+					if severity == "" {
+						severity = "ERROR"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s %s: %s\n", severity, rule.ID, rule.Message)
+				}
+			}
 
 			if resolvedInput.BOMDiscovered {
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected BOM: %s\n", resolvedInput.BOMPath)

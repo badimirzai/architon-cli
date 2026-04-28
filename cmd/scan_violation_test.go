@@ -4,22 +4,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 	tmp := t.TempDir()
 
-	fixture := filepath.Join("internal", "importers", "kicad", "testdata", "netlist_overvoltage.net")
-	if _, err := os.Stat(fixture); err != nil {
-		t.Fatalf("missing fixture %s: %v", fixture, err)
-	}
+	netlistFixture := kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net"))
+	metaFixture := kicadFixturePath(t, filepath.Join("overvoltage", "meta_overvoltage.yaml"))
 
-	if err := os.MkdirAll(filepath.Join(tmp, "exports"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	dstNet := filepath.Join(tmp, "exports", "test.net")
-	data, err := os.ReadFile(fixture)
+	dstNet := filepath.Join(tmp, "netlist_overvoltage.net")
+	data, err := os.ReadFile(netlistFixture)
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -27,45 +23,50 @@ func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 		t.Fatalf("write net: %v", err)
 	}
 
-	// Write configured meta that should trigger an overvoltage.
-	if err := os.MkdirAll(filepath.Join(tmp, ".architon"), 0o755); err != nil {
-		t.Fatalf("mkdir meta: %v", err)
+	dstMeta := filepath.Join(tmp, "meta_overvoltage.yaml")
+	data, err = os.ReadFile(metaFixture)
+	if err != nil {
+		t.Fatalf("read meta fixture: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, ".architon", "meta.yaml"), []byte(`
-version: "0"
-sources:
-  - net: VBAT
-    voltage: 24.0
-regulators: []
-components:
-  - ref: U1
-    max_voltage: 5.5
-`), 0o644); err != nil {
+	if err := os.WriteFile(dstMeta, data, 0o644); err != nil {
 		t.Fatalf("write meta: %v", err)
 	}
 
 	// Build binary
 	bin := filepath.Join(tmp, "rv-test")
-	build := exec.Command("go", "build", "-o", bin, "./")
+	build := exec.Command("go", "build", "-o", bin, "../")
 	out, err := build.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build failed: %v\n%s", err, string(out))
 	}
 
-	run := exec.Command(bin, "scan", ".")
+	run := exec.Command(bin, "scan", filepath.Base(dstNet), "--meta", filepath.Base(dstMeta))
 	run.Dir = tmp
 	runOut, runErr := run.CombinedOutput()
+	output := string(runOut)
 
 	// Expect exit code 2 (violations)
 	if runErr == nil {
-		t.Fatalf("expected non-zero exit code, got 0\n%s", string(runOut))
+		t.Fatalf("expected non-zero exit code, got 0\n%s", output)
 	}
 
 	ee, ok := runErr.(*exec.ExitError)
 	if !ok {
-		t.Fatalf("expected ExitError, got: %T (%v)\n%s", runErr, runErr, string(runOut))
+		t.Fatalf("expected ExitError, got: %T (%v)\n%s", runErr, runErr, output)
 	}
 	if ee.ExitCode() != 2 {
-		t.Fatalf("expected exit code 2, got %d\n%s", ee.ExitCode(), string(runOut))
+		t.Fatalf("expected exit code 2, got %d\n%s", ee.ExitCode(), output)
+	}
+	if !strings.Contains(output, "Rules: 1\n") {
+		t.Fatalf("expected output to show 1 rule finding\n%s", output)
+	}
+	if !strings.Contains(output, "Violations: 1\n") {
+		t.Fatalf("expected output to show 1 violation\n%s", output)
+	}
+	if !strings.Contains(output, "RULE_OVERVOLTAGE") {
+		t.Fatalf("expected output to show RULE_OVERVOLTAGE\n%s", output)
+	}
+	if !strings.Contains(output, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
+		t.Fatalf("expected output to show overvoltage message\n%s", output)
 	}
 }

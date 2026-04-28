@@ -1,0 +1,15 @@
+version: "0"
+
+sources:
+  - net: /VBAT
+    voltage: 24.0
+
+regulators:
+  - ref: U2
+    in_pin: "1"
+    out_pin: "3"
+    out_voltage: 5.0
+
+components:
+  - ref: U1
+    max_voltage: 3.3
