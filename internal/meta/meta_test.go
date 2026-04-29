@@ -41,15 +41,15 @@ components:
 	}
 }
 
-func TestValidateStrict_RejectsMissingSources(t *testing.T) {
+func TestValidateStrict_AllowsMissingSources(t *testing.T) {
 	m := &Meta{
 		Version:    "0",
 		Sources:    nil,
 		Regulators: nil,
 		Components: []Component{{Ref: "U1", MaxVoltage: 5.0}},
 	}
-	if err := ValidateStrict(m); err == nil {
-		t.Fatalf("expected strict validation error")
+	if err := ValidateStrict(m); err != nil {
+		t.Fatalf("expected missing sources to be valid when voltages can be inferred, got %v", err)
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 )
 
 func ValidateStrict(m *Meta) error {
-	if len(m.Sources) == 0 {
-		return errors.New("meta: sources must not be empty")
+	if m == nil {
+		return errors.New("meta: config must not be nil")
 	}
 	for _, s := range m.Sources {
 		if strings.TrimSpace(s.Net) == "" {

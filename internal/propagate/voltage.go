@@ -26,37 +26,50 @@ type Result struct {
 }
 
 // Propagate simulates the flow of electricity through the design.
-// It starts with known Sources (batteries) and "pushes" voltage through
+// It starts with known initial voltages and "pushes" voltage through
 // Regulators until every connected Net has a calculated voltage.
-func Propagate(desgin *ir.DesignIR, m *meta.Meta) Result {
-
-	// Initialize the map to track voltages.
-	// result.Conflicts starts as a nil slice (idiomatic Go).
+func Propagate(design ir.DesignIR, m meta.Meta, initial map[string]float64) Result {
 	result := Result{
 		NetVoltages: map[string]NetVoltage{},
 	}
 
-	// PHASE 1: Process Primary Power Sources
-	// We start here because these are the "origins" of all voltage in the system.
-	for _, s := range m.Sources {
-		existing, ok := result.NetVoltages[s.Net]
+	initialVoltages := make(map[string]float64, len(initial)+len(m.Sources))
+	for net, voltage := range initial {
+		initialVoltages[net] = voltage
+	}
 
-		// If this Net already has a voltage from another source, check for a mismatch.
-		if ok && existing.Voltage != s.Voltage {
+	metaSourceNets := map[string]struct{}{}
+	sourceVoltages := map[string]float64{}
+	for _, s := range m.Sources {
+		metaSourceNets[s.Net] = struct{}{}
+		if existing, ok := sourceVoltages[s.Net]; ok && existing != s.Voltage {
 			result.Conflicts = append(result.Conflicts,
-				fmt.Sprintf("Voltage conflict on net %s: %.2f vs %.2f", s.Net, existing.Voltage, s.Voltage))
+				fmt.Sprintf("Voltage conflict on net %s: %.2f vs %.2f", s.Net, existing, s.Voltage))
 			continue
 		}
-		// Mark this net as "powered" by a source.
-		result.NetVoltages[s.Net] = NetVoltage{
-			Net:     s.Net,
-			Voltage: s.Voltage,
-			Source:  "source",
+		sourceVoltages[s.Net] = s.Voltage
+		initialVoltages[s.Net] = s.Voltage
+	}
+
+	nets := make([]string, 0, len(initialVoltages))
+	for net := range initialVoltages {
+		nets = append(nets, net)
+	}
+	slices.Sort(nets)
+	for _, net := range nets {
+		source := "initial"
+		if _, ok := metaSourceNets[net]; ok {
+			source = "source"
+		}
+		result.NetVoltages[net] = NetVoltage{
+			Net:     net,
+			Voltage: initialVoltages[net],
+			Source:  source,
 		}
 	}
 
 	// PHASE 2: Process Regulators
-	regs := m.Regulators
+	regs := append([]meta.Regulator(nil), m.Regulators...)
 
 	// Sort regulators by their Reference (U1, U2...) to ensure the
 	// simulation results are deterministic and consistent every run.
@@ -67,7 +80,7 @@ func Propagate(desgin *ir.DesignIR, m *meta.Meta) Result {
 	// maxIter defines the maximum "distance" a voltage can travel.
 	// We loop enough times to allow voltage to flow through a long chain
 	// of regulators (e.g., Battery -> Reg1 -> Reg2 -> Reg3).
-	maxIter := len(regs) + len(m.Sources) + 10
+	maxIter := len(regs) + len(initialVoltages) + 10
 
 	for i := 0; i < maxIter; i++ {
 		// 'changed' tracks if we discovered a NEW voltage in this pass.
@@ -75,11 +88,11 @@ func Propagate(desgin *ir.DesignIR, m *meta.Meta) Result {
 
 		for _, r := range regs {
 			// Find which electrical Nets are physically connected to the regulator's pins.
-			inNet, ok, amb := topology.NetForRefPin(desgin, r.Ref, r.InPin)
+			inNet, ok, amb := topology.NetForRefPin(&design, r.Ref, r.InPin)
 			if !ok || amb {
 				continue //skip if pin isn't connected or wiring is ambigous
 			}
-			outNet, ok, amb := topology.NetForRefPin(desgin, r.Ref, r.OutPin)
+			outNet, ok, amb := topology.NetForRefPin(&design, r.Ref, r.OutPin)
 			if !ok || amb {
 				continue
 			}
@@ -96,7 +109,8 @@ func Propagate(desgin *ir.DesignIR, m *meta.Meta) Result {
 
 			//if the output net already has a different voltage, we have a short circuit/conflic
 			if exists && existing.Voltage != r.OutVoltage {
-				result.Conflicts = append(result.Conflicts, fmt.Sprintf("Voltage conflict on net %s,", outNet))
+				result.Conflicts = append(result.Conflicts,
+					fmt.Sprintf("Voltage conflict on net %s: %.2f vs %.2f", outNet, existing.Voltage, r.OutVoltage))
 				continue
 			}
 

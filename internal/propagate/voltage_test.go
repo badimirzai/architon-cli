@@ -40,7 +40,7 @@ func TestPropagate_SourceSetsVoltage(t *testing.T) {
 		},
 	}
 
-	res := Propagate(design, m)
+	res := Propagate(*design, *m, map[string]float64{"VBAT": 12.0})
 	nv, ok := res.NetVoltages["VBAT"]
 	if !ok {
 		t.Fatalf("expected VBAT voltage to be set")
@@ -62,7 +62,7 @@ func TestPropagate_RegulatorPropagatesOutVoltage(t *testing.T) {
 		},
 	}
 
-	res := Propagate(design, m)
+	res := Propagate(*design, *m, map[string]float64{"VBAT": 24.0})
 
 	out, ok := res.NetVoltages["+5V"]
 	if !ok {
@@ -84,8 +84,30 @@ func TestPropagate_DetectsSourceConflict(t *testing.T) {
 		},
 	}
 
-	res := Propagate(design, m)
+	res := Propagate(*design, *m, map[string]float64{"VBAT": 24.0})
 	if len(res.Conflicts) == 0 {
 		t.Fatalf("expected conflicts")
+	}
+}
+
+func TestPropagate_MetaSourcesOverrideInitialVoltages(t *testing.T) {
+	design := &ir.DesignIR{
+		Nets: []ir.Net{
+			{Name: "/+5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "1"}}},
+		},
+	}
+	m := &meta.Meta{
+		Sources: []meta.Source{
+			{Net: "/+5V", Voltage: 4.75},
+		},
+	}
+
+	res := Propagate(*design, *m, map[string]float64{"/+5V": 5.0})
+	got := res.NetVoltages["/+5V"]
+	if got.Voltage != 4.75 {
+		t.Fatalf("expected meta voltage to override inferred initial value, got %v", got.Voltage)
+	}
+	if got.Source != "source" {
+		t.Fatalf("expected source to be metadata source, got %q", got.Source)
 	}
 }

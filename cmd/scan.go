@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/badimirzai/architon-cli/internal/importers/kicad"
+	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	"github.com/badimirzai/architon-cli/internal/meta"
 	"github.com/badimirzai/architon-cli/internal/propagate"
@@ -74,6 +75,7 @@ Examples:
 			}
 
 			designReport := report.NewVerificationReport(design)
+			inferRes := infer.InferVoltagesFromNetNames(design)
 
 			// -------------------------
 			// META: auto-discover + skeleton generation (directory scans only)
@@ -97,7 +99,7 @@ Examples:
 							}
 							skeletonCreated = true
 							fmt.Fprintf(cmd.OutOrStdout(), "Created .architon/meta.yaml — fill sources/components to enable voltage rules\n")
-							// Do not run rules on the same run.
+							// Do not load the generated placeholder file on the same run.
 							metaPath = ""
 						}
 					} else {
@@ -112,8 +114,8 @@ Examples:
 			// -------------------------
 			// META: load + decide whether to run rules
 			// -------------------------
-			var metaObj *meta.Meta
-			metaUsed := false
+			metaObj := &meta.Meta{}
+			metaLoaded := false
 
 			if metaPath != "" && !skeletonCreated {
 				// meta-based rules require nets
@@ -141,18 +143,19 @@ Examples:
 						}
 					}
 					metaObj = parsed
-					metaUsed = true
+					metaLoaded = true
 				} else {
-					// Auto-discovered: only run rules when configured
-					if meta.IsConfigured(parsed) {
-						if err := meta.ValidateStrict(parsed); err != nil {
+					// Auto-discovered: use only completed entries, so skeleton placeholders stay informational.
+					prepared := scanPrepareAutoMeta(parsed)
+					if scanMetaHasEntries(prepared) {
+						if err := meta.ValidateStrict(prepared); err != nil {
 							return &ExitError{
 								Code: 3,
 								Err:  fmt.Errorf("meta invalid: %w", err),
 							}
 						}
-						metaObj = parsed
-						metaUsed = true
+						metaObj = prepared
+						metaLoaded = true
 					} else {
 						fmt.Fprintf(cmd.OutOrStdout(), "Hint: edit .architon/meta.yaml (sources/components) to enable voltage rules\n")
 					}
@@ -162,25 +165,25 @@ Examples:
 			// -------------------------
 			// VOLTAGE PROPAGATION + RULES
 			// -------------------------
-			if metaUsed {
-				propRes := propagate.Propagate(design, metaObj)
+			initialVoltages := scanInitialVoltages(inferRes, metaObj)
+			propRes := propagate.Result{NetVoltages: map[string]propagate.NetVoltage{}}
+			if designReport.Summary.Nets > 0 && len(initialVoltages) > 0 {
+				propRes = propagate.Propagate(*design, *metaObj, initialVoltages)
+			}
 
-				// Attach derived voltages in stable ordering (by net name)
-				netVolts := make([]report.NetVoltage, 0, len(propRes.NetVoltages))
-				for _, nv := range propRes.NetVoltages {
-					netVolts = append(netVolts, report.NetVoltage{
-						Net:     nv.Net,
-						Voltage: nv.Voltage,
-						Source:  nv.Source,
-					})
-				}
-				sort.Slice(netVolts, func(i, j int) bool { return netVolts[i].Net < netVolts[j].Net })
-
+			netVolts := scanReportNetVoltages(propRes.NetVoltages)
+			inferredNetVolts := scanReportInferredNetVoltages(inferRes)
+			unknownVoltageNets := scanReportUnknownVoltageNets(inferRes)
+			if len(netVolts) > 0 || len(inferredNetVolts) > 0 || len(unknownVoltageNets) > 0 || len(propRes.Conflicts) > 0 {
 				designReport.Derived = &report.Derived{
-					NetVoltages: netVolts,
-					Conflicts:   propRes.Conflicts,
+					NetVoltages:         netVolts,
+					InferredNetVoltages: inferredNetVolts,
+					UnknownVoltageNets:  unknownVoltageNets,
+					Conflicts:           propRes.Conflicts,
 				}
+			}
 
+			if len(propRes.Conflicts) > 0 {
 				// Conflicts are violations (severity error => exit 2)
 				for _, c := range propRes.Conflicts {
 					designReport.Rules = append(designReport.Rules, report.RuleResult{
@@ -189,10 +192,14 @@ Examples:
 						Message:  c,
 					})
 				}
+			}
 
+			if metaLoaded && len(propRes.NetVoltages) > 0 {
 				// Overvoltage violations
 				designReport.Rules = append(designReport.Rules, rules.Overvoltage(design, metaObj, propRes.NetVoltages)...)
+			}
 
+			if len(designReport.Rules) > 0 {
 				// Deterministic rule ordering
 				sort.SliceStable(designReport.Rules, func(i, j int) bool {
 					if designReport.Rules[i].ID == designReport.Rules[j].ID {
@@ -200,11 +207,10 @@ Examples:
 					}
 					return designReport.Rules[i].ID < designReport.Rules[j].ID
 				})
-
-				// Update summary (because report.NewVerificationReport() computed these before rules existed)
-				designReport.Summary.Rules = len(designReport.Rules)
-				designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
 			}
+			// Update summary (because report.NewVerificationReport() computed these before rules existed)
+			designReport.Summary.Rules = len(designReport.Rules)
+			designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
 
 			// Write report JSON after derived/rules are attached
 			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
@@ -233,6 +239,7 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
+			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d\n", len(inferRes.Voltages), len(inferRes.Unknowns))
 
 			if len(designReport.Rules) > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "Rule findings:\n")
@@ -697,6 +704,101 @@ func scanDetectURefs(design *ir.DesignIR) []string {
 		refs = refs[:10]
 	}
 	return refs
+}
+
+func scanInitialVoltages(inferRes infer.Result, m *meta.Meta) map[string]float64 {
+	initial := make(map[string]float64, len(inferRes.Voltages))
+	for net, inferred := range inferRes.Voltages {
+		initial[net] = inferred.Voltage
+	}
+	if m != nil {
+		for _, source := range m.Sources {
+			initial[source.Net] = source.Voltage
+		}
+	}
+	return initial
+}
+
+func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report.NetVoltage {
+	out := make([]report.NetVoltage, 0, len(netVoltages))
+	for _, nv := range netVoltages {
+		out = append(out, report.NetVoltage{
+			Net:     nv.Net,
+			Voltage: nv.Voltage,
+			Source:  nv.Source,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Net < out[j].Net })
+	return out
+}
+
+func scanReportInferredNetVoltages(inferRes infer.Result) []report.NetVoltage {
+	out := make([]report.NetVoltage, 0, len(inferRes.Voltages))
+	for _, inferred := range inferRes.Voltages {
+		out = append(out, report.NetVoltage{
+			Net:     inferred.Net,
+			Voltage: inferred.Voltage,
+			Source:  inferred.Source,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Net < out[j].Net })
+	return out
+}
+
+func scanReportUnknownVoltageNets(inferRes infer.Result) []report.UnknownVoltageNet {
+	out := make([]report.UnknownVoltageNet, 0, len(inferRes.Unknowns))
+	for _, unknown := range inferRes.Unknowns {
+		out = append(out, report.UnknownVoltageNet{
+			Net:    unknown.Net,
+			Reason: unknown.Reason,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Net != out[j].Net {
+			return out[i].Net < out[j].Net
+		}
+		return out[i].Reason < out[j].Reason
+	})
+	return out
+}
+
+func scanPrepareAutoMeta(m *meta.Meta) *meta.Meta {
+	if m == nil {
+		return &meta.Meta{}
+	}
+
+	prepared := &meta.Meta{
+		Version: m.Version,
+	}
+	for _, source := range m.Sources {
+		if source.Voltage == 0 {
+			continue
+		}
+		prepared.Sources = append(prepared.Sources, source)
+	}
+	for _, regulator := range m.Regulators {
+		if strings.TrimSpace(regulator.Ref) == "" &&
+			strings.TrimSpace(regulator.InPin) == "" &&
+			strings.TrimSpace(regulator.OutPin) == "" &&
+			regulator.OutVoltage == 0 {
+			continue
+		}
+		prepared.Regulators = append(prepared.Regulators, regulator)
+	}
+	for _, component := range m.Components {
+		if component.MaxVoltage == 0 {
+			continue
+		}
+		prepared.Components = append(prepared.Components, component)
+	}
+	return prepared
+}
+
+func scanMetaHasEntries(m *meta.Meta) bool {
+	if m == nil {
+		return false
+	}
+	return len(m.Sources) > 0 || len(m.Regulators) > 0 || len(m.Components) > 0
 }
 
 func detectScanInputFormat(path string) (string, error) {

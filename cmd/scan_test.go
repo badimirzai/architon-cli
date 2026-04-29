@@ -34,6 +34,22 @@ type scanReport struct {
 			Name string `json:"name"`
 		} `json:"nets"`
 	} `json:"design_ir"`
+	Derived *struct {
+		NetVoltages []struct {
+			Net     string  `json:"net"`
+			Voltage float64 `json:"voltage"`
+			Source  string  `json:"source"`
+		} `json:"net_voltages"`
+		InferredNetVoltages []struct {
+			Net     string  `json:"net"`
+			Voltage float64 `json:"voltage"`
+			Source  string  `json:"source"`
+		} `json:"inferred_net_voltages"`
+		UnknownVoltageNets []struct {
+			Net    string `json:"net"`
+			Reason string `json:"reason"`
+		} `json:"unknown_voltage_nets"`
+	} `json:"derived"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -452,6 +468,119 @@ func TestScan_NetlistFileWritesReport(t *testing.T) {
 	}
 	if len(report.DesignIR.Nets) != 2 {
 		t.Fatalf("expected 2 nets in design IR, got %d", len(report.DesignIR.Nets))
+	}
+}
+
+func TestScan_NetlistReportsInferredAndUnknownVoltageNets(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")))
+	if err != nil {
+		t.Fatalf("expected netlist scan with inferred voltages to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "Inferred voltages: 2 Unknown voltage nets: 1\n") {
+		t.Fatalf("expected voltage inference counts, got %q", stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if report.Derived == nil {
+		t.Fatal("expected derived voltage report")
+	}
+
+	var found5V bool
+	for _, nv := range report.Derived.InferredNetVoltages {
+		if nv.Net == "/+5V" {
+			found5V = true
+			if nv.Voltage != 5.0 {
+				t.Fatalf("expected /+5V inferred as 5.0, got %v", nv.Voltage)
+			}
+			if nv.Source != "net_name" {
+				t.Fatalf("expected inferred source net_name, got %q", nv.Source)
+			}
+		}
+	}
+	if !found5V {
+		t.Fatalf("expected /+5V in inferred voltages, got %+v", report.Derived.InferredNetVoltages)
+	}
+
+	if len(report.Derived.UnknownVoltageNets) != 1 {
+		t.Fatalf("expected 1 unknown voltage net, got %+v", report.Derived.UnknownVoltageNets)
+	}
+	if report.Derived.UnknownVoltageNets[0].Net != "/VBAT" {
+		t.Fatalf("expected /VBAT unknown, got %+v", report.Derived.UnknownVoltageNets)
+	}
+	if report.Derived.UnknownVoltageNets[0].Reason != "ambiguous power net name" {
+		t.Fatalf("expected ambiguous power reason, got %q", report.Derived.UnknownVoltageNets[0].Reason)
+	}
+}
+
+func TestScan_OvervoltageUsesInferredVoltageWithoutMetaSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+	writeScanTestFile(t, metaPath, `version: "0"
+sources: []
+components:
+  - ref: U1
+    max_voltage: 3.3
+`)
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")), "--meta", metaPath)
+	if err == nil {
+		t.Fatalf("expected overvoltage exit, got success\n%s", stdout)
+	}
+
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %d\n%s", exitErr.Code, stdout)
+	}
+	if !strings.Contains(stdout, "RULE_OVERVOLTAGE") {
+		t.Fatalf("expected overvoltage finding, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
+		t.Fatalf("expected inferred /+5V overvoltage, got %q", stdout)
+	}
+}
+
+func TestScan_MetaSourceOverridesInferredVoltage(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+	writeScanTestFile(t, metaPath, `version: "0"
+sources:
+  - net: /+5V
+    voltage: 4.7
+components:
+  - ref: U1
+    max_voltage: 4.8
+`)
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")), "--meta", metaPath)
+	if err != nil {
+		t.Fatalf("expected meta override to avoid overvoltage, got %v\n%s", err, stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if report.Derived == nil {
+		t.Fatal("expected derived voltage report")
+	}
+
+	var found bool
+	for _, nv := range report.Derived.NetVoltages {
+		if nv.Net != "/+5V" {
+			continue
+		}
+		found = true
+		if nv.Voltage != 4.7 {
+			t.Fatalf("expected meta override voltage 4.7, got %v", nv.Voltage)
+		}
+		if nv.Source != "source" {
+			t.Fatalf("expected metadata source, got %q", nv.Source)
+		}
+	}
+	if !found {
+		t.Fatalf("expected /+5V in propagated net voltages, got %+v", report.Derived.NetVoltages)
 	}
 }
 

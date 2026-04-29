@@ -1,0 +1,7 @@
+version: "0"
+
+sources: []
+
+components:
+  - ref: U1
+    max_voltage: 3.3
