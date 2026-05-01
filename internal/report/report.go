@@ -8,15 +8,24 @@ import (
 
 	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
+	"github.com/badimirzai/architon-cli/internal/rails"
 )
 
 const SchemaVersion = "0"
 
 // RuleResult is reserved for deterministic verification rules over DesignIR.
 type RuleResult struct {
-	ID       string `json:"id"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
+	ID        string               `json:"id"`
+	Severity  string               `json:"severity"`
+	Message   string               `json:"message"`
+	Inference *InferenceProvenance `json:"inference,omitempty"`
+}
+
+type InferenceProvenance struct {
+	NetName         string  `json:"net_name"`
+	Source          string  `json:"source"`
+	ConfidenceScore float64 `json:"confidence_score"`
+	ConfidenceLevel string  `json:"confidence_level"`
 }
 
 type Summary struct {
@@ -48,8 +57,9 @@ type Derived struct {
 	InferredNetVoltages []NetVoltage        `json:"inferred_net_voltages"`
 	UnknownVoltageNets  []UnknownVoltageNet `json:"unknown_voltage_nets"`
 	// RailInferences records deterministic voltage provenance and confidence for rails.
-	RailInferences []infer.VoltageInference `json:"rail_inferences"`
-	Conflicts      []string                 `json:"conflicts,omitempty"`
+	RailInferences []infer.VoltageInference  `json:"rail_inferences"`
+	RailCoverage   rails.RailCoverageSummary `json:"rail_coverage"`
+	Conflicts      []string                  `json:"conflicts,omitempty"`
 }
 
 type NetVoltage struct {

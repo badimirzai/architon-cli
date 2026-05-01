@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 
+	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	"github.com/badimirzai/architon-cli/internal/meta"
 	"github.com/badimirzai/architon-cli/internal/propagate"
@@ -16,6 +17,15 @@ func Overvoltage(
 	desin *ir.DesignIR,
 	meta *meta.Meta,
 	netVoltages map[string]propagate.NetVoltage, // The results from the Propagate function
+) []report.RuleResult {
+	return OvervoltageWithInferences(desin, meta, netVoltages, nil)
+}
+
+func OvervoltageWithInferences(
+	desin *ir.DesignIR,
+	meta *meta.Meta,
+	netVoltages map[string]propagate.NetVoltage,
+	inferencesByNet map[string]infer.VoltageInference,
 ) []report.RuleResult {
 	var results []report.RuleResult
 
@@ -35,9 +45,7 @@ func Overvoltage(
 
 			// Step 4: Compare the actual net voltage against the component's safety limit.
 			if netV.Voltage > comp.MaxVoltage {
-
-				// Step 5: If it's too high, record a rule violation.
-				results = append(results, report.RuleResult{
+				result := report.RuleResult{
 					ID:       "RULE_OVERVOLTAGE",
 					Severity: "error", // critical failure that could damage hardware.
 					Message: fmt.Sprintf(
@@ -48,7 +56,18 @@ func Overvoltage(
 						netV.Voltage,
 						comp.MaxVoltage,
 					),
-				})
+				}
+				if inference, ok := inferencesByNet[c.Net]; ok {
+					result.Inference = &report.InferenceProvenance{
+						NetName:         inference.NetName,
+						Source:          inference.Source,
+						ConfidenceScore: inference.ConfidenceScore,
+						ConfidenceLevel: inference.ConfidenceLevel,
+					}
+				}
+
+				// Step 5: If it's too high, record a rule violation.
+				results = append(results, result)
 			}
 		}
 	}
