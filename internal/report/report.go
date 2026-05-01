@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
@@ -46,7 +47,9 @@ type Derived struct {
 	NetVoltages         []NetVoltage        `json:"net_voltages,omitempty"`
 	InferredNetVoltages []NetVoltage        `json:"inferred_net_voltages"`
 	UnknownVoltageNets  []UnknownVoltageNet `json:"unknown_voltage_nets"`
-	Conflicts           []string            `json:"conflicts,omitempty"`
+	// RailInferences records deterministic voltage provenance and confidence for rails.
+	RailInferences []infer.VoltageInference `json:"rail_inferences"`
+	Conflicts      []string                 `json:"conflicts,omitempty"`
 }
 
 type NetVoltage struct {
