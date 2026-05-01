@@ -69,10 +69,10 @@ func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 	if !strings.Contains(output, "Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%\n") {
 		t.Fatalf("expected output to show compact rail coverage\n%s", output)
 	}
-	if !strings.Contains(output, "RULE_OVERVOLTAGE") {
-		t.Fatalf("expected output to show RULE_OVERVOLTAGE\n%s", output)
+	if !strings.Contains(output, "RULE_SUPPLY_CONTRACT") {
+		t.Fatalf("expected output to show RULE_SUPPLY_CONTRACT\n%s", output)
 	}
-	if !strings.Contains(output, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
+	if !strings.Contains(output, "Net /+5V provides 5.00V but U1 pin 1 allows max 3.30V") {
 		t.Fatalf("expected output to show overvoltage message\n%s", output)
 	}
 	if !strings.Contains(output, "exit code: 2\n") {

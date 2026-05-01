@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	"github.com/badimirzai/architon-cli/internal/rails"
@@ -13,14 +14,22 @@ import (
 
 const SchemaVersion = "0"
 
-// RuleResult is reserved for deterministic verification rules over DesignIR.
+// RuleResult is the report-facing shape of a rule finding.
+// The legacy id field is kept alongside rule_id for compatibility.
 type RuleResult struct {
 	ID        string               `json:"id"`
+	RuleID    string               `json:"rule_id,omitempty"`
 	Severity  string               `json:"severity"`
+	Net       string               `json:"net,omitempty"`
 	Message   string               `json:"message"`
+	Provider  string               `json:"provider,omitempty"`
+	Consumer  string               `json:"consumer,omitempty"`
+	Ref       string               `json:"ref,omitempty"`
+	Pin       string               `json:"pin,omitempty"`
 	Inference *InferenceProvenance `json:"inference,omitempty"`
 }
 
+// InferenceProvenance links a voltage-based finding back to rail inference.
 type InferenceProvenance struct {
 	NetName         string  `json:"net_name"`
 	Source          string  `json:"source"`
@@ -28,10 +37,13 @@ type InferenceProvenance struct {
 	ConfidenceLevel string  `json:"confidence_level"`
 }
 
+// Summary is the compact report header used by both JSON and CLI output.
 type Summary struct {
 	Source             string   `json:"source"`
+	SourceImporter     string   `json:"source_importer,omitempty"`
 	InputFile          string   `json:"input_file"`
 	Parts              int      `json:"parts"`
+	Pins               int      `json:"pins,omitempty"`
 	Rules              int      `json:"rules"`
 	HasFailures        bool     `json:"has_failures"`
 	Delimiter          string   `json:"delimiter,omitempty"`
@@ -43,15 +55,18 @@ type Summary struct {
 	Nets               int      `json:"nets,omitempty"`
 }
 
-// VerificationReport is the output schema for BOM scan results.
+// VerificationReport is the output schema for scan results.
 type VerificationReport struct {
-	ReportVersion string       `json:"report_version"`
-	Summary       Summary      `json:"summary"`
-	DesignIR      *ir.DesignIR `json:"design_ir"`
-	Rules         []RuleResult `json:"rules"`
-	Derived       *Derived     `json:"derived,omitempty"`
+	ReportVersion    string                     `json:"report_version"`
+	Summary          Summary                    `json:"summary"`
+	DesignIR         *ir.DesignIR               `json:"design_ir"`
+	Rules            []RuleResult               `json:"rules"`
+	Findings         []RuleResult               `json:"findings"`
+	ContractCoverage *contracts.CoverageSummary `json:"contract_coverage,omitempty"`
+	Derived          *Derived                   `json:"derived,omitempty"`
 }
 
+// Derived stores non-authoritative analysis data that supports findings.
 type Derived struct {
 	NetVoltages         []NetVoltage        `json:"net_voltages,omitempty"`
 	InferredNetVoltages []NetVoltage        `json:"inferred_net_voltages"`
@@ -62,12 +77,14 @@ type Derived struct {
 	Conflicts      []string                  `json:"conflicts,omitempty"`
 }
 
+// NetVoltage is report-facing voltage evidence for a net.
 type NetVoltage struct {
 	Net     string  `json:"net"`
 	Voltage float64 `json:"voltage"`
 	Source  string  `json:"source"`
 }
 
+// UnknownVoltageNet explains why a rail-like net could not be assigned voltage.
 type UnknownVoltageNet struct {
 	Net    string `json:"net"`
 	Reason string `json:"reason"`
@@ -87,8 +104,10 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 		ReportVersion: SchemaVersion,
 		Summary: Summary{
 			Source:             design.Source,
+			SourceImporter:     design.SourceInfo.Importer,
 			InputFile:          design.Metadata.InputFile,
 			Parts:              len(design.Parts),
+			Pins:               countPins(design),
 			Rules:              len(rules),
 			HasFailures:        len(design.ParseErrors) > 0 || hasRuleFailures(rules),
 			Delimiter:          design.Metadata.Delimiter,
@@ -101,12 +120,16 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 		},
 		DesignIR: design,
 		Rules:    rules,
+		Findings: rules,
 	}
 }
 
 // WriteVerificationReport writes report JSON to a file with stable formatting.
-func WriteVerificationReport(path string, report VerificationReport) error {
-	data, err := json.MarshalIndent(report, "", "  ")
+func WriteVerificationReport(path string, result VerificationReport) error {
+	// Keep findings as a clearer alias of rules while preserving the older
+	// rules field used by existing reports and tests.
+	result.Findings = append([]RuleResult{}, result.Rules...)
+	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal report JSON: %w", err)
 	}
@@ -125,6 +148,29 @@ func hasRuleFailures(rules []RuleResult) bool {
 		}
 	}
 	return false
+}
+
+// countPins accepts either explicit DesignIR.Pins or net-derived PinRefs.
+func countPins(design *ir.DesignIR) int {
+	if design == nil {
+		return 0
+	}
+	seen := map[string]struct{}{}
+	for _, pin := range design.Pins {
+		if pin.Ref == "" || pin.Pin == "" {
+			continue
+		}
+		seen[pin.Ref+"\x00"+pin.Pin] = struct{}{}
+	}
+	for _, net := range design.Nets {
+		for _, pin := range net.Pins {
+			if pin.Ref == "" || pin.Pin == "" {
+				continue
+			}
+			seen[pin.Ref+"\x00"+pin.Pin] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 func nextSteps(parseErrors []string) []string {

@@ -49,6 +49,7 @@ func ImportKiCadBOM(path string, mapping ColumnMapping) (*ir.DesignIR, error) {
 			ParsedAt:  time.Now().UTC().Format(time.RFC3339),
 		},
 	}
+	ensureKiCadSourceInfo(design, "bom_csv", path)
 
 	lines := splitNormalizedLines(string(content))
 	delimiter := detectDelimiter(lines)

@@ -233,9 +233,9 @@ You can override discovery explicitly:
 rv scan . --bom bom/bom.csv --netlist exports/project.net
 ```
 
-### Voltage rules for KiCad netlists
+### Contract rules for imported designs
 
-KiCad netlists provide connectivity, but they do not reliably provide electrical intent such as source voltages, regulator outputs, or component maximum voltage ratings. Architon uses `.architon/meta.yaml` or `--meta` for that data.
+KiCad netlists provide connectivity, but they do not reliably provide electrical intent such as source voltages, regulator outputs, or component maximum voltage ratings. Architon imports KiCad into the same DesignIR used by other adapters, then enriches contracts from `.architon/meta.yaml` or `--meta`.
 
 For a direct netlist scan, pass the metadata file explicitly:
 
@@ -249,7 +249,7 @@ For a project directory scan, Architon auto-discovers `.architon/meta.yaml`:
 rv scan .
 ```
 
-Architon deterministically infers obvious rail voltages from net names, then enriches that with metadata sources and regulator outputs from `meta.yaml`. Component limits still come from metadata.
+Architon deterministically infers obvious rail voltages from net names, then enriches contracts with metadata sources and regulator outputs from `meta.yaml`. Rules run on DesignIR + ContractIR, not on KiCad files.
 
 Minimal voltage-rule metadata:
 
@@ -285,7 +285,7 @@ Rules: 1
 Violations: 1
 Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%
 Rule findings:
-- ERROR RULE_OVERVOLTAGE: U1 pin 1 on net /+5V is 5.00V (max 3.30V)
+- ERROR RULE_SUPPLY_CONTRACT: Net /+5V provides 5.00V but U1 pin 1 allows max 3.30V
 Wrote architon-report.json
 exit code: 2
 ```

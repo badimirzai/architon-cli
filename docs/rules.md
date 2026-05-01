@@ -105,9 +105,11 @@ Rules:
 
 ## Scan voltage rules (`rv scan`)
 
-Netlist-backed scans can run deterministic voltage rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`.
+Netlist-backed scans can run deterministic contract rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`.
 
-- `RULE_OVERVOLTAGE` (`ERROR`): component pin is connected to a net voltage above that component's metadata `max_voltage`
+- `RULE_SUPPLY_CONTRACT` (`ERROR`): provider voltage on a net is outside a consumer pin's contracted voltage range
+- `RULE_LOGIC_LEVEL_CONTRACT` (`ERROR`): output logic voltage exceeds an input pin's contracted tolerance
+- `RULE_BUS_ROLE_CONTRACT` (`WARNING`/`ERROR`): obvious I2C role/direction conflicts without guessing when data is missing
 - `RULE_VOLTAGE_CONFLICT` (`ERROR`): metadata, inferred, or propagated voltage evidence conflicts on a net
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, and confidence level.
