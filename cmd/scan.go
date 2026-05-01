@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/badimirzai/architon-cli/internal/contracts"
+	"github.com/badimirzai/architon-cli/internal/enrichment"
+	"github.com/badimirzai/architon-cli/internal/importers"
 	"github.com/badimirzai/architon-cli/internal/importers/kicad"
 	"github.com/badimirzai/architon-cli/internal/infer"
 	"github.com/badimirzai/architon-cli/internal/ir"
@@ -204,6 +207,7 @@ Examples:
 				for _, c := range propRes.Conflicts {
 					result := report.RuleResult{
 						ID:       "RULE_VOLTAGE_CONFLICT",
+						RuleID:   "RULE_VOLTAGE_CONFLICT",
 						Severity: "error",
 						Message:  c,
 					}
@@ -214,10 +218,23 @@ Examples:
 				}
 			}
 
-			if metaLoaded && len(propRes.NetVoltages) > 0 {
-				// Overvoltage violations
-				designReport.Rules = append(designReport.Rules, rules.OvervoltageWithInferences(design, metaObj, propRes.NetVoltages, inferencesByNet)...)
+			// Contract enrichment is the boundary between imported design facts
+			// and rule-ready electrical intent. Rules below do not read meta.yaml,
+			// propagation structs, KiCad parser data, or file paths.
+			contractSources := []enrichment.ContractSource{
+				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
 			}
+			if metaLoaded {
+				contractSources = append(contractSources, enrichment.NewMetaYAMLSource(metaObj))
+			}
+			contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
+			if err != nil {
+				return internalError(err)
+			}
+			coverage := contracts.SummarizeCoverage(design, contractIR)
+			designReport.ContractCoverage = &coverage
+			contractFindings := rules.CheckAll(design, contractIR, rules.DefaultRules())
+			designReport.Rules = append(designReport.Rules, scanReportRuleResults(contractFindings, inferencesByNet)...)
 
 			if len(designReport.Rules) > 0 {
 				// Deterministic rule ordering
@@ -325,38 +342,39 @@ Examples:
 	return cmd
 }
 
+// importResolvedScanInput keeps CLI discovery separate from importer behavior.
+// Today it wires KiCad as the only adapter; future adapters can be added here
+// without changing rule packages.
 func importResolvedScanInput(input resolvedScanInput, mappingFile string) (*ir.DesignIR, error) {
+	mapping, err := loadScanMapping(mappingFile)
+	if err != nil {
+		return nil, err
+	}
+	kicadImporter := kicad.NewImporter(mapping)
+
 	if !input.Directory {
-		return importDirectScanPath(input.DirectPath, mappingFile)
+		return importDirectScanPath(input.DirectPath, kicadImporter)
 	}
 
 	switch {
 	case input.BOMPath != "" && input.NetlistPath != "":
-		mapping, err := loadScanMapping(mappingFile)
-		if err != nil {
-			return nil, err
-		}
-		bomDesign, err := kicad.ImportKiCadBOM(input.BOMPath, mapping)
+		bomDesign, err := kicadImporter.Import(input.BOMPath)
 		if err != nil {
 			return nil, fmt.Errorf("import KiCad BOM: %w", err)
 		}
-		netlistDesign, err := kicad.ImportKiCadNetlist(input.NetlistPath)
+		netlistDesign, err := kicadImporter.Import(input.NetlistPath)
 		if err != nil {
 			return nil, fmt.Errorf("import KiCad netlist: %w", err)
 		}
 		return ir.MergeProjectIR(bomDesign, netlistDesign, input.ProjectPath, time.Now()), nil
 	case input.BOMPath != "":
-		mapping, err := loadScanMapping(mappingFile)
-		if err != nil {
-			return nil, err
-		}
-		design, err := kicad.ImportKiCadBOM(input.BOMPath, mapping)
+		design, err := kicadImporter.Import(input.BOMPath)
 		if err != nil {
 			return nil, fmt.Errorf("import KiCad BOM: %w", err)
 		}
 		return design, nil
 	case input.NetlistPath != "":
-		design, err := kicad.ImportKiCadNetlist(input.NetlistPath)
+		design, err := kicadImporter.Import(input.NetlistPath)
 		if err != nil {
 			return nil, fmt.Errorf("import KiCad netlist: %w", err)
 		}
@@ -366,28 +384,23 @@ func importResolvedScanInput(input resolvedScanInput, mappingFile string) (*ir.D
 	}
 }
 
-func importDirectScanPath(path string, mappingFile string) (*ir.DesignIR, error) {
+// importDirectScanPath uses the generic importer interface even for direct
+// KiCad files so the single-file path follows the same adapter boundary.
+func importDirectScanPath(path string, kicadImporter kicad.Importer) (*ir.DesignIR, error) {
 	format, err := detectScanInputFormat(path)
 	if err != nil {
 		return nil, err
 	}
 
+	design, _, importErr := importers.Import(path, []importers.Importer{kicadImporter})
+	if importErr != nil {
+		return nil, importErr
+	}
+
 	switch format {
 	case "csv":
-		mapping, err := loadScanMapping(mappingFile)
-		if err != nil {
-			return nil, err
-		}
-		design, err := kicad.ImportKiCadBOM(path, mapping)
-		if err != nil {
-			return nil, fmt.Errorf("import KiCad BOM: %w", err)
-		}
 		return design, nil
 	case "netlist":
-		design, err := kicad.ImportKiCadNetlist(path)
-		if err != nil {
-			return nil, fmt.Errorf("import KiCad netlist: %w", err)
-		}
 		return design, nil
 	default:
 		return nil, fmt.Errorf("unsupported input format for %q (currently supported: CSV, .net)", path)
@@ -754,6 +767,50 @@ func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Net < out[j].Net })
+	return out
+}
+
+// scanContractNetVoltages adapts propagation output into the enrichment package
+// without letting contract sources depend on propagation internals.
+func scanContractNetVoltages(netVoltages map[string]propagate.NetVoltage) []enrichment.NetVoltage {
+	out := make([]enrichment.NetVoltage, 0, len(netVoltages))
+	for _, nv := range netVoltages {
+		out = append(out, enrichment.NetVoltage{
+			Net:     nv.Net,
+			Voltage: nv.Voltage,
+			Source:  nv.Source,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Net != out[j].Net {
+			return out[i].Net < out[j].Net
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
+// scanReportRuleResults adapts rule-engine findings into the stable report
+// schema and attaches voltage inference provenance when available.
+func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]infer.VoltageInference) []report.RuleResult {
+	out := make([]report.RuleResult, 0, len(findings))
+	for _, finding := range findings {
+		result := report.RuleResult{
+			ID:       finding.RuleID,
+			RuleID:   finding.RuleID,
+			Severity: finding.Severity,
+			Net:      finding.Net,
+			Message:  finding.Message,
+			Provider: finding.Provider,
+			Consumer: finding.Consumer,
+			Ref:      finding.Ref,
+			Pin:      finding.Pin,
+		}
+		if inference, ok := inferencesByNet[finding.Net]; ok {
+			result.Inference = scanReportInferenceProvenance(inference)
+		}
+		out = append(out, result)
+	}
 	return out
 }
 

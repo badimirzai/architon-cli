@@ -32,6 +32,7 @@ func ImportKiCadNetlist(path string) (*ir.DesignIR, error) {
 			ParsedAt:  time.Now().UTC().Format(time.RFC3339),
 		},
 	}
+	ensureKiCadSourceInfo(design, "netlist_sexpr", path)
 
 	componentsSection := findSection(rootExprs, "components")
 	if componentsSection != nil {
@@ -52,6 +53,7 @@ func ImportKiCadNetlist(path string) (*ir.DesignIR, error) {
 
 	sortPartsByRef(design.Parts)
 	sortNetsByName(design.Nets)
+	design.Pins = pinsFromNets(design.Nets)
 	return design, nil
 }
 
@@ -383,4 +385,30 @@ func sortPinsByRef(pins []ir.PinRef) {
 		}
 		return pins[i].Pin < pins[j].Pin
 	})
+}
+
+func pinsFromNets(nets []ir.Net) []ir.Pin {
+	seen := map[string]ir.Pin{}
+	for _, net := range nets {
+		for _, pin := range net.Pins {
+			ref := strings.TrimSpace(pin.Ref)
+			pinID := strings.TrimSpace(pin.Pin)
+			if ref == "" || pinID == "" {
+				continue
+			}
+			seen[ref+"\x00"+pinID] = ir.Pin{Ref: ref, Pin: pinID}
+		}
+	}
+
+	pins := make([]ir.Pin, 0, len(seen))
+	for _, pin := range seen {
+		pins = append(pins, pin)
+	}
+	sort.Slice(pins, func(i, j int) bool {
+		if pins[i].Ref != pins[j].Ref {
+			return pins[i].Ref < pins[j].Ref
+		}
+		return pins[i].Pin < pins[j].Pin
+	})
+	return pins
 }

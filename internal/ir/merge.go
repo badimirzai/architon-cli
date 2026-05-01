@@ -5,11 +5,18 @@ import (
 	"time"
 )
 
-// MergeProjectIR combines BOM and netlist imports into a single project-level DesignIR.
+// MergeProjectIR combines BOM and netlist imports into a single project-level
+// DesignIR. BOM fields win for part metadata, while netlists supply connectivity.
 func MergeProjectIR(bom *DesignIR, netlist *DesignIR, projectPath string, now time.Time) *DesignIR {
 	merged := &DesignIR{
 		Version: SchemaVersion,
 		Source:  "kicad_project",
+		SourceInfo: SourceInfo{
+			Importer: "kicad",
+			Format:   "project",
+			Input:    projectPath,
+			Imported: now.UTC().Format(time.RFC3339),
+		},
 		Metadata: IRMetadata{
 			InputFile: projectPath,
 			ParsedAt:  now.UTC().Format(time.RFC3339),
@@ -40,6 +47,8 @@ func MergeProjectIR(bom *DesignIR, netlist *DesignIR, projectPath string, now ti
 		for _, part := range netlist.Parts {
 			cloned := clonePart(part)
 			if idx, ok := partIndex[cloned.Ref]; ok {
+				// Fill only missing BOM metadata from the netlist so explicit BOM
+				// data remains the stronger source.
 				if merged.Parts[idx].Value == "" && cloned.Value != "" {
 					merged.Parts[idx].Value = cloned.Value
 				}
@@ -51,9 +60,11 @@ func MergeProjectIR(bom *DesignIR, netlist *DesignIR, projectPath string, now ti
 			partIndex[cloned.Ref] = len(merged.Parts)
 			merged.Parts = append(merged.Parts, cloned)
 		}
+		merged.Pins = clonePins(netlist.Pins)
 		merged.Nets = cloneNets(netlist.Nets)
 	}
 
+	// Sort all merged collections so equivalent imports produce byte-stable JSON.
 	sort.Slice(merged.Parts, func(i, j int) bool {
 		if merged.Parts[i].Ref != merged.Parts[j].Ref {
 			return merged.Parts[i].Ref < merged.Parts[j].Ref
@@ -83,6 +94,15 @@ func MergeProjectIR(bom *DesignIR, netlist *DesignIR, projectPath string, now ti
 	}
 
 	return merged
+}
+
+func clonePins(pins []Pin) []Pin {
+	if len(pins) == 0 {
+		return nil
+	}
+	cloned := make([]Pin, len(pins))
+	copy(cloned, pins)
+	return cloned
 }
 
 func clonePart(part Part) Part {

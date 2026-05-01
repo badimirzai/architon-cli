@@ -190,7 +190,11 @@ Example failure snippet:
 `rv scan` implementation is intentionally separated:
 
 - `internal/ir`: stable, input-agnostic `DesignIR` model
+- `internal/importers`: importer adapter interface; KiCad, Altium, and future sources compile to DesignIR
 - `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion, header mapping, and KiCad `.net` S-expression parsing
+- `internal/contracts`: importer-agnostic component, pin, and net contract schema
+- `internal/enrichment`: pluggable contract sources such as `meta.yaml`, inferred rail voltages, future databases, or UI input
+- `internal/rules`: contract-level rules that consume only DesignIR + ContractIR
 - `cmd/scan.go`: deterministic single-file or project-directory scan input resolution
 - `internal/ir`: deterministic BOM + netlist merge into one project-level DesignIR
 - `internal/infer`: deterministic net-name and metadata-enriched rail voltage inference

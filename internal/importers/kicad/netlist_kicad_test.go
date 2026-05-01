@@ -1,6 +1,10 @@
 package kicad
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/badimirzai/architon-cli/internal/importers"
+)
 
 func TestImportKiCadNetlist_ParsesPartsAndNets(t *testing.T) {
 	design, err := ImportKiCadNetlist(fixturePath(t, "netlist_simple.net"))
@@ -31,6 +35,24 @@ func TestImportKiCadNetlist_ParsesPartsAndNets(t *testing.T) {
 	}
 	if design.Nets[1].Name != "GND" || len(design.Nets[1].Pins) != 3 {
 		t.Fatalf("unexpected second net: %+v", design.Nets[1])
+	}
+}
+
+func TestKiCadImporter_OutputsCleanDesignIR(t *testing.T) {
+	var importer importers.Importer = NewImporter(ColumnMapping{})
+	design, err := importer.Import(fixturePath(t, "netlist_simple.net"))
+	if err != nil {
+		t.Fatalf("Import returned error: %v", err)
+	}
+
+	if design.SourceInfo.Importer != "kicad" {
+		t.Fatalf("expected source importer kicad, got %+v", design.SourceInfo)
+	}
+	if len(design.Parts) != 3 || len(design.Nets) != 2 || len(design.Pins) != 5 {
+		t.Fatalf("expected normalized parts/nets/pins, got parts=%d nets=%d pins=%d", len(design.Parts), len(design.Nets), len(design.Pins))
+	}
+	if len(design.ParseErrors) != 0 || len(design.ParseWarnings) != 0 {
+		t.Fatalf("expected clean DesignIR diagnostics, got errors=%v warnings=%v", design.ParseErrors, design.ParseWarnings)
 	}
 }
 

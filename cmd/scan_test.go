@@ -649,10 +649,10 @@ components:
 	if exitErr.Code != 2 {
 		t.Fatalf("expected exit code 2, got %d\n%s", exitErr.Code, stdout)
 	}
-	if !strings.Contains(stdout, "RULE_OVERVOLTAGE") {
-		t.Fatalf("expected overvoltage finding, got %q", stdout)
+	if !strings.Contains(stdout, "RULE_SUPPLY_CONTRACT") {
+		t.Fatalf("expected supply contract finding, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
+	if !strings.Contains(stdout, "Net /+5V provides 5.00V but U1 pin 1 allows max 3.30V") {
 		t.Fatalf("expected inferred /+5V overvoltage, got %q", stdout)
 	}
 
