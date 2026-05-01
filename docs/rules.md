@@ -1,8 +1,8 @@
 # Deterministic Rule System
 
-Architon CLI (rv) uses a deterministic rule engine implemented in `internal/validate/rules.go`.
+Architon CLI (rv) uses deterministic rule engines for YAML specs and KiCad scan data. `rv check` rules live in `internal/validate/rules.go`; scan voltage rules live under `internal/rules`.
 
-Rules evaluate only the resolved input specification and emit findings with explicit IDs.
+Rules evaluate only resolved local input data and emit findings with explicit IDs.
 
 ## Rule philosophy
 
@@ -46,6 +46,8 @@ This order is stable and produces reproducible findings for identical input.
 With `--warn-as-error`, warning-only results also return `2`.
 
 ## Rule catalog
+
+The catalog below covers `rv check`.
 
 ### Driver channel allocation
 
@@ -108,11 +110,20 @@ Rules:
 
 `address_hex` accepts decimal or `0x`-prefixed hex values.
 
+## Scan voltage rules (`rv scan`)
+
+Netlist-backed scans can run deterministic voltage rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`.
+
+- `RULE_OVERVOLTAGE` (`ERROR`): component pin is connected to a net voltage above that component's metadata `max_voltage`
+- `RULE_VOLTAGE_CONFLICT` (`ERROR`): metadata, inferred, or propagated voltage evidence conflicts on a net
+
+Voltage-based findings include inference provenance when available: net name, source, confidence score, and confidence level.
+
 ## Determinism guarantees
 
 Given the same:
 
-- Spec file content
+- Spec file content, or scan input netlist/BOM and metadata
 - Part files resolved by search order
 - CLI options
 

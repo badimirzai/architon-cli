@@ -12,9 +12,10 @@ spec.yaml
   -> findings report
   -> CLI renderer (human or JSON) + exit code
 
-bom.csv
-  -> KiCad BOM importer
+bom.csv / project.net / project directory
+  -> KiCad BOM and/or netlist importer
   -> DesignIR (stable internal model)
+  -> deterministic rail inference + metadata-backed voltage rules
   -> deterministic report payload
   -> architon-report.json
 ```
@@ -112,6 +113,8 @@ Primary command:
 - `rv scan .`
 - `rv scan . --bom bom/bom.csv --netlist exports/project.net`
 - `rv scan <bom.csv> --out my-report.json`
+- `rv scan <netlist.net> --meta .architon/meta.yaml`
+- `rv scan <netlist.net> --rails` (`--explain-rails` alias)
 
 Output modes:
 
@@ -122,6 +125,7 @@ Output modes:
   - `summary`
   - `design_ir`
   - `rules`
+  - `derived` voltage inference and rail coverage data when netlist data is present
 
 Exit behavior for `rv check`:
 
@@ -134,26 +138,34 @@ With `--warn-as-error`, warning-only results also return `2`.
 
 Exit behavior for `rv scan`:
 
-- `0`: success
-- `1`: rule violations
-- `2`: parse errors
-- `3`: tool failure / internal error
+- `0`: clean/info-only scan
+- `1`: warnings detected and no violations
+- `2`: one or more rule violations
+- `3`: tool execution failure, including scan parse errors
 
 `rv scan` writes `architon-report.json` with `report_version`, `design_ir.version`, and:
 
 - `summary.delimiter` for BOM-backed scans
 - `summary.nets` and `design_ir.nets` for netlist-backed scans
 - `summary.next_steps` only on parse failure
+- `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, and `derived.rail_coverage` when voltage inference data is present
+- optional `rules[].inference` provenance for voltage-based findings
 
 Successful CLI output also prints a short deterministic terminal summary with:
 
 - `ARCHITON SCAN`
 - `Target`
+- `Result`
 - `Parts`
 - `Nets`
 - `Errors`
 - `Warnings`
+- `Rules`
+- `Violations`
+- compact rail coverage counts and level
 - `Detected BOM` / `Detected Netlist` for directory auto-detection
+
+`--explain-rails` or `--rails` prints the sorted rail inference table with voltage, confidence level, confidence score, source, warnings, and rail coverage summary.
 
 Example success snippet:
 
@@ -195,16 +207,18 @@ Example failure snippet:
 - `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion, header mapping, and KiCad `.net` S-expression parsing
 - `cmd/scan.go`: deterministic single-file or project-directory scan input resolution
 - `internal/ir`: deterministic BOM + netlist merge into one project-level DesignIR
+- `internal/infer`: deterministic net-name and metadata-enriched rail voltage inference
+- `internal/rails`: pure rail coverage summary and terminal explanation formatting
 - `internal/report`: deterministic scan report JSON builder/writer
 
 ## Deterministic design philosophy
 
 The engine is intentionally non-probabilistic.
 
-- No model inference
+- No AI/model inference
 - No remote lookups during validation
-- No hidden heuristics
-- Same input spec + same part library -> same output findings and exit code
+- Any deterministic rail-name heuristic is reported with source, confidence, and warnings
+- Same input spec or scan input + same metadata/part library -> same output findings and exit code
 
 This allows CI gating, reproducible audits, and traceable engineering review.
 

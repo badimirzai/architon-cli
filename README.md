@@ -94,14 +94,17 @@ Expected output example:
 ```bash
 ARCHITON SCAN
 Target: .
+Result: OK — no scan violations detected
 Parts: 7
 Nets: 59
 Errors: 0
 Warnings: 0
 Rules: 0
 Violations: 0
+Inferred voltages: <n> Unknown voltage nets: <n> Rail coverage: <LEVEL> <PCT>%
 Detected Netlist: <path>
 Wrote architon-report.json
+exit code: 0
 ```
 Architon automatically detects KiCad .net netlists and BOM CSV files
 and produces a deterministic DesignIR report.
@@ -130,13 +133,16 @@ rv check robot.yaml
 rv scan examples/bom/bom.csv
 # ARCHITON SCAN
 # Target: examples/bom/bom.csv
+# Result: OK — no scan violations detected
 # Parts: 2
 # Nets: 0
 # Errors: 0
 # Warnings: 0
 # Rules: 0
 # Violations: 0
+# Inferred voltages: 0 Unknown voltage nets: 0 Rail coverage: UNKNOWN 0%
 # Wrote architon-report.json
+# exit code: 0
 
 rv scan examples/bom/bom.csv --map examples/mapping.yaml
 # Wrote architon-report.json
@@ -158,6 +164,7 @@ Core commands:
 ```text
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
+rv init                    Create .architon metadata or write a starter robot spec
 rv version                 Show installed version
 rv check --output json     Emit JSON findings to stdout
 rv --help                  Show all commands and flags
@@ -186,6 +193,7 @@ rv scan examples/bom/bom.csv
 rv scan examples/bom/bom.csv --map examples/mapping.yaml
 rv scan examples/bom/bom.csv --out my-report.json
 rv scan exports/project.net --meta .architon/meta.yaml
+rv scan exports/project.net --meta .architon/meta.yaml --rails
 
 # KiCad project folder scan (demo repo)
 git clone https://github.com/badimirzai/architon-kicad-demo.git demos
@@ -239,7 +247,7 @@ For a project directory scan, Architon auto-discovers `.architon/meta.yaml`:
 rv scan .
 ```
 
-For now, voltages and component limits come from `meta.yaml`. Future releases may infer safe values from net names and KiCad fields.
+Architon deterministically infers obvious rail voltages from net names, then enriches that with metadata sources and regulator outputs from `meta.yaml`. Component limits still come from metadata.
 
 Minimal voltage-rule metadata:
 
@@ -266,19 +274,23 @@ Example overvoltage output:
 ```text
 ARCHITON SCAN
 Target: exports/project.net
+Result: FAIL — scan violations detected
 Parts: 3
 Nets: 3
 Errors: 0
 Warnings: 0
 Rules: 1
 Violations: 1
+Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%
 Rule findings:
 - ERROR RULE_OVERVOLTAGE: U1 pin 1 on net /+5V is 5.00V (max 3.30V)
 Wrote architon-report.json
-scan completed with 1 violation(s); wrote architon-report.json
+exit code: 2
 ```
 
 `Errors` are parse/import errors. Rule failures are reported as `Violations`.
+
+Use `--explain-rails` or `--rails` to print deterministic rail inference details, including voltage, confidence level, confidence score, source, and rail coverage.
 
 Default output path: `architon-report.json`.
 
@@ -354,7 +366,7 @@ rv check --warn-as-error robot.yaml
 
 Architon produces deterministic structured reports for automation.
 
-Default output path:
+Default scan output path:
 
 ```bash
 architon-report.json
@@ -363,14 +375,15 @@ architon-report.json
 Custom output path:
 
 ```bash
-rv check robot.yaml --out report.json
+rv check robot.yaml --output json --out-file report.json
 rv scan bom.csv --out report.json
 ```
 
 The report includes:
 - summary counts
-- violations / warnings / notes
-- normalized architecture model (DesignIR for scans, including nets when imported)
+- findings for `rv check`, or scan `rules` for `rv scan`
+- normalized DesignIR for scans, including nets when imported
+- rail inference, rail coverage, and voltage-finding provenance for netlist-backed scans
 
 Exit codes indicate pass/fail. The JSON report provides detailed structured results for CI integration and tooling.
 
@@ -412,24 +425,26 @@ On parse failures, the report still includes `report_version`, `design_ir.versio
 
 ```json
 {
-  "report_version": "0",
+  "spec_file": "robot.yaml",
   "summary": {
-    "input_file": "robot.yaml",
-    "violations": 1,
+    "errors": 1,
     "warnings": 2,
-    "notes": 1,
-    "has_failures": true
+    "infos": 1,
+    "exit_code": 2
   },
-  "violations": [
+  "findings": [
     {
-      "rule": "DRV_SUPPLY_RANGE",
-      "severity": "error",
+      "id": "DRV_SUPPLY_RANGE",
+      "severity": "ERROR",
       "message": "battery voltage exceeds driver supply range",
-      "fix": "Use compatible driver or adjust battery voltage"
+      "path": "power.battery.voltage_v",
+      "location": {
+        "line": 5,
+        "column": 5
+      },
+      "meta": {}
     }
-  ],
-  "warnings": [],
-  "notes": []
+  ]
 }
 ```
 
@@ -513,8 +528,8 @@ exit code: 2
 
 Architon is deterministic by design:
 - No AI
-- No guessing
 - No probabilistic inference
+- No hidden inference; rail inference is reported with source, confidence, and warnings
 - No hallucination
 
 Validation operates only on the specification and part data you provide.
@@ -529,6 +544,7 @@ The same input always produces the same result.
 `summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
 `summary.nets` is set when netlist data is present.
 `summary.next_steps` appears only when parse failures are present.
+Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `rules[].inference` provenance.
 
 Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
 
@@ -566,6 +582,7 @@ BOM ingestion and normalization (`rv scan`):
 - Deterministic project-folder scan (`rv scan .`) with BOM + netlist auto-detection
 - Deterministic BOM + netlist merge into one DesignIR
 - Metadata-backed voltage propagation and overvoltage rule findings for netlist scans
+- Deterministic rail voltage inference, confidence reporting, and rail coverage metrics
 - Automatic delimiter detection (comma, semicolon, tab)
 - Deterministic DesignIR JSON generation
 - Parse error reporting with remediation guidance
