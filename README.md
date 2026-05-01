@@ -1,6 +1,8 @@
 # Architon CLI (rv)
 [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release)](https://github.com/badimirzai/architon-cli/releases)
 
+Fail fast on hardware integration mistakes before you build the board.
+
 Deterministic hardware architecture verification for robotics and embedded systems.
 Runs before PCB fabrication and firmware bring-up to catch integration failures early.
 
