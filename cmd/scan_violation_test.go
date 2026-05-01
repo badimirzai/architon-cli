@@ -66,6 +66,9 @@ func TestScan_OvervoltageYieldsExit2(t *testing.T) {
 	if !strings.Contains(output, "Violations: 1\n") {
 		t.Fatalf("expected output to show 1 violation\n%s", output)
 	}
+	if !strings.Contains(output, "Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%\n") {
+		t.Fatalf("expected output to show compact rail coverage\n%s", output)
+	}
 	if !strings.Contains(output, "RULE_OVERVOLTAGE") {
 		t.Fatalf("expected output to show RULE_OVERVOLTAGE\n%s", output)
 	}

@@ -1,8 +1,8 @@
 # Deterministic Rule System
 
-Architon CLI (rv) uses a deterministic rule engine implemented in `internal/validate/rules.go`.
+Architon CLI (rv) uses deterministic rule engines for YAML specs and KiCad scan data. `rv check` rules live in `internal/validate/rules.go`; scan voltage rules live under `internal/rules`.
 
-Rules evaluate only the resolved input specification and emit findings with explicit IDs.
+Rules evaluate only resolved local input data and emit findings with explicit IDs.
 
 ## Rule philosophy
 
@@ -36,16 +36,11 @@ This order is stable and produces reproducible findings for identical input.
 - `WARN`: elevated risk or low margin
 - `ERROR`: deterministic contract violation
 
-## Exit codes (`rv check`)
-
-- `0`: analysis completed with no `ERROR` or `WARN` findings (`INFO` notes are allowed)
-- `1`: one or more `WARN` findings and no `ERROR` findings
-- `2`: one or more `ERROR` findings, regardless of warnings
-- `3`: parse/decode/resolve/import/schema/IO failure path
-
-With `--warn-as-error`, warning-only results also return `2`.
+Exit behavior is documented in `README.md`.
 
 ## Rule catalog
+
+The catalog below covers `rv check`.
 
 ### Driver channel allocation
 
@@ -108,17 +103,29 @@ Rules:
 
 `address_hex` accepts decimal or `0x`-prefixed hex values.
 
-## Determinism guarantees
+## Scan voltage rules (`rv scan`)
+
+Netlist-backed scans can run deterministic voltage rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`.
+
+- `RULE_OVERVOLTAGE` (`ERROR`): component pin is connected to a net voltage above that component's metadata `max_voltage`
+- `RULE_VOLTAGE_CONFLICT` (`ERROR`): metadata, inferred, or propagated voltage evidence conflicts on a net
+
+Voltage-based findings include inference provenance when available: net name, source, confidence score, and confidence level.
+
+## Determinism contract
 
 Given the same:
 
-- Spec file content
+- Spec file content, or scan input netlist/BOM and metadata
 - Part files resolved by search order
 - CLI options
 
 the engine returns the same findings and exit code.
 
-No network access or probabilistic scoring is part of rule evaluation.
+Architon performs deterministic analysis.
+Rail voltage inference is deterministic and transparent.
+Each inference includes source, confidence score, evidence, and warnings.
+No probabilistic models or network calls are used.
 
 ## Extensibility
 

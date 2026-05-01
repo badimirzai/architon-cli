@@ -34,6 +34,17 @@ type scanReport struct {
 			Name string `json:"name"`
 		} `json:"nets"`
 	} `json:"design_ir"`
+	Rules []struct {
+		ID        string `json:"id"`
+		Severity  string `json:"severity"`
+		Message   string `json:"message"`
+		Inference *struct {
+			NetName         string  `json:"net_name"`
+			Source          string  `json:"source"`
+			ConfidenceScore float64 `json:"confidence_score"`
+			ConfidenceLevel string  `json:"confidence_level"`
+		} `json:"inference"`
+	} `json:"rules"`
 	Derived *struct {
 		NetVoltages []struct {
 			Net     string  `json:"net"`
@@ -49,6 +60,29 @@ type scanReport struct {
 			Net    string `json:"net"`
 			Reason string `json:"reason"`
 		} `json:"unknown_voltage_nets"`
+		RailInferences []struct {
+			NetName         string   `json:"net_name"`
+			Voltage         *float64 `json:"voltage"`
+			Source          string   `json:"source"`
+			ConfidenceScore float64  `json:"confidence_score"`
+			ConfidenceLevel string   `json:"confidence_level"`
+			Evidence        []string `json:"evidence"`
+			Warnings        []string `json:"warnings"`
+		} `json:"rail_inferences"`
+		RailCoverage struct {
+			TotalNets           int      `json:"total_nets"`
+			RailsWithVoltage    int      `json:"rails_with_voltage"`
+			RailsUnknown        int      `json:"rails_unknown"`
+			HighConfidence      int      `json:"high_confidence"`
+			MediumConfidence    int      `json:"medium_confidence"`
+			LowConfidence       int      `json:"low_confidence"`
+			UnknownConfidence   int      `json:"unknown_confidence"`
+			CoverageRatio       float64  `json:"coverage_ratio"`
+			HighConfidenceRatio float64  `json:"high_confidence_ratio"`
+			UsableForRulesRatio float64  `json:"usable_for_rules_ratio"`
+			OverallLevel        string   `json:"overall_level"`
+			Warnings            []string `json:"warnings"`
+		} `json:"rail_coverage"`
 	} `json:"derived"`
 }
 
@@ -478,8 +512,11 @@ func TestScan_NetlistReportsInferredAndUnknownVoltageNets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected netlist scan with inferred voltages to succeed, got %v", err)
 	}
-	if !strings.Contains(stdout, "Inferred voltages: 2 Unknown voltage nets: 1\n") {
+	if !strings.Contains(stdout, "Inferred voltages: 2 Unknown voltage nets: 1 Rail coverage: LOW 67%\n") {
 		t.Fatalf("expected voltage inference counts, got %q", stdout)
+	}
+	if strings.Contains(stdout, "Rail inference:\n") {
+		t.Fatalf("expected default output to stay compact, got %q", stdout)
 	}
 
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
@@ -494,8 +531,8 @@ func TestScan_NetlistReportsInferredAndUnknownVoltageNets(t *testing.T) {
 			if nv.Voltage != 5.0 {
 				t.Fatalf("expected /+5V inferred as 5.0, got %v", nv.Voltage)
 			}
-			if nv.Source != "net_name" {
-				t.Fatalf("expected inferred source net_name, got %q", nv.Source)
+			if nv.Source != "NET_NAME_EXACT" {
+				t.Fatalf("expected inferred source NET_NAME_EXACT, got %q", nv.Source)
 			}
 		}
 	}
@@ -511,6 +548,82 @@ func TestScan_NetlistReportsInferredAndUnknownVoltageNets(t *testing.T) {
 	}
 	if report.Derived.UnknownVoltageNets[0].Reason != "ambiguous power net name" {
 		t.Fatalf("expected ambiguous power reason, got %q", report.Derived.UnknownVoltageNets[0].Reason)
+	}
+
+	var foundRailInference bool
+	for _, inference := range report.Derived.RailInferences {
+		if inference.NetName != "/+5V" {
+			continue
+		}
+		foundRailInference = true
+		if inference.Voltage == nil || *inference.Voltage != 5.0 {
+			t.Fatalf("expected /+5V rail inference voltage 5.0, got %+v", inference.Voltage)
+		}
+		if inference.Source != "NET_NAME_EXACT" {
+			t.Fatalf("expected /+5V rail inference source NET_NAME_EXACT, got %q", inference.Source)
+		}
+		if inference.ConfidenceLevel != "HIGH" || inference.ConfidenceScore != 0.95 {
+			t.Fatalf("expected /+5V high confidence score 0.95, got %+v", inference)
+		}
+	}
+	if !foundRailInference {
+		t.Fatalf("expected /+5V rail inference in report, got %+v", report.Derived.RailInferences)
+	}
+	if report.Derived.RailCoverage.TotalNets != 3 {
+		t.Fatalf("expected rail coverage total nets 3, got %+v", report.Derived.RailCoverage)
+	}
+	if report.Derived.RailCoverage.RailsWithVoltage != 2 || report.Derived.RailCoverage.RailsUnknown != 1 {
+		t.Fatalf("unexpected rail coverage counts: %+v", report.Derived.RailCoverage)
+	}
+	if report.Derived.RailCoverage.UsableForRulesRatio != 0.6667 {
+		t.Fatalf("expected usable ratio 0.6667, got %+v", report.Derived.RailCoverage)
+	}
+}
+
+func TestScan_ExplainRailsPrintsInferenceDetails(t *testing.T) {
+	tmpDir := t.TempDir()
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+	writeScanTestFile(t, metaPath, `version: "0"
+sources:
+  - net: /VBAT
+    voltage: 24.0
+regulators:
+  - ref: U2
+    in_pin: "1"
+    out_pin: "3"
+    out_voltage: 5.0
+components:
+  - ref: U1
+    max_voltage: 6.0
+`)
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")), "--meta", metaPath, "--explain-rails")
+	if err != nil {
+		t.Fatalf("expected netlist scan with inferred voltages to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "Rail inference:\n") {
+		t.Fatalf("expected rail inference header, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- /+5V: 5.00V  HIGH   0.95  NET_NAME_EXACT\n") {
+		t.Fatalf("expected /+5V rail line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- /VBAT: 24.00V HIGH   1.00  USER_OVERRIDE\n") {
+		t.Fatalf("expected /VBAT rail line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- GND:   0.00V  HIGH   0.95  NET_NAME_EXACT\n") {
+		t.Fatalf("expected GND rail line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Rail coverage:\n") {
+		t.Fatalf("expected rail coverage section, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- Total nets: 3\n") {
+		t.Fatalf("expected total nets line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- Usable for rules: 3/3\n") {
+		t.Fatalf("expected usable line, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "- Coverage: HIGH 100%\n") {
+		t.Fatalf("expected coverage line, got %q", stdout)
 	}
 }
 
@@ -541,6 +654,23 @@ components:
 	}
 	if !strings.Contains(stdout, "U1 pin 1 on net /+5V is 5.00V (max 3.30V)") {
 		t.Fatalf("expected inferred /+5V overvoltage, got %q", stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if len(report.Rules) != 1 {
+		t.Fatalf("expected one rule finding, got %+v", report.Rules)
+	}
+	if report.Rules[0].Inference == nil {
+		t.Fatalf("expected overvoltage finding inference provenance, got %+v", report.Rules[0])
+	}
+	if report.Rules[0].Inference.NetName != "/+5V" {
+		t.Fatalf("expected inference net /+5V, got %+v", report.Rules[0].Inference)
+	}
+	if report.Rules[0].Inference.Source != "NET_NAME_EXACT" {
+		t.Fatalf("expected inference source NET_NAME_EXACT, got %+v", report.Rules[0].Inference)
+	}
+	if report.Rules[0].Inference.ConfidenceLevel != "HIGH" || report.Rules[0].Inference.ConfidenceScore != 0.95 {
+		t.Fatalf("expected high confidence inference, got %+v", report.Rules[0].Inference)
 	}
 }
 

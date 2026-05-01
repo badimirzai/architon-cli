@@ -14,9 +14,13 @@ rv check <file.yaml> --output json --pretty --out-file report.json
 rv scan <path>                         Import KiCad BOM CSV, KiCad .net, or project directory
 rv scan <bom.csv> --map mapping.yaml   Use explicit header mapping YAML
 rv scan <bom.csv> --out report.json    Write scan report to a specific path
+rv scan <netlist.net> --meta .architon/meta.yaml
+                                      Enable metadata-backed voltage rules
+rv scan <netlist.net> --rails          Show rail inference details
 rv scan .                              Auto-detect BOM and/or netlist in current directory
 rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
+rv init                                Create .architon/meta.yaml and README.md
 rv init --list                        List available templates
 rv init --template <name>             Write a template to robot.yaml
 rv init --template <name> --out path  Write a template to a specific path
@@ -31,8 +35,11 @@ rv scan --help                         Show scan command options
 
 ```text
 --output json             print machine readable JSON to stdout
+--style report|classic    force human-readable style
+--warn-as-error           treat warning-only results as violations
 --pretty                  pretty print JSON to stdout (requires --output json)
 --out-file <path>         write compact JSON to file (requires --output json)
+--parts-dir <dir>         add parts directory (repeatable)
 --no-color                disable colored output
 --debug                   enable debug mode (or use RV_DEBUG=1)
 ```
@@ -43,17 +50,13 @@ rv scan --help                         Show scan command options
 --map <file.yaml>         explicit BOM header mapping file
 --bom <file>              override BOM file path for project directory scans
 --netlist <file>          override netlist file path for project directory scans
+--meta <file.yaml>        metadata for sources, regulators, and component limits
+--rails                   print rail voltage inference and confidence details
+--explain-rails           legacy alias for --rails
 --out <report.json>       write scan report to a specific path
 ```
 
-## Exit codes (`rv scan`)
-
-```text
-0  success
-1  rule violations
-2  parse errors
-3  tool failure / internal error
-```
+Exit behavior is documented in `README.md`.
 
 ## Examples
 
@@ -70,6 +73,8 @@ rv scan .
 rv scan . --bom bom/bom.csv --netlist exports/project.net
 rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
+rv scan exports/project.net --meta .architon/meta.yaml --rails
+rv init
 rv init --template 4wd-problem
 rv check robot.yaml
 rv init --template 4wd-clean --out robot.yaml --force
@@ -78,11 +83,13 @@ rv check robot.yaml
 
 ## Scan report summary
 
-`rv scan` report `summary` includes:
+`rv scan` report includes:
 
-- `delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
-- `nets` when KiCad netlist data is present
-- `next_steps` only when `parse_errors_count > 0`
+- `summary.delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
+- `summary.nets` when KiCad netlist data is present
+- `summary.next_steps` only when `parse_errors_count > 0`
+- `derived.rail_inferences` and `derived.rail_coverage` for netlist-backed voltage inference
+- `rules[].inference` provenance for voltage-based findings when available
 
 Directory scan detection order:
 
@@ -92,8 +99,10 @@ Directory scan detection order:
 Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
-- `Target`, `Parts`, `Nets`, `Errors`, `Warnings`
+- `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
+- compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
 - `Detected BOM` and `Detected Netlist` when directory scan auto-detects files
+- rail inference table when `--rails` is passed; `--explain-rails` remains supported as a legacy alias
 
 Example success snippet:
 

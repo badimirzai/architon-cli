@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/badimirzai/architon-cli/internal/ir"
 	"github.com/badimirzai/architon-cli/internal/meta"
 	"github.com/badimirzai/architon-cli/internal/propagate"
+	"github.com/badimirzai/architon-cli/internal/rails"
 	"github.com/badimirzai/architon-cli/internal/report"
 	"github.com/badimirzai/architon-cli/internal/rules"
 	"github.com/badimirzai/architon-cli/internal/ui"
@@ -63,6 +65,9 @@ Examples:
 			bomOverride, _ := cmd.Flags().GetString("bom")
 			netlistOverride, _ := cmd.Flags().GetString("netlist")
 			metaOverride, _ := cmd.Flags().GetString("meta")
+			explainRails, _ := cmd.Flags().GetBool("explain-rails")
+			railsAlias, _ := cmd.Flags().GetBool("rails")
+			explainRails = explainRails || railsAlias
 
 			resolvedInput, err := resolveScanInput(args[0], bomOverride, netlistOverride)
 			if err != nil {
@@ -75,7 +80,7 @@ Examples:
 			}
 
 			designReport := report.NewVerificationReport(design)
-			inferRes := infer.InferVoltagesFromNetNames(design)
+			nameInferRes := infer.InferVoltagesFromNetNames(design)
 
 			// -------------------------
 			// META: auto-discover + skeleton generation (directory scans only)
@@ -165,20 +170,31 @@ Examples:
 			// -------------------------
 			// VOLTAGE PROPAGATION + RULES
 			// -------------------------
-			initialVoltages := scanInitialVoltages(inferRes, metaObj)
+			initialVoltages := scanInitialVoltages(nameInferRes, metaObj)
 			propRes := propagate.Result{NetVoltages: map[string]propagate.NetVoltage{}}
 			if designReport.Summary.Nets > 0 && len(initialVoltages) > 0 {
 				propRes = propagate.Propagate(*design, *metaObj, initialVoltages)
 			}
+			// Build the report-facing inference after propagation so explicit
+			// metadata and regulator outputs can contribute provenance/confidence.
+			railInferRes := infer.InferVoltages(design, infer.VoltageInferenceOptions{
+				Evidence:  scanVoltageEvidence(propRes.NetVoltages),
+				Conflicts: propRes.Conflicts,
+			})
 
 			netVolts := scanReportNetVoltages(propRes.NetVoltages)
-			inferredNetVolts := scanReportInferredNetVoltages(inferRes)
-			unknownVoltageNets := scanReportUnknownVoltageNets(inferRes)
-			if len(netVolts) > 0 || len(inferredNetVolts) > 0 || len(unknownVoltageNets) > 0 || len(propRes.Conflicts) > 0 {
+			inferredNetVolts := scanReportInferredNetVoltages(nameInferRes)
+			unknownVoltageNets := scanReportUnknownVoltageNets(railInferRes)
+			railInferences := scanReportRailInferences(railInferRes)
+			railCoverage := rails.SummarizeRailCoverage(design, railInferRes.Inferences)
+			inferencesByNet := scanInferenceByNet(railInferRes.Inferences)
+			if designReport.Summary.Nets > 0 || len(netVolts) > 0 || len(inferredNetVolts) > 0 || len(unknownVoltageNets) > 0 || len(railInferences) > 0 || len(propRes.Conflicts) > 0 {
 				designReport.Derived = &report.Derived{
 					NetVoltages:         netVolts,
 					InferredNetVoltages: inferredNetVolts,
 					UnknownVoltageNets:  unknownVoltageNets,
+					RailInferences:      railInferences,
+					RailCoverage:        railCoverage,
 					Conflicts:           propRes.Conflicts,
 				}
 			}
@@ -186,17 +202,21 @@ Examples:
 			if len(propRes.Conflicts) > 0 {
 				// Conflicts are violations (severity error => exit 2)
 				for _, c := range propRes.Conflicts {
-					designReport.Rules = append(designReport.Rules, report.RuleResult{
+					result := report.RuleResult{
 						ID:       "RULE_VOLTAGE_CONFLICT",
 						Severity: "error",
 						Message:  c,
-					})
+					}
+					if inference, ok := inferencesByNet[scanConflictNetName(c)]; ok {
+						result.Inference = scanReportInferenceProvenance(inference)
+					}
+					designReport.Rules = append(designReport.Rules, result)
 				}
 			}
 
 			if metaLoaded && len(propRes.NetVoltages) > 0 {
 				// Overvoltage violations
-				designReport.Rules = append(designReport.Rules, rules.Overvoltage(design, metaObj, propRes.NetVoltages)...)
+				designReport.Rules = append(designReport.Rules, rules.OvervoltageWithInferences(design, metaObj, propRes.NetVoltages, inferencesByNet)...)
 			}
 
 			if len(designReport.Rules) > 0 {
@@ -239,7 +259,10 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
-			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d\n", len(inferRes.Voltages), len(inferRes.Unknowns))
+			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
+			if explainRails {
+				scanPrintRailInferences(cmd.OutOrStdout(), railInferences, railCoverage)
+			}
 
 			if len(designReport.Rules) > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "Rule findings:\n")
@@ -297,6 +320,8 @@ Examples:
 	cmd.Flags().String("bom", "", "Override BOM file path when scanning a project directory")
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present; auto-generated if missing)")
+	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
+	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
 	return cmd
 }
 
@@ -732,6 +757,48 @@ func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report
 	return out
 }
 
+// scanVoltageEvidence converts propagated net voltages into inference evidence.
+// Only user-supplied sources and regulator outputs are promoted here because
+// plain "initial" entries already came from net-name inference.
+func scanVoltageEvidence(netVoltages map[string]propagate.NetVoltage) []infer.VoltageEvidence {
+	out := make([]infer.VoltageEvidence, 0, len(netVoltages))
+	for _, nv := range netVoltages {
+		source := strings.TrimSpace(nv.Source)
+		switch {
+		case source == "source":
+			out = append(out, infer.VoltageEvidence{
+				NetName:   nv.Net,
+				Voltage:   nv.Voltage,
+				Source:    infer.SourceUserOverride,
+				BaseScore: 1.00,
+				Evidence:  fmt.Sprintf("user override set rail %q to %.2fV", nv.Net, nv.Voltage),
+			})
+		case strings.HasPrefix(source, "regulator:"):
+			ref := strings.TrimSpace(strings.TrimPrefix(source, "regulator:"))
+			if ref == "" {
+				ref = "unknown"
+			}
+			out = append(out, infer.VoltageEvidence{
+				NetName:   nv.Net,
+				Voltage:   nv.Voltage,
+				Source:    infer.SourceRegulatorOutput,
+				BaseScore: 0.90,
+				Evidence:  fmt.Sprintf("regulator %s output mapped to rail %q at %.2fV", ref, nv.Net, nv.Voltage),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NetName != out[j].NetName {
+			return out[i].NetName < out[j].NetName
+		}
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		return out[i].Voltage < out[j].Voltage
+	})
+	return out
+}
+
 func scanReportInferredNetVoltages(inferRes infer.Result) []report.NetVoltage {
 	out := make([]report.NetVoltage, 0, len(inferRes.Voltages))
 	for _, inferred := range inferRes.Voltages {
@@ -760,6 +827,72 @@ func scanReportUnknownVoltageNets(inferRes infer.Result) []report.UnknownVoltage
 		return out[i].Reason < out[j].Reason
 	})
 	return out
+}
+
+// scanReportRailInferences keeps the JSON stable by reporting rails with actual
+// voltage evidence and named unknown rail-like nets, while omitting arbitrary
+// non-power signals that only produced UNKNOWN/no-evidence records.
+func scanReportRailInferences(inferRes infer.Result) []infer.VoltageInference {
+	unknownNets := map[string]struct{}{}
+	for _, unknown := range inferRes.Unknowns {
+		unknownNets[unknown.Net] = struct{}{}
+	}
+
+	out := make([]infer.VoltageInference, 0, len(inferRes.Inferences))
+	for _, inference := range inferRes.Inferences {
+		if inference.Voltage == nil && len(inference.Evidence) == 0 {
+			if _, ok := unknownNets[inference.NetName]; !ok {
+				continue
+			}
+		}
+		out = append(out, inference)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NetName != out[j].NetName {
+			return out[i].NetName < out[j].NetName
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
+}
+
+func scanInferenceByNet(inferences []infer.VoltageInference) map[string]infer.VoltageInference {
+	out := make(map[string]infer.VoltageInference, len(inferences))
+	for _, inference := range inferences {
+		netName := strings.TrimSpace(inference.NetName)
+		if netName == "" {
+			continue
+		}
+		out[netName] = inference
+	}
+	return out
+}
+
+func scanReportInferenceProvenance(inference infer.VoltageInference) *report.InferenceProvenance {
+	return &report.InferenceProvenance{
+		NetName:         inference.NetName,
+		Source:          inference.Source,
+		ConfidenceScore: inference.ConfidenceScore,
+		ConfidenceLevel: inference.ConfidenceLevel,
+	}
+}
+
+func scanConflictNetName(message string) string {
+	const prefix = "Voltage conflict on net "
+	if !strings.HasPrefix(message, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(message, prefix)
+	if idx := strings.Index(rest, ":"); idx >= 0 {
+		rest = rest[:idx]
+	}
+	return strings.TrimSpace(rest)
+}
+
+// scanPrintRailInferences renders the same stable inference data as JSON in a
+// compact human form for rv scan --explain-rails.
+func scanPrintRailInferences(out io.Writer, inferences []infer.VoltageInference, summary rails.RailCoverageSummary) {
+	fmt.Fprint(out, rails.FormatRailExplanations(inferences, summary))
 }
 
 func scanPrepareAutoMeta(m *meta.Meta) *meta.Meta {
