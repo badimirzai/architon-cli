@@ -97,6 +97,73 @@ func TestSupplyContract_SyntheticDesignWithoutImporter(t *testing.T) {
 	}
 }
 
+func TestRulesRunOnSyntheticDesignWithoutImporterProducesFinding(t *testing.T) {
+	design := &ir.DesignIR{
+		Version: ir.SchemaVersion,
+		Source:  "synthetic_test_design",
+		Nets: []ir.Net{
+			{Name: "SYNTH_5V", Pins: []ir.PinRef{{Ref: "PWR", Pin: "OUT"}, {Ref: "MCU", Pin: "VDD"}}},
+		},
+	}
+	contractIR := contracts.NewContractIR()
+	contractIR.PutPin("PWR", "OUT", contracts.PinContract{
+		Role:           contracts.RolePowerOut,
+		VoltageNominal: contracts.Float64(5.0),
+		Direction:      contracts.DirectionOutput,
+	})
+	contractIR.PutPin("MCU", "VDD", contracts.PinContract{
+		Role:       contracts.RolePowerIn,
+		VoltageMax: contracts.Float64(3.3),
+		Direction:  contracts.DirectionInput,
+	})
+
+	got := CheckAll(design, contractIR, DefaultRules())
+	if len(got) != 1 {
+		t.Fatalf("expected synthetic DesignIR to produce one finding, got %+v", got)
+	}
+	if got[0].RuleID != RuleSupplyContract || got[0].Severity != "error" {
+		t.Fatalf("expected supply contract error from synthetic DesignIR, got %+v", got[0])
+	}
+}
+
+func TestSupplyContractMutationChangesOutcome(t *testing.T) {
+	design := &ir.DesignIR{
+		Version: ir.SchemaVersion,
+		Source:  "mutation_test_design",
+		Nets: []ir.Net{
+			{Name: "LOGIC_PWR", Pins: []ir.PinRef{{Ref: "REG", Pin: "OUT"}, {Ref: "U1", Pin: "VCC"}}},
+		},
+	}
+
+	buildContracts := func(consumerMax float64) *contracts.ContractIR {
+		contractIR := contracts.NewContractIR()
+		contractIR.PutPin("REG", "OUT", contracts.PinContract{
+			Role:           contracts.RolePowerOut,
+			VoltageNominal: contracts.Float64(5.0),
+			Direction:      contracts.DirectionOutput,
+		})
+		contractIR.PutPin("U1", "VCC", contracts.PinContract{
+			Role:       contracts.RolePowerIn,
+			VoltageMax: contracts.Float64(consumerMax),
+			Direction:  contracts.DirectionInput,
+		})
+		return contractIR
+	}
+
+	clean := SupplyContractRule{}.Check(design, buildContracts(5.5))
+	if len(clean) != 0 {
+		t.Fatalf("expected 5V provider into 5.5V max consumer to be clean, got %+v", clean)
+	}
+
+	mutated := SupplyContractRule{}.Check(design, buildContracts(3.3))
+	if len(mutated) != 1 {
+		t.Fatalf("expected mutated 3.3V max consumer to fail, got %+v", mutated)
+	}
+	if mutated[0].Severity != "error" || mutated[0].RuleID != RuleSupplyContract {
+		t.Fatalf("expected mutation to trigger supply contract error, got %+v", mutated[0])
+	}
+}
+
 func TestSupplyContract_MissingLimitsWarns(t *testing.T) {
 	design := &ir.DesignIR{
 		Nets: []ir.Net{
