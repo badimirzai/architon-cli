@@ -114,7 +114,7 @@ Primary command:
 - `rv scan . --bom bom/bom.csv --netlist exports/project.net`
 - `rv scan <bom.csv> --out my-report.json`
 - `rv scan <netlist.net> --meta .architon/meta.yaml`
-- `rv scan <netlist.net> --rails` (`--explain-rails` alias)
+- `rv scan <netlist.net> --rails`
 
 Output modes:
 
@@ -127,21 +127,7 @@ Output modes:
   - `rules`
   - `derived` voltage inference and rail coverage data when netlist data is present
 
-Exit behavior for `rv check`:
-
-- `0`: no `ERROR` or `WARN` findings (`INFO` notes allowed)
-- `1`: one or more `WARN` findings and no `ERROR` findings
-- `2`: one or more `ERROR` findings, regardless of warnings
-- `3`: parse/decode/resolve/import/schema/IO failures
-
-With `--warn-as-error`, warning-only results also return `2`.
-
-Exit behavior for `rv scan`:
-
-- `0`: clean/info-only scan
-- `1`: warnings detected and no violations
-- `2`: one or more rule violations
-- `3`: tool execution failure, including scan parse errors
+Exit behavior is documented in the canonical exit code table in `README.md`.
 
 `rv scan` writes `architon-report.json` with `report_version`, `design_ir.version`, and:
 
@@ -165,7 +151,7 @@ Successful CLI output also prints a short deterministic terminal summary with:
 - compact rail coverage counts and level
 - `Detected BOM` / `Detected Netlist` for directory auto-detection
 
-`--explain-rails` or `--rails` prints the sorted rail inference table with voltage, confidence level, confidence score, source, warnings, and rail coverage summary.
+`--rails` prints the sorted rail inference table with voltage, confidence level, confidence score, source, warnings, and rail coverage summary. `--explain-rails` remains supported as a legacy alias.
 
 Example success snippet:
 
@@ -213,12 +199,12 @@ Example failure snippet:
 
 ## Deterministic design philosophy
 
-The engine is intentionally non-probabilistic.
+Architon performs deterministic analysis.
+Rail voltage inference is deterministic and transparent.
+Each inference includes source, confidence score, evidence, and warnings.
+No probabilistic models or network calls are used.
 
-- No AI/model inference
-- No remote lookups during validation
-- Any deterministic rail-name heuristic is reported with source, confidence, and warnings
-- Same input spec or scan input + same metadata/part library -> same output findings and exit code
+Same input spec or scan input + same metadata/part library -> same output findings and exit code.
 
 This allows CI gating, reproducible audits, and traceable engineering review.
 

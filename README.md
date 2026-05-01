@@ -290,11 +290,44 @@ exit code: 2
 
 `Errors` are parse/import errors. Rule failures are reported as `Violations`.
 
-Use `--explain-rails` or `--rails` to print deterministic rail inference details, including voltage, confidence level, confidence score, source, and rail coverage.
+Use `--rails` to print deterministic rail inference details, including voltage, confidence level, confidence score, source, and rail coverage. `--explain-rails` remains supported as a legacy alias.
 
 Default output path: `architon-report.json`.
 
+### Rail inference and coverage
 
+Rail voltage inference is deterministic and transparent. Each inference includes source, confidence score, evidence, and warnings. Confidence score indicates the reliability of an inference. Coverage indicates how much of the design can be safely checked by voltage rules. Users can inspect details with `--rails`.
+
+```bash
+rv scan example.net
+```
+
+Expected output:
+
+```text
+Inferred voltages: 2 Unknown voltage nets: 1 Rail coverage: MEDIUM 67%
+```
+
+```bash
+rv scan example.net --rails
+```
+
+Example detail:
+
+```text
+Rail inference:
+
+- /+5V: 5.00V  HIGH   0.95  NET_NAME_EXACT
+- VIN:  UNKNOWN LOW    0.35  HEURISTIC
+
+Rail coverage:
+
+- Total nets: 3
+- Usable for rules: 2/3
+- Coverage: MEDIUM 67%
+```
+
+High coverage does not guarantee correctness. Coverage indicates how many rails can be evaluated reliably. Low coverage means some checks may be skipped.
 
 ---
 
@@ -309,36 +342,9 @@ Default output path: `architon-report.json`.
 | 2 | Rule violations detected. |
 | 3 | Tool execution failure, including scan parse errors where analysis could not complete reliably. |
 
-### Exit code 1 — Warnings
+Warnings should be reviewed. CI may allow exit code 1 or treat it as failure using `--warn-as-error`.
 
-Exit code 1 means Architon successfully analyzed the architecture and found one or more warnings, but no violations.
-
-Warnings indicate elevated risk or incomplete constraints, such as:
-- Missing current limits
-- Low electrical margin conditions
-- Incomplete architecture specification
-
-The architecture may still function, but warnings should be reviewed.
-CI may allow exit code 1 or treat it as failure using `--warn-as-error`.
-
-### Exit code 2 — Violations
-
-Exit code 2 means Architon successfully analyzed the input and found one or more violations (HARD STOPS / errors).
-This indicates the architecture or scanned design is invalid and must be fixed.
-
-### Exit code 3 — Tool failure
-
-Exit code 3 means Architon could not complete analysis. This is not an architecture or design-rule violation.
-It indicates an input or runtime problem, such as:
-- Invalid YAML syntax
-- Missing input file
-- Schema validation failure
-- Import or resolution failure
-- Internal tool error
-
-For `rv scan`, malformed BOM rows and other parse failures still write a report when possible, then exit 3. This separates bad input/export data from valid analysis that found design-rule violations.
-
-Exit codes 0–2 indicate successful analysis. Exit code 3 indicates analysis could not run.
+For `rv scan`, malformed BOM rows and other parse failures still write a report when possible, then exit 3.
 
 ---
 
@@ -526,11 +532,10 @@ exit code: 2
 
 ## Deterministic by design
 
-Architon is deterministic by design:
-- No AI
-- No probabilistic inference
-- No hidden inference; rail inference is reported with source, confidence, and warnings
-- No hallucination
+Architon performs deterministic analysis.
+Rail voltage inference is deterministic and transparent.
+Each inference includes source, confidence score, evidence, and warnings.
+No probabilistic models or network calls are used.
 
 Validation operates only on the specification and part data you provide.
 The same input always produces the same result.

@@ -16,7 +16,7 @@ rv scan <bom.csv> --map mapping.yaml   Use explicit header mapping YAML
 rv scan <bom.csv> --out report.json    Write scan report to a specific path
 rv scan <netlist.net> --meta .architon/meta.yaml
                                       Enable metadata-backed voltage rules
-rv scan <netlist.net> --rails          Show rail inference details (--explain-rails)
+rv scan <netlist.net> --rails          Show rail inference details
 rv scan .                              Auto-detect BOM and/or netlist in current directory
 rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
@@ -36,7 +36,7 @@ rv scan --help                         Show scan command options
 ```text
 --output json             print machine readable JSON to stdout
 --style report|classic    force human-readable style
---warn-as-error           return exit code 2 for warning-only results
+--warn-as-error           treat warning-only results as violations
 --pretty                  pretty print JSON to stdout (requires --output json)
 --out-file <path>         write compact JSON to file (requires --output json)
 --parts-dir <dir>         add parts directory (repeatable)
@@ -51,19 +51,12 @@ rv scan --help                         Show scan command options
 --bom <file>              override BOM file path for project directory scans
 --netlist <file>          override netlist file path for project directory scans
 --meta <file.yaml>        metadata for sources, regulators, and component limits
---explain-rails           print rail voltage inference and confidence details
---rails                   alias for --explain-rails
+--rails                   print rail voltage inference and confidence details
+--explain-rails           legacy alias for --rails
 --out <report.json>       write scan report to a specific path
 ```
 
-## Exit codes (`rv check` and `rv scan`)
-
-```text
-0  clean / informational only
-1  warnings detected, no violations
-2  rule violations
-3  tool execution failure, including scan parse errors
-```
+Exit behavior is documented in `README.md`.
 
 ## Examples
 
@@ -109,7 +102,7 @@ Successful `rv scan` terminal output includes:
 - `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
 - compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
 - `Detected BOM` and `Detected Netlist` when directory scan auto-detects files
-- rail inference table when `--explain-rails` or `--rails` is passed
+- rail inference table when `--rails` is passed; `--explain-rails` remains supported as a legacy alias
 
 Example success snippet:
 

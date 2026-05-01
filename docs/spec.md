@@ -151,7 +151,7 @@ Battery max-current precedence used by rules:
 - `motors[].count`
 - `motors[].stall_current_a`
 
-Missing required values cause resolve failures (exit code `3`) before rule findings are emitted.
+Missing required values cause resolve failures before rule findings are emitted.
 
 ## Parts system
 

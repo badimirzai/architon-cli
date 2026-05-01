@@ -36,14 +36,7 @@ This order is stable and produces reproducible findings for identical input.
 - `WARN`: elevated risk or low margin
 - `ERROR`: deterministic contract violation
 
-## Exit codes (`rv check`)
-
-- `0`: analysis completed with no `ERROR` or `WARN` findings (`INFO` notes are allowed)
-- `1`: one or more `WARN` findings and no `ERROR` findings
-- `2`: one or more `ERROR` findings, regardless of warnings
-- `3`: parse/decode/resolve/import/schema/IO failure path
-
-With `--warn-as-error`, warning-only results also return `2`.
+Exit behavior is documented in `README.md`.
 
 ## Rule catalog
 
@@ -119,7 +112,7 @@ Netlist-backed scans can run deterministic voltage rules when rail voltages are 
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, and confidence level.
 
-## Determinism guarantees
+## Determinism contract
 
 Given the same:
 
@@ -129,7 +122,10 @@ Given the same:
 
 the engine returns the same findings and exit code.
 
-No network access or probabilistic scoring is part of rule evaluation.
+Architon performs deterministic analysis.
+Rail voltage inference is deterministic and transparent.
+Each inference includes source, confidence score, evidence, and warnings.
+No probabilistic models or network calls are used.
 
 ## Extensibility
 
