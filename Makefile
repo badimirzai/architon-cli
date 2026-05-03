@@ -3,6 +3,16 @@ BINARY := rv
 CMD := ./cmd/rv
 PKG := ./...
 GOFLAGS :=
+GO_BIN := $(shell go env GOBIN)
+GO_PATH := $(shell go env GOPATH)
+INSTALL_BIN ?= $(if $(GO_BIN),$(GO_BIN),$(GO_PATH)/bin)
+ifeq ($(OS),Windows_NT)
+EXE := .exe
+BIN_CMD := .\bin\$(BINARY)$(EXE)
+else
+EXE :=
+BIN_CMD := ./bin/$(BINARY)$(EXE)
+endif
 
 # Optional overrides:
 #   make run ARGS="check examples/amr_basic.yaml"
@@ -10,7 +20,7 @@ GOFLAGS :=
 ARGS ?=
 FILE ?= examples/amr_parts.yaml
 
-.PHONY: help tidy fmt vet test lint build install run check validate verify version clean
+.PHONY: help tidy fmt vet test lint build install install-rv doctor run check validate verify version clean
 
 help:
 	@echo "Targets:"
@@ -20,7 +30,8 @@ help:
 	@echo "  test       - run unit tests"
 	@echo "  lint       - golangci-lint (if installed)"
 	@echo "  build      - build binary into ./bin/$(BINARY)"
-	@echo "  install    - install binary into $${GOBIN:-$$(go env GOPATH)/bin}/$(BINARY)"
+	@echo "  install    - install rv and verify local KiCad CLI discovery"
+	@echo "  doctor     - verify rv and KiCad CLI setup"
 	@echo "  run        - run CLI (requires ARGS=\"...\")"
 	@echo "  check      - run check on FILE (default: $(FILE))"
 	@echo "  validate   - alias for check"
@@ -32,7 +43,8 @@ help:
 	@echo "  make check FILE=examples/amr_basic.yaml"
 	@echo "  make run ARGS=\"check examples/amr_basic.yaml\""
 	@echo "  make run ARGS=\"version\""
-	@echo "  make build && ./bin/$(BINARY) version"
+	@echo "  make build && $(BIN_CMD) version"
+	@echo "  make install && rv scan /path/to/kicad/project --out report.json"
 	@echo "  rv version"
 	
 
@@ -49,39 +61,39 @@ test:
 	go test $(PKG)
 
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run ./... || (echo "golangci-lint not installed. Install: https://golangci-lint.run/usage/install/"; exit 1)
+	golangci-lint run ./...
 
-bin/$(BINARY): $(shell find . -name '*.go')
-	mkdir -p bin
-	go build $(GOFLAGS) -o bin/$(BINARY) $(CMD)
+build:
+	go run ./scripts/build.go $(GOFLAGS)
 
-build: bin/$(BINARY)
+install: install-rv doctor
+	@echo ""
+	@echo "Ready. Try:"
+	@echo "  rv scan /path/to/kicad/project --out report.json"
 
-install:
+install-rv:
 	go install $(GOFLAGS) $(CMD)
 	@echo ""
-	@echo "Installed to: $${GOBIN:-$$(go env GOPATH)/bin}/$(BINARY)"
-	@echo "If 'rv' is not found, add this to your PATH:"
-	@echo '  export PATH="'"$${GOBIN:-$$(go env GOPATH)/bin}"':$$PATH"'
+	@echo "Installed rv to: $(INSTALL_BIN)/$(BINARY)$(EXE)"
+	@echo "If 'rv' is not found, add this directory to PATH: $(INSTALL_BIN)"
+
+doctor:
+	go run $(CMD) doctor
 	
 run: build
-	@if [ -z "$(strip $(ARGS))" ]; then \
-		echo "ERROR: ARGS is required, e.g. make run ARGS=\"check examples/amr_basic.yaml\""; \
-		exit 2; \
-	fi
-	./bin/$(BINARY) $(ARGS)
+	$(BIN_CMD) $(ARGS)
 
 check: build
-	./bin/$(BINARY) check $(FILE)
+	$(BIN_CMD) check $(FILE)
 
 validate: build
-	./bin/$(BINARY) check $(FILE)
+	$(BIN_CMD) check $(FILE)
 
 verify: check
 
 
 version: build
-	./bin/$(BINARY) version
+	$(BIN_CMD) version
 
 clean:
-	rm -rf bin
+	go run ./scripts/build.go --clean

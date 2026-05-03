@@ -14,12 +14,19 @@ func TestInferVoltagesFromNetNames(t *testing.T) {
 		voltage float64
 		source  string
 	}{
-		{net: "/+5V", voltage: 5.0, source: SourceNetNameExact},
-		{net: "3V3", voltage: 3.3, source: SourceNetNameExact},
-		{net: "/+3.3V", voltage: 3.3, source: SourceNetNameExact},
-		{net: "VBAT_24V", voltage: 24.0, source: SourceAmbiguousNumericToken},
-		{net: "/+4.24554V", voltage: 4.24554, source: SourceNetNameExact},
-		{net: "GND", voltage: 0.0, source: SourceNetNameExact},
+		{net: "/+5V", voltage: 5.0, source: SourceNetName},
+		{net: "3V3", voltage: 3.3, source: SourceNetName},
+		{net: "VDD_3V3", voltage: 3.3, source: SourceNetName},
+		{net: "VCC5V", voltage: 5.0, source: SourceNetName},
+		{net: "USB_5V", voltage: 5.0, source: SourceNetName},
+		{net: "VBUS", voltage: 5.0, source: SourceNetName},
+		{net: "/+3.3V", voltage: 3.3, source: SourceNetName},
+		{net: "/3.3V", voltage: 3.3, source: SourceNetName},
+		{net: "VBAT_24V", voltage: 24.0, source: SourceNetName},
+		{net: "/+4.24554V", voltage: 4.24554, source: SourceNetName},
+		{net: "GND", voltage: 0.0, source: SourceNetName},
+		{net: "AGND", voltage: 0.0, source: SourceNetName},
+		{net: "DGND", voltage: 0.0, source: SourceNetName},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +44,12 @@ func TestInferVoltagesFromNetNames(t *testing.T) {
 			}
 			if got.Source != tt.source {
 				t.Fatalf("expected source %s, got %q", tt.source, got.Source)
+			}
+			if got.Confidence == "" {
+				t.Fatalf("expected confidence provenance, got %+v", got)
+			}
+			if got.Reason == "" {
+				t.Fatalf("expected reason provenance, got %+v", got)
 			}
 			if len(result.Unknowns) != 0 {
 				t.Fatalf("expected no unknowns, got %+v", result.Unknowns)
@@ -103,7 +116,7 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "slash plus 5V",
 			net:      "/+5V",
 			voltage:  ptr(5.0),
-			source:   SourceNetNameExact,
+			source:   SourceNetName,
 			score:    0.95,
 			level:    ConfidenceHigh,
 			evidence: `matched exact voltage pattern "/+5V"`,
@@ -112,7 +125,7 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "plus 5V",
 			net:      "+5V",
 			voltage:  ptr(5.0),
-			source:   SourceNetNameExact,
+			source:   SourceNetName,
 			score:    0.95,
 			level:    ConfidenceHigh,
 			evidence: `matched exact voltage pattern "+5V"`,
@@ -121,7 +134,7 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "bare 5V",
 			net:      "5V",
 			voltage:  ptr(5.0),
-			source:   SourceNetNameExact,
+			source:   SourceNetName,
 			score:    0.95,
 			level:    ConfidenceHigh,
 			evidence: `matched exact voltage pattern "5V"`,
@@ -130,7 +143,7 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "slash 3V3",
 			net:      "/3V3",
 			voltage:  ptr(3.3),
-			source:   SourceNetNameExact,
+			source:   SourceNetName,
 			score:    0.95,
 			level:    ConfidenceHigh,
 			evidence: `matched exact voltage pattern "/3V3"`,
@@ -139,17 +152,17 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "VCC 3V3",
 			net:      "VCC_3V3",
 			voltage:  ptr(3.3),
-			source:   SourceAmbiguousNumericToken,
-			score:    0.00,
-			level:    ConfidenceUnknown,
-			evidence: `matched ambiguous voltage token "3V3" in net name "VCC_3V3"`,
+			source:   SourceNetName,
+			score:    0.80,
+			level:    ConfidenceMedium,
+			evidence: `matched voltage token "3V3" in net name "VCC_3V3"`,
 			warning:  "heuristic-only voltage extraction used",
 		},
 		{
 			name:     "VBUS",
 			net:      "VBUS",
 			voltage:  ptr(5.0),
-			source:   SourceSemanticAlias,
+			source:   SourceNetName,
 			score:    0.80,
 			level:    ConfidenceMedium,
 			evidence: `matched known semantic alias "VBUS" = 5.00V`,
@@ -165,7 +178,7 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 		{
 			name:     "VDD",
 			net:      "VDD",
-			source:   SourceWeakSemanticAlias,
+			source:   SourceNetName,
 			score:    0.45,
 			level:    ConfidenceLow,
 			evidence: `matched weak semantic alias "VDD"`,
@@ -175,16 +188,16 @@ func TestInferVoltageFromNetName_ConfidenceScoring(t *testing.T) {
 			name:     "SUPPLY 4V7",
 			net:      "SUPPLY_4V7",
 			voltage:  ptr(4.7),
-			source:   SourceAmbiguousNumericToken,
-			score:    0.00,
-			level:    ConfidenceUnknown,
-			evidence: `matched ambiguous voltage token "4V7" in net name "SUPPLY_4V7"`,
-			warning:  `generic rail name "SUPPLY_4V7" reduces confidence`,
+			source:   SourceNetName,
+			score:    0.40,
+			level:    ConfidenceLow,
+			evidence: `matched voltage token "4V7" in net name "SUPPLY_4V7"`,
+			warning:  "heuristic-only voltage extraction used",
 		},
 		{
 			name:    "multiple candidates",
 			net:     "RAIL_3V3_5V",
-			source:  SourceAmbiguousNumericToken,
+			source:  SourceNetName,
 			score:   0.00,
 			level:   ConfidenceUnknown,
 			warning: "multiple candidate voltages detected",
@@ -220,7 +233,18 @@ func TestInferVoltageFromNetName_ExactNumericExamples(t *testing.T) {
 	}
 	for net, voltage := range tests {
 		got := InferVoltageFromNetName(net)
-		assertVoltageInference(t, got, net, ptr(voltage), SourceNetNameExact, 0.95, ConfidenceHigh)
+		assertVoltageInference(t, got, net, ptr(voltage), SourceNetName, 0.95, ConfidenceHigh)
+	}
+}
+
+func TestInferVoltageFromNetName_DecimalVoltageParsing(t *testing.T) {
+	tests := map[string]float64{
+		"/+4.24554V": 4.24554,
+		"/3.3V":      3.3,
+	}
+	for net, voltage := range tests {
+		got := InferVoltageFromNetName(net)
+		assertVoltageInference(t, got, net, ptr(voltage), SourceNetName, 0.95, ConfidenceHigh)
 	}
 }
 
@@ -302,6 +326,9 @@ func assertVoltageInference(t *testing.T, got VoltageInference, net string, volt
 	}
 	if got.ConfidenceLevel != level {
 		t.Fatalf("expected level %s, got %s", level, got.ConfidenceLevel)
+	}
+	if voltage != nil && got.Reason == "" {
+		t.Fatalf("expected reason provenance for inferred voltage, got %+v", got)
 	}
 }
 

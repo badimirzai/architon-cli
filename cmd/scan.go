@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -27,7 +29,8 @@ import (
 )
 
 const defaultScanReportPath = "architon-report.json"
-const noScanInputsFoundInProjectDirMessage = "no BOM or netlist file found in project directory (expected bom/bom.csv, bom.csv, exports/bom.csv, or *bom*.csv in root/bom/exports/, plus exports/*.net or *.net in root)"
+const defaultKiCadCLI = "kicad-cli"
+const noScanInputsFoundInProjectDirMessage = "no BOM, netlist, or root KiCad schematic found in project directory (expected bom/bom.csv, bom.csv, exports/bom.csv, or *bom*.csv in root/bom/exports/, plus exports/*.net or *.net in root, or one root *.kicad_sch for kicad-cli netlist export)"
 
 var scanCmd = newScanCmd()
 
@@ -37,8 +40,15 @@ type resolvedScanInput struct {
 	ProjectPath       string
 	BOMPath           string
 	NetlistPath       string
+	SchematicPath     string
 	BOMDiscovered     bool
 	NetlistDiscovered bool
+	NetlistGenerated  bool
+}
+
+type scanInputOptions struct {
+	AutoKiCadNetlist bool
+	KiCadCLIPath     string
 }
 
 func init() {
@@ -55,11 +65,13 @@ func newScanCmd() *cobra.Command {
 Current supported input:
   - KiCad BOM CSV
   - KiCad .net S-expression netlist
+  - KiCad project directory with a root .kicad_sch schematic
 
 Examples:
   rv scan .
   rv scan bom.csv
   rv scan exports/example.net
+  rv scan . --kicad-cli /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
   rv scan bom.csv --map mapping.yaml
   rv scan bom.csv --out result.json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -70,9 +82,14 @@ Examples:
 			metaOverride, _ := cmd.Flags().GetString("meta")
 			explainRails, _ := cmd.Flags().GetBool("explain-rails")
 			railsAlias, _ := cmd.Flags().GetBool("rails")
+			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
+			kicadCLIPath, _ := cmd.Flags().GetString("kicad-cli")
 			explainRails = explainRails || railsAlias
 
-			resolvedInput, err := resolveScanInput(args[0], bomOverride, netlistOverride)
+			resolvedInput, err := resolveScanInputWithOptions(args[0], bomOverride, netlistOverride, scanInputOptions{
+				AutoKiCadNetlist: !noKiCadCLI,
+				KiCadCLIPath:     kicadCLIPath,
+			})
 			if err != nil {
 				return fatalError(err)
 			}
@@ -86,11 +103,11 @@ Examples:
 			nameInferRes := infer.InferVoltagesFromNetNames(design)
 
 			// -------------------------
-			// META: auto-discover + skeleton generation (directory scans only)
+			// META: auto-discover existing metadata only. Scan never writes
+			// .architon/meta.yaml; rv init owns file creation.
 			// -------------------------
 			metaPath := strings.TrimSpace(metaOverride)
 			metaExplicit := metaPath != ""
-			skeletonCreated := false
 
 			if resolvedInput.Directory {
 				defaultMetaPath := filepath.Join(resolvedInput.ProjectPath, ".architon", "meta.yaml")
@@ -100,16 +117,7 @@ Examples:
 					if _, err := os.Stat(defaultMetaPath); err == nil {
 						metaPath = defaultMetaPath
 					} else if os.IsNotExist(err) {
-						// Auto-generate skeleton only if netlist/nets exist
-						if designReport.Summary.Nets > 0 {
-							if err := meta.WriteSkeleton(defaultMetaPath, scanDetectURefs(design)); err != nil {
-								return internalError(fmt.Errorf("create meta skeleton: %w", err))
-							}
-							skeletonCreated = true
-							fmt.Fprintf(cmd.OutOrStdout(), "Created .architon/meta.yaml — fill sources/components to enable voltage rules\n")
-							// Do not load the generated placeholder file on the same run.
-							metaPath = ""
-						}
+						metaPath = ""
 					} else {
 						return internalError(fmt.Errorf("stat default meta: %w", err))
 					}
@@ -125,7 +133,7 @@ Examples:
 			metaObj := &meta.Meta{}
 			metaLoaded := false
 
-			if metaPath != "" && !skeletonCreated {
+			if metaPath != "" {
 				// meta-based rules require nets
 				if designReport.Summary.Nets == 0 {
 					return &ExitError{
@@ -277,6 +285,10 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
 			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
+			coveredNets, totalNets := scanInferredVoltageCoverage(design, nameInferRes)
+			fmt.Fprintf(cmd.OutOrStdout(), "Inferred rails: %d\n", len(nameInferRes.Voltages))
+			fmt.Fprintf(cmd.OutOrStdout(), "Voltage coverage: %d/%d nets with inferred voltage\n", coveredNets, totalNets)
+			fmt.Fprintf(cmd.OutOrStdout(), "Metadata: %s\n", scanMetadataMode(metaLoaded, nameInferRes))
 			if explainRails {
 				scanPrintRailInferences(cmd.OutOrStdout(), railInferences, railCoverage)
 			}
@@ -298,6 +310,9 @@ Examples:
 			}
 			if resolvedInput.NetlistDiscovered {
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected Netlist: %s\n", resolvedInput.NetlistPath)
+			}
+			if resolvedInput.NetlistGenerated {
+				fmt.Fprintf(cmd.OutOrStdout(), "Generated Netlist: %s\n", resolvedInput.NetlistPath)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
@@ -336,9 +351,11 @@ Examples:
 	cmd.Flags().String("out", defaultScanReportPath, "Path to write the scan report JSON")
 	cmd.Flags().String("bom", "", "Override BOM file path when scanning a project directory")
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
-	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present; auto-generated if missing)")
+	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
+	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
+	cmd.Flags().String("kicad-cli", defaultKiCadCLI, "KiCad CLI binary name or path for automatic netlist generation")
 	return cmd
 }
 
@@ -420,6 +437,10 @@ func loadScanMapping(mappingFile string) (kicad.ColumnMapping, error) {
 }
 
 func resolveScanInput(inputPath string, bomOverride string, netlistOverride string) (resolvedScanInput, error) {
+	return resolveScanInputWithOptions(inputPath, bomOverride, netlistOverride, scanInputOptions{})
+}
+
+func resolveScanInputWithOptions(inputPath string, bomOverride string, netlistOverride string, opts scanInputOptions) (resolvedScanInput, error) {
 	cleanInput := filepath.Clean(inputPath)
 
 	info, statErr := os.Stat(cleanInput)
@@ -462,6 +483,25 @@ func resolveScanInput(inputPath string, bomOverride string, netlistOverride stri
 			return resolvedScanInput{}, err
 		}
 		resolved.NetlistDiscovered = resolved.NetlistPath != ""
+	}
+
+	if netlistOverride == "" && resolved.NetlistPath == "" {
+		schematicPath, err := resolveRootSchematicPath(absInput)
+		if err != nil {
+			return resolvedScanInput{}, err
+		}
+		resolved.SchematicPath = schematicPath
+		if schematicPath != "" && opts.AutoKiCadNetlist {
+			generatedNetlist, err := generateKiCadNetlistFromSchematic(opts.KiCadCLIPath, schematicPath)
+			if err != nil {
+				return resolvedScanInput{}, err
+			}
+			resolved.NetlistPath = generatedNetlist
+			resolved.NetlistGenerated = true
+		}
+		if schematicPath != "" && !opts.AutoKiCadNetlist && resolved.BOMPath == "" {
+			return resolvedScanInput{}, errors.New("root KiCad schematic found but no netlist is available; remove --no-kicad-cli or provide --netlist")
+		}
 	}
 
 	if resolved.BOMPath == "" && resolved.NetlistPath == "" {
@@ -594,6 +634,223 @@ func findNetlistCandidates(dir string) ([]string, error) {
 	return matches, nil
 }
 
+func resolveRootSchematicPath(projectPath string) (string, error) {
+	candidates, err := findRootSchematicCandidates(projectPath)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	if len(candidates) > 1 {
+		rel := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			name, err := filepath.Rel(projectPath, candidate)
+			if err != nil {
+				name = candidate
+			}
+			rel = append(rel, filepath.ToSlash(name))
+		}
+		sort.Strings(rel)
+		return "", fmt.Errorf("multiple root KiCad schematics found; use --netlist or keep one root *.kicad_sch: %s", strings.Join(rel, ", "))
+	}
+	return candidates[0], nil
+}
+
+func findRootSchematicCandidates(projectPath string) ([]string, error) {
+	absDir, err := filepath.Abs(filepath.Clean(projectPath))
+	if err != nil {
+		return nil, fmt.Errorf("resolve schematic candidate directory: %w", err)
+	}
+
+	entries, readErr := os.ReadDir(absDir)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read schematic candidate directory: %w", readErr)
+	}
+
+	matches := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !matchesKiCadSchematicPattern(entry.Name()) {
+			continue
+		}
+		matches = append(matches, filepath.Join(absDir, entry.Name()))
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		left, leftErr := filepath.Rel(absDir, matches[i])
+		right, rightErr := filepath.Rel(absDir, matches[j])
+		if leftErr != nil || rightErr != nil {
+			return filepath.ToSlash(matches[i]) < filepath.ToSlash(matches[j])
+		}
+		return filepath.ToSlash(left) < filepath.ToSlash(right)
+	})
+	return matches, nil
+}
+
+func generateKiCadNetlistFromSchematic(kicadCLIPath string, schematicPath string) (string, error) {
+	tempFile, err := os.CreateTemp("", "architon-kicad-*.net")
+	if err != nil {
+		return "", fmt.Errorf("create temporary KiCad netlist: %w", err)
+	}
+	outputPath := tempFile.Name()
+	if closeErr := tempFile.Close(); closeErr != nil {
+		_ = os.Remove(outputPath)
+		return "", fmt.Errorf("close temporary KiCad netlist: %w", closeErr)
+	}
+
+	if err := runKiCadNetlistExport(kicadCLIPath, schematicPath, outputPath); err != nil {
+		_ = os.Remove(outputPath)
+		return "", err
+	}
+	return outputPath, nil
+}
+
+func runKiCadNetlistExport(kicadCLIPath string, schematicPath string, outputPath string) error {
+	binary, args, err := buildKiCadNetlistCommand(kicadCLIPath, outputPath, schematicPath)
+	if err != nil {
+		return err
+	}
+	resolvedBinary, err := resolveKiCadCLIPath(binary)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(resolvedBinary, args...)
+	output, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		message := strings.TrimSpace(string(output))
+		if message != "" {
+			return fmt.Errorf("run KiCad netlist export %q %s: %w: %s", resolvedBinary, strings.Join(args, " "), runErr, message)
+		}
+		return fmt.Errorf("run KiCad netlist export %q %s: %w", resolvedBinary, strings.Join(args, " "), runErr)
+	}
+	return nil
+}
+
+func resolveKiCadCLIPath(binary string) (string, error) {
+	return resolveKiCadCLIPathWithLookPath(binary, commonKiCadCLIPaths(), exec.LookPath)
+}
+
+func resolveKiCadCLIPathWithLookPath(binary string, commonPaths []string, lookPath func(string) (string, error)) (string, error) {
+	binary = strings.TrimSpace(binary)
+	if binary == "" {
+		binary = defaultKiCadCLI
+	}
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	if resolved, err := lookPath(binary); err == nil {
+		return resolved, nil
+	}
+	if binary != defaultKiCadCLI {
+		return "", fmt.Errorf("KiCad CLI %q not found; pass --kicad-cli with the full path to kicad-cli", binary)
+	}
+	for _, candidate := range commonPaths {
+		if isExecutableFile(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("KiCad CLI %q not found in PATH or common install locations; install KiCad, add kicad-cli to PATH, or pass --kicad-cli /full/path/to/kicad-cli", binary)
+}
+
+func commonKiCadCLIPaths() []string {
+	candidates := make([]string, 0, 16)
+	patterns := make([]string, 0, 16)
+
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = append(candidates,
+			"/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+		)
+		patterns = append(patterns,
+			"/Applications/KiCad*/KiCad.app/Contents/MacOS/kicad-cli",
+			"/Applications/KiCad/*.app/Contents/MacOS/kicad-cli",
+		)
+	case "windows":
+		for _, root := range []string{
+			os.Getenv("ProgramFiles"),
+			os.Getenv("ProgramFiles(x86)"),
+			os.Getenv("LocalAppData"),
+		} {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			candidates = append(candidates,
+				filepath.Join(root, "KiCad", "bin", "kicad-cli.exe"),
+			)
+			patterns = append(patterns,
+				filepath.Join(root, "KiCad", "*", "bin", "kicad-cli.exe"),
+				filepath.Join(root, "KiCad", "*", "kicad-cli.exe"),
+			)
+		}
+	default:
+		candidates = append(candidates,
+			"/usr/bin/kicad-cli",
+			"/usr/local/bin/kicad-cli",
+			"/opt/kicad/bin/kicad-cli",
+			"/snap/bin/kicad-cli",
+			"/app/bin/kicad-cli",
+		)
+		patterns = append(patterns,
+			"/opt/kicad*/bin/kicad-cli",
+		)
+	}
+
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err == nil {
+			candidates = append(candidates, matches...)
+		}
+	}
+	sort.Strings(candidates)
+	out := make([]string, 0, len(candidates))
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return info.Mode()&0o111 != 0
+}
+
+func buildKiCadNetlistCommand(kicadCLIPath string, outputPath string, schematicPath string) (string, []string, error) {
+	binary := strings.TrimSpace(kicadCLIPath)
+	if binary == "" {
+		binary = defaultKiCadCLI
+	}
+	outputPath = strings.TrimSpace(outputPath)
+	if outputPath == "" {
+		return "", nil, errors.New("KiCad netlist output path is empty")
+	}
+	schematicPath = strings.TrimSpace(schematicPath)
+	if schematicPath == "" {
+		return "", nil, errors.New("KiCad schematic path is empty")
+	}
+	return binary, []string{
+		"sch",
+		"export",
+		"netlist",
+		"--format",
+		"kicadsexpr",
+		"--output",
+		outputPath,
+		schematicPath,
+	}, nil
+}
+
 func matchesBOMCSVPattern(name string) bool {
 	if !strings.EqualFold(filepath.Ext(name), ".csv") {
 		return false
@@ -605,6 +862,10 @@ func matchesBOMCSVPattern(name string) bool {
 
 func matchesNetlistPattern(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".net")
+}
+
+func matchesKiCadSchematicPattern(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), ".kicad_sch")
 }
 
 // Exit codes (consistent with rv check contract):
@@ -747,6 +1008,9 @@ func scanDetectURefs(design *ir.DesignIR) []string {
 func scanInitialVoltages(inferRes infer.Result, m *meta.Meta) map[string]float64 {
 	initial := make(map[string]float64, len(inferRes.Voltages))
 	for net, inferred := range inferRes.Voltages {
+		if infer.IsGroundNetName(net) {
+			continue
+		}
 		initial[net] = inferred.Voltage
 	}
 	if m != nil {
@@ -755,6 +1019,34 @@ func scanInitialVoltages(inferRes infer.Result, m *meta.Meta) map[string]float64
 		}
 	}
 	return initial
+}
+
+func scanInferredVoltageCoverage(design *ir.DesignIR, inferRes infer.Result) (int, int) {
+	if design == nil {
+		return 0, 0
+	}
+	total := len(design.Nets)
+	covered := 0
+	for _, net := range design.Nets {
+		if _, ok := inferRes.Voltages[strings.TrimSpace(net.Name)]; ok {
+			covered++
+		}
+	}
+	return covered, total
+}
+
+func scanMetadataMode(metaLoaded bool, inferRes infer.Result) string {
+	hasInferred := len(inferRes.Voltages) > 0
+	switch {
+	case metaLoaded && hasInferred:
+		return "mixed"
+	case metaLoaded:
+		return "explicit"
+	case hasInferred:
+		return "inferred"
+	default:
+		return "none"
+	}
 }
 
 func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report.NetVoltage {
@@ -860,9 +1152,11 @@ func scanReportInferredNetVoltages(inferRes infer.Result) []report.NetVoltage {
 	out := make([]report.NetVoltage, 0, len(inferRes.Voltages))
 	for _, inferred := range inferRes.Voltages {
 		out = append(out, report.NetVoltage{
-			Net:     inferred.Net,
-			Voltage: inferred.Voltage,
-			Source:  inferred.Source,
+			Net:        inferred.Net,
+			Voltage:    inferred.Voltage,
+			Source:     inferred.Source,
+			Confidence: inferred.Confidence,
+			Reason:     inferred.Reason,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Net < out[j].Net })
@@ -931,6 +1225,7 @@ func scanReportInferenceProvenance(inference infer.VoltageInference) *report.Inf
 		Source:          inference.Source,
 		ConfidenceScore: inference.ConfidenceScore,
 		ConfidenceLevel: inference.ConfidenceLevel,
+		Reason:          inference.Reason,
 	}
 }
 
