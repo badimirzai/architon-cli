@@ -16,6 +16,7 @@ const ambiguousPowerNetReason = "ambiguous power net name"
 const multipleCandidateVoltagesReason = "multiple candidate voltages detected"
 
 const (
+	SourceNetName               = "net_name"
 	SourceUserOverride          = "USER_OVERRIDE"
 	SourceNetNameExact          = "NET_NAME_EXACT"
 	SourceRegulatorOutput       = "REGULATOR_OUTPUT"
@@ -45,6 +46,7 @@ const (
 var (
 	decimalVoltagePattern = regexp.MustCompile(`^\+?([0-9]+(?:\.[0-9]+)?)V$`)
 	vDecimalPattern       = regexp.MustCompile(`^\+?([0-9]+)V([0-9]+)$`)
+	voltageSuffixPattern  = regexp.MustCompile(`(\+?(?:[0-9]+(?:\.[0-9]+)?V|[0-9]+V[0-9]+))$`)
 )
 
 var ambiguousPowerNetNames = map[string]struct{}{
@@ -67,6 +69,25 @@ var genericRailNameTokens = map[string]struct{}{
 	"SUPPLY": {},
 }
 
+var groundNetNames = map[string]struct{}{
+	"GND":  {},
+	"AGND": {},
+	"DGND": {},
+}
+
+var contextualRailNameTokens = map[string]struct{}{
+	"VCC":  {},
+	"VDD":  {},
+	"USB":  {},
+	"VBUS": {},
+}
+
+var contextualRailNamePrefixes = []string{
+	"VCC",
+	"VDD",
+	"USB",
+}
+
 var knownSemanticAliases = map[string]float64{
 	"VBUS": 5.0,
 }
@@ -77,9 +98,11 @@ var weakSemanticAliases = map[string]struct{}{
 }
 
 type InferredVoltage struct {
-	Net     string
-	Voltage float64
-	Source  string
+	Net        string
+	Voltage    float64
+	Source     string
+	Confidence string
+	Reason     string
 }
 
 type UnknownVoltage struct {
@@ -102,6 +125,7 @@ type VoltageInference struct {
 	Source          string   `json:"source"`
 	ConfidenceScore float64  `json:"confidence_score"`
 	ConfidenceLevel string   `json:"confidence_level"`
+	Reason          string   `json:"reason"`
 	Evidence        []string `json:"evidence"`
 	Warnings        []string `json:"warnings"`
 }
@@ -210,9 +234,11 @@ func InferVoltages(design *ir.DesignIR, opts VoltageInferenceOptions) Result {
 		result.Inferences = append(result.Inferences, inference)
 		if inference.Voltage != nil {
 			result.Voltages[netName] = InferredVoltage{
-				Net:     netName,
-				Voltage: *inference.Voltage,
-				Source:  inference.Source,
+				Net:        netName,
+				Voltage:    *inference.Voltage,
+				Source:     inference.Source,
+				Confidence: inference.ConfidenceLevel,
+				Reason:     inference.Reason,
 			}
 			continue
 		}
@@ -279,7 +305,7 @@ func (s *inferenceState) addNetNameEvidence() {
 		return
 	}
 
-	if s.normalized == "GND" {
+	if IsGroundNetName(s.netName) {
 		s.addCandidate(0, SourceNetNameExact, scoreNetNameExact)
 		s.addEvidence(fmt.Sprintf("matched ground net %q", s.netName))
 		return
@@ -308,13 +334,19 @@ func (s *inferenceState) addNetNameEvidence() {
 	voltageTokens := voltageTokens(s.normalized)
 	if len(voltageTokens) > 0 {
 		s.hasHeuristicExtraction = true
+		source := SourceAmbiguousNumericToken
+		score := scoreAmbiguousNumericToken
+		if hasContextualRailName(s.normalized) {
+			source = SourceSemanticAlias
+			score = scoreSemanticAlias
+		}
 		for _, token := range voltageTokens {
 			voltage, ok := parseVoltageToken(token)
 			if !ok {
 				continue
 			}
-			s.addCandidate(voltage, SourceAmbiguousNumericToken, scoreAmbiguousNumericToken)
-			s.addEvidence(fmt.Sprintf("matched ambiguous voltage token %q in net name %q", token, s.netName))
+			s.addCandidate(voltage, source, score)
+			s.addEvidence(fmt.Sprintf("matched voltage token %q in net name %q", token, s.netName))
 		}
 	}
 }
@@ -408,7 +440,6 @@ func (s *inferenceState) finalize() VoltageInference {
 		s.addWarning("multiple candidate voltages detected")
 	}
 	if s.hasHeuristicExtraction {
-		score -= 0.30
 		s.addWarning("heuristic-only voltage extraction used")
 	}
 	if s.hasConflict {
@@ -426,13 +457,15 @@ func (s *inferenceState) finalize() VoltageInference {
 
 	sort.Strings(s.evidence)
 	sort.Strings(s.warnings)
+	reason := inferenceReason(s.evidence, s.warnings, voltage)
 
 	return VoltageInference{
 		NetName:         s.netName,
 		Voltage:         voltage,
-		Source:          source,
+		Source:          reportInferenceSource(source),
 		ConfidenceScore: score,
 		ConfidenceLevel: confidenceLevel(score),
+		Reason:          reason,
 		Evidence:        stableStrings(s.evidence),
 		Warnings:        stableStrings(s.warnings),
 	}
@@ -442,6 +475,11 @@ func normalizeNetName(netName string) string {
 	trimmed := strings.TrimSpace(netName)
 	trimmed = strings.TrimPrefix(trimmed, "/")
 	return strings.ToUpper(trimmed)
+}
+
+func IsGroundNetName(netName string) bool {
+	_, ok := groundNetNames[normalizeNetName(netName)]
+	return ok
 }
 
 func isAmbiguousPowerNetName(normalized string) bool {
@@ -466,7 +504,7 @@ func parseExactVoltage(normalized string) (float64, bool) {
 }
 
 func parseExplicitVoltage(normalized string) (float64, bool) {
-	if normalized == "GND" {
+	if IsGroundNetName(normalized) {
 		return 0, true
 	}
 	return parseExactVoltage(normalized)
@@ -492,18 +530,40 @@ func voltageTokens(normalized string) []string {
 	tokens := splitNetNameTokens(normalized)
 	out := make([]string, 0, len(tokens))
 	seen := map[string]struct{}{}
-	for _, token := range tokens {
+	add := func(token string) {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return
+		}
 		if _, ok := parseVoltageToken(token); !ok {
-			continue
+			return
 		}
 		if _, ok := seen[token]; ok {
-			continue
+			return
 		}
 		seen[token] = struct{}{}
 		out = append(out, token)
 	}
+	for _, token := range tokens {
+		add(token)
+		if suffix, ok := voltageSuffixToken(token); ok {
+			add(suffix)
+		}
+	}
 	sort.Strings(out)
 	return out
+}
+
+func voltageSuffixToken(token string) (string, bool) {
+	token = strings.ToUpper(strings.TrimSpace(token))
+	matches := voltageSuffixPattern.FindStringSubmatch(token)
+	if len(matches) != 2 {
+		return "", false
+	}
+	if matches[1] == token {
+		return "", false
+	}
+	return matches[1], true
 }
 
 func splitNetNameTokens(normalized string) []string {
@@ -532,8 +592,25 @@ func hasGenericRailName(normalized string) bool {
 	return false
 }
 
+func hasContextualRailName(normalized string) bool {
+	for _, token := range splitNetNameTokens(normalized) {
+		if _, ok := contextualRailNameTokens[token]; ok {
+			return true
+		}
+		for _, prefix := range contextualRailNamePrefixes {
+			if strings.HasPrefix(token, prefix) && len(token) > len(prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func shouldApplyGenericDowngrade(s *inferenceState) bool {
 	if !s.hasGenericRailName {
+		return false
+	}
+	if s.hasHeuristicExtraction {
 		return false
 	}
 	// Plain unknown signal names should not be penalized just because a token
@@ -628,6 +705,28 @@ func defaultScoreForSource(source string) float64 {
 	default:
 		return scoreUnknown
 	}
+}
+
+func reportInferenceSource(source string) string {
+	switch source {
+	case SourceNetNameExact, SourceSemanticAlias, SourceWeakSemanticAlias, SourceAmbiguousNumericToken:
+		return SourceNetName
+	default:
+		return source
+	}
+}
+
+func inferenceReason(evidence []string, warnings []string, voltage *float64) string {
+	if len(evidence) > 0 {
+		return evidence[0]
+	}
+	if len(warnings) > 0 {
+		return warnings[0]
+	}
+	if voltage != nil {
+		return "deterministic voltage inference"
+	}
+	return "no deterministic voltage inference"
 }
 
 func unknownVoltageReason(s *inferenceState, inference VoltageInference) (string, bool) {

@@ -35,6 +35,7 @@ type InferenceProvenance struct {
 	Source          string  `json:"source"`
 	ConfidenceScore float64 `json:"confidence_score"`
 	ConfidenceLevel string  `json:"confidence_level"`
+	Reason          string  `json:"reason,omitempty"`
 }
 
 // Summary is the compact report header used by both JSON and CLI output.
@@ -79,9 +80,11 @@ type Derived struct {
 
 // NetVoltage is report-facing voltage evidence for a net.
 type NetVoltage struct {
-	Net     string  `json:"net"`
-	Voltage float64 `json:"voltage"`
-	Source  string  `json:"source"`
+	Net        string  `json:"net"`
+	Voltage    float64 `json:"voltage"`
+	Source     string  `json:"source"`
+	Confidence string  `json:"confidence,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
 }
 
 // UnknownVoltageNet explains why a rail-like net could not be assigned voltage.

@@ -3,6 +3,9 @@ BINARY := rv
 CMD := ./cmd/rv
 PKG := ./...
 GOFLAGS :=
+GO_BIN := $(shell go env GOBIN)
+GO_PATH := $(shell go env GOPATH)
+INSTALL_BIN ?= $(if $(GO_BIN),$(GO_BIN),$(GO_PATH)/bin)
 
 # Optional overrides:
 #   make run ARGS="check examples/amr_basic.yaml"
@@ -10,7 +13,7 @@ GOFLAGS :=
 ARGS ?=
 FILE ?= examples/amr_parts.yaml
 
-.PHONY: help tidy fmt vet test lint build install run check validate verify version clean
+.PHONY: help tidy fmt vet test lint build install install-rv install-kicad-cli doctor run check validate verify version clean
 
 help:
 	@echo "Targets:"
@@ -20,7 +23,8 @@ help:
 	@echo "  test       - run unit tests"
 	@echo "  lint       - golangci-lint (if installed)"
 	@echo "  build      - build binary into ./bin/$(BINARY)"
-	@echo "  install    - install binary into $${GOBIN:-$$(go env GOPATH)/bin}/$(BINARY)"
+	@echo "  install    - install rv and configure local KiCad CLI discovery"
+	@echo "  doctor     - verify rv and KiCad CLI setup"
 	@echo "  run        - run CLI (requires ARGS=\"...\")"
 	@echo "  check      - run check on FILE (default: $(FILE))"
 	@echo "  validate   - alias for check"
@@ -33,6 +37,7 @@ help:
 	@echo "  make run ARGS=\"check examples/amr_basic.yaml\""
 	@echo "  make run ARGS=\"version\""
 	@echo "  make build && ./bin/$(BINARY) version"
+	@echo "  make install && rv scan /path/to/kicad/project --out report.json"
 	@echo "  rv version"
 	
 
@@ -57,12 +62,60 @@ bin/$(BINARY): $(shell find . -name '*.go')
 
 build: bin/$(BINARY)
 
-install:
+install: install-rv install-kicad-cli doctor
+	@echo ""
+	@echo "Ready. Try:"
+	@echo "  rv scan /path/to/kicad/project --out report.json"
+
+install-rv:
 	go install $(GOFLAGS) $(CMD)
 	@echo ""
-	@echo "Installed to: $${GOBIN:-$$(go env GOPATH)/bin}/$(BINARY)"
-	@echo "If 'rv' is not found, add this to your PATH:"
-	@echo '  export PATH="'"$${GOBIN:-$$(go env GOPATH)/bin}"':$$PATH"'
+	@echo "Installed rv to: $(INSTALL_BIN)/$(BINARY)"
+
+install-kicad-cli:
+	@set -e; \
+	if command -v kicad-cli >/dev/null 2>&1; then \
+		echo "KiCad CLI available: $$(command -v kicad-cli)"; \
+		exit 0; \
+	fi; \
+	candidate=""; \
+	for path in \
+		"/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli" \
+		/Applications/KiCad*/KiCad.app/Contents/MacOS/kicad-cli \
+		/Applications/KiCad/*.app/Contents/MacOS/kicad-cli; do \
+		if [ -x "$$path" ]; then candidate="$$path"; break; fi; \
+	done; \
+	if [ -z "$$candidate" ]; then \
+		echo "KiCad CLI not found in PATH or common macOS app paths."; \
+		echo "rv scan can still run if you pass --kicad-cli /full/path/to/kicad-cli."; \
+		exit 0; \
+	fi; \
+	mkdir -p "$(INSTALL_BIN)"; \
+	link="$(INSTALL_BIN)/kicad-cli"; \
+	if [ -e "$$link" ]; then \
+		echo "kicad-cli already exists at $$link"; \
+	else \
+		ln -s "$$candidate" "$$link"; \
+		echo "Linked kicad-cli: $$link -> $$candidate"; \
+	fi
+
+doctor:
+	@set -e; \
+	echo ""; \
+	if command -v "$(BINARY)" >/dev/null 2>&1; then \
+		echo "rv available: $$(command -v $(BINARY))"; \
+	else \
+		echo "rv is installed at $(INSTALL_BIN)/$(BINARY), but $(INSTALL_BIN) is not on PATH."; \
+		echo 'Add this to your shell profile:'; \
+		echo '  export PATH="$(INSTALL_BIN):$$PATH"'; \
+	fi; \
+	if command -v kicad-cli >/dev/null 2>&1; then \
+		echo "kicad-cli available: $$(command -v kicad-cli)"; \
+	elif [ -x "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli" ]; then \
+		echo "kicad-cli available via KiCad app bundle: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"; \
+	else \
+		echo "kicad-cli was not found. Install KiCad or run rv scan with --kicad-cli /full/path/to/kicad-cli."; \
+	fi
 	
 run: build
 	@if [ -z "$(strip $(ARGS))" ]; then \
