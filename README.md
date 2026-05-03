@@ -77,9 +77,19 @@ Requires Go **1.25.5** or newer (https://go.dev/dl/).
 ```bash
 go install github.com/badimirzai/architon-cli/cmd/rv@latest
 rv version
+rv doctor
 rv --help
 ```
 
+From a cloned repo, `make install` installs `rv` with Go and runs `rv doctor`:
+
+```bash
+git clone https://github.com/badimirzai/architon-cli.git
+cd architon-cli
+make install
+```
+
+`rv scan .` can generate KiCad netlists automatically when `kicad-cli` is on `PATH` or installed in a common KiCad location on macOS, Linux, or Windows. If KiCad is installed somewhere custom, pass `--kicad-cli /full/path/to/kicad-cli`.
 
 ---
 
@@ -104,12 +114,14 @@ Warnings: 0
 Rules: 0
 Violations: 0
 Inferred voltages: <n> Unknown voltage nets: <n> Rail coverage: <LEVEL> <PCT>%
-Detected Netlist: <path>
+Inferred rails: <n>
+Voltage coverage: <x>/<y> nets with inferred voltage
+Metadata: inferred
+Detected Netlist: <path>       # or Generated Netlist: <temp path>
 Wrote architon-report.json
 exit code: 0
 ```
-Architon automatically detects KiCad .net netlists and BOM CSV files
-and produces a deterministic DesignIR report.
+Architon automatically detects KiCad `.net` netlists and BOM CSV files. If no `.net` file exists, it can export one from a single root `*.kicad_sch` using KiCad CLI and then produce a deterministic DesignIR report.
 
 ### Try the architecture checker (YAML)
 
@@ -196,6 +208,8 @@ rv scan examples/bom/bom.csv --map examples/mapping.yaml
 rv scan examples/bom/bom.csv --out my-report.json
 rv scan exports/project.net --meta .architon/meta.yaml
 rv scan exports/project.net --meta .architon/meta.yaml --rails
+rv scan . --no-kicad-cli
+rv scan . --kicad-cli /full/path/to/kicad-cli
 
 # KiCad project folder scan (demo repo)
 git clone https://github.com/badimirzai/architon-kicad-demo.git demos
@@ -208,7 +222,9 @@ rv scan .
 Architon automatically detects:
 - KiCad .net netlists
 - KiCad BOM CSV files
-and produces a normalized deterministic DesignIR report. 
+- a single root KiCad schematic (`*.kicad_sch`) when no `.net` exists, exported with KiCad CLI
+
+It produces a normalized deterministic DesignIR report. 
 
 `rv scan .` supports three input modes:
 
@@ -220,6 +236,7 @@ When you scan a directory, Architon looks for:
 
 - BOM candidates using the existing BOM detection rules: `bom/bom.csv`, `bom.csv`, `exports/bom.csv`, then lexical `*bom*.csv` matches in `bom/`, `exports/`, and the project root
 - Netlist candidates in this order: lexical `exports/*.net`, then lexical `*.net` in the project root
+- If no netlist is found: exactly one root `*.kicad_sch`, exported with `kicad-cli sch export netlist --format kicadsexpr --output <temp>.net <schematic>`
 
 If both a BOM and a netlist are found, Architon merges them deterministically into one DesignIR:
 
@@ -275,7 +292,7 @@ Example overvoltage output:
 
 ```text
 ARCHITON SCAN
-Target: exports/project.net
+Target: .
 Result: FAIL — scan violations detected
 Parts: 3
 Nets: 3
@@ -284,8 +301,12 @@ Warnings: 0
 Rules: 1
 Violations: 1
 Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%
+Inferred rails: 2
+Voltage coverage: 2/3 nets with inferred voltage
+Metadata: mixed
 Rule findings:
 - ERROR RULE_SUPPLY_CONTRACT: Net /+5V provides 5.00V but U1 pin 1 allows max 3.30V
+Generated Netlist: <temp path>
 Wrote architon-report.json
 exit code: 2
 ```
@@ -298,7 +319,7 @@ Default output path: `architon-report.json`.
 
 ### Rail inference and coverage
 
-Rail voltage inference is deterministic and transparent. Each inference includes source, confidence score, evidence, and warnings. Confidence score indicates the reliability of an inference. Coverage indicates how much of the design can be safely checked by voltage rules. Users can inspect details with `--rails`.
+Rail voltage inference is deterministic and transparent. Each inference includes source, confidence score, reason, evidence, and warnings. Confidence score indicates the reliability of an inference. Coverage indicates how much of the design can be safely checked by voltage rules. Users can inspect details with `--rails`.
 
 ```bash
 rv scan example.net
@@ -308,6 +329,9 @@ Expected output:
 
 ```text
 Inferred voltages: 2 Unknown voltage nets: 1 Rail coverage: MEDIUM 67%
+Inferred rails: 2
+Voltage coverage: 2/3 nets with inferred voltage
+Metadata: inferred
 ```
 
 ```bash
@@ -319,7 +343,7 @@ Example detail:
 ```text
 Rail inference:
 
-- /+5V: 5.00V  HIGH   0.95  NET_NAME_EXACT
+- /+5V: 5.00V  HIGH   0.95  net_name
 - VIN:  UNKNOWN LOW    0.35  HEURISTIC
 
 Rail coverage:

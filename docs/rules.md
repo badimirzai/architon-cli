@@ -105,14 +105,14 @@ Rules:
 
 ## Scan voltage rules (`rv scan`)
 
-Netlist-backed scans can run deterministic contract rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`.
+Netlist-backed scans can run deterministic contract rules when rail voltages are inferred from net names and/or supplied by `.architon/meta.yaml` / `--meta`. Project scans can generate a temporary KiCad netlist from one root `*.kicad_sch` when no `.net` file exists.
 
 - `RULE_SUPPLY_CONTRACT` (`ERROR`): provider voltage on a net is outside a consumer pin's contracted voltage range
 - `RULE_LOGIC_LEVEL_CONTRACT` (`ERROR`): output logic voltage exceeds an input pin's contracted tolerance
 - `RULE_BUS_ROLE_CONTRACT` (`WARNING`/`ERROR`): obvious I2C role/direction conflicts without guessing when data is missing
 - `RULE_VOLTAGE_CONFLICT` (`ERROR`): metadata, inferred, or propagated voltage evidence conflicts on a net
 
-Voltage-based findings include inference provenance when available: net name, source, confidence score, and confidence level.
+Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
 ## Determinism contract
 
@@ -126,7 +126,7 @@ the engine returns the same findings and exit code.
 
 Architon performs deterministic analysis.
 Rail voltage inference is deterministic and transparent.
-Each inference includes source, confidence score, evidence, and warnings.
+Each inference includes source, confidence score, reason, evidence, and warnings.
 No probabilistic models or network calls are used.
 
 ## Extensibility

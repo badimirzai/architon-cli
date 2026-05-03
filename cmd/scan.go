@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -750,17 +751,54 @@ func resolveKiCadCLIPathWithLookPath(binary string, commonPaths []string, lookPa
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("KiCad CLI %q not found in PATH or common install locations; pass --kicad-cli /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli", binary)
+	return "", fmt.Errorf("KiCad CLI %q not found in PATH or common install locations; install KiCad, add kicad-cli to PATH, or pass --kicad-cli /full/path/to/kicad-cli", binary)
 }
 
 func commonKiCadCLIPaths() []string {
-	candidates := []string{
-		"/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+	candidates := make([]string, 0, 16)
+	patterns := make([]string, 0, 16)
+
+	switch runtime.GOOS {
+	case "darwin":
+		candidates = append(candidates,
+			"/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+		)
+		patterns = append(patterns,
+			"/Applications/KiCad*/KiCad.app/Contents/MacOS/kicad-cli",
+			"/Applications/KiCad/*.app/Contents/MacOS/kicad-cli",
+		)
+	case "windows":
+		for _, root := range []string{
+			os.Getenv("ProgramFiles"),
+			os.Getenv("ProgramFiles(x86)"),
+			os.Getenv("LocalAppData"),
+		} {
+			root = strings.TrimSpace(root)
+			if root == "" {
+				continue
+			}
+			candidates = append(candidates,
+				filepath.Join(root, "KiCad", "bin", "kicad-cli.exe"),
+			)
+			patterns = append(patterns,
+				filepath.Join(root, "KiCad", "*", "bin", "kicad-cli.exe"),
+				filepath.Join(root, "KiCad", "*", "kicad-cli.exe"),
+			)
+		}
+	default:
+		candidates = append(candidates,
+			"/usr/bin/kicad-cli",
+			"/usr/local/bin/kicad-cli",
+			"/opt/kicad/bin/kicad-cli",
+			"/snap/bin/kicad-cli",
+			"/app/bin/kicad-cli",
+		)
+		patterns = append(patterns,
+			"/opt/kicad*/bin/kicad-cli",
+		)
 	}
-	for _, pattern := range []string{
-		"/Applications/KiCad*/KiCad.app/Contents/MacOS/kicad-cli",
-		"/Applications/KiCad/*.app/Contents/MacOS/kicad-cli",
-	} {
+
+	for _, pattern := range patterns {
 		matches, err := filepath.Glob(pattern)
 		if err == nil {
 			candidates = append(candidates, matches...)

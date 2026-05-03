@@ -14,6 +14,7 @@ spec.yaml
 
 bom.csv / project.net / project directory
   -> KiCad BOM and/or netlist importer
+  -> optional KiCad CLI schematic netlist export when no .net exists
   -> DesignIR (stable internal model)
   -> deterministic rail inference + metadata-backed voltage rules
   -> deterministic report payload
@@ -115,6 +116,8 @@ Primary command:
 - `rv scan <bom.csv> --out my-report.json`
 - `rv scan <netlist.net> --meta .architon/meta.yaml`
 - `rv scan <netlist.net> --rails`
+- `rv scan . --kicad-cli /full/path/to/kicad-cli`
+- `rv doctor`
 
 Output modes:
 
@@ -135,7 +138,7 @@ Exit behavior is documented in the canonical exit code table in `README.md`.
 - `summary.nets` and `design_ir.nets` for netlist-backed scans
 - `summary.next_steps` only on parse failure
 - `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, and `derived.rail_coverage` when voltage inference data is present
-- optional `rules[].inference` provenance for voltage-based findings
+- optional `rules[].inference` provenance for voltage-based findings, including reason when available
 
 Successful CLI output also prints a short deterministic terminal summary with:
 
@@ -149,7 +152,9 @@ Successful CLI output also prints a short deterministic terminal summary with:
 - `Rules`
 - `Violations`
 - compact rail coverage counts and level
+- inferred rails, voltage coverage, and metadata mode
 - `Detected BOM` / `Detected Netlist` for directory auto-detection
+- `Generated Netlist` when `rv scan .` exports a temporary netlist from `*.kicad_sch`
 
 `--rails` prints the sorted rail inference table with voltage, confidence level, confidence score, source, warnings, and rail coverage summary. `--explain-rails` remains supported as a legacy alias.
 
@@ -195,7 +200,7 @@ Example failure snippet:
 - `internal/contracts`: importer-agnostic component, pin, and net contract schema
 - `internal/enrichment`: pluggable contract sources such as `meta.yaml`, inferred rail voltages, future databases, or UI input
 - `internal/rules`: contract-level rules that consume only DesignIR + ContractIR
-- `cmd/scan.go`: deterministic single-file or project-directory scan input resolution
+- `cmd/scan.go`: deterministic single-file or project-directory scan input resolution, including optional KiCad CLI netlist export from one root `*.kicad_sch`
 - `internal/ir`: deterministic BOM + netlist merge into one project-level DesignIR
 - `internal/infer`: deterministic net-name and metadata-enriched rail voltage inference
 - `internal/rails`: pure rail coverage summary and terminal explanation formatting
@@ -205,7 +210,7 @@ Example failure snippet:
 
 Architon performs deterministic analysis.
 Rail voltage inference is deterministic and transparent.
-Each inference includes source, confidence score, evidence, and warnings.
+Each inference includes source, confidence score, reason, evidence, and warnings.
 No probabilistic models or network calls are used.
 
 Same input spec or scan input + same metadata/part library -> same output findings and exit code.

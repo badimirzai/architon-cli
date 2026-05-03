@@ -17,9 +17,12 @@ rv scan <bom.csv> --out report.json    Write scan report to a specific path
 rv scan <netlist.net> --meta .architon/meta.yaml
                                       Enable metadata-backed voltage rules
 rv scan <netlist.net> --rails          Show rail inference details
-rv scan .                              Auto-detect BOM and/or netlist in current directory
+rv scan .                              Auto-detect BOM/netlist, or export netlist from root schematic
 rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
+rv scan . --kicad-cli /full/path/to/kicad-cli
+                                      Use an explicit KiCad CLI binary
+rv doctor                             Check rv and KiCad CLI setup
 rv init                                Create .architon/meta.yaml and README.md
 rv init --list                        List available templates
 rv init --template <name>             Write a template to robot.yaml
@@ -53,6 +56,8 @@ rv scan --help                         Show scan command options
 --meta <file.yaml>        metadata for sources, regulators, and component limits
 --rails                   print rail voltage inference and confidence details
 --explain-rails           legacy alias for --rails
+--no-kicad-cli            disable automatic schematic netlist generation
+--kicad-cli <path>        override KiCad CLI binary name/path
 --out <report.json>       write scan report to a specific path
 ```
 
@@ -70,6 +75,7 @@ NO_COLOR=1 rv check examples/minimal_voltage_mismatch.yaml
 rv scan bom.csv
 rv scan exports/example.net
 rv scan .
+rv scan . --kicad-cli /full/path/to/kicad-cli
 rv scan . --bom bom/bom.csv --netlist exports/project.net
 rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
@@ -95,13 +101,15 @@ Directory scan detection order:
 
 - BOM: `bom/bom.csv`, `bom.csv`, `exports/bom.csv`, then lexical `*bom*.csv`
 - Netlist: lexical `exports/*.net`, then lexical `*.net` in project root
+- Schematic fallback: if no `.net` exists, one root `*.kicad_sch` can be exported through KiCad CLI
 
 Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
 - `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
 - compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
-- `Detected BOM` and `Detected Netlist` when directory scan auto-detects files
+- `Inferred rails`, `Voltage coverage`, and `Metadata`
+- `Detected BOM`, `Detected Netlist`, and `Generated Netlist` when directory scan auto-detects or exports files
 - rail inference table when `--rails` is passed; `--explain-rails` remains supported as a legacy alias
 
 Example success snippet:
