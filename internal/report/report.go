@@ -26,6 +26,7 @@ type RuleResult struct {
 	Consumer  string               `json:"consumer,omitempty"`
 	Ref       string               `json:"ref,omitempty"`
 	Pin       string               `json:"pin,omitempty"`
+	Source    string               `json:"source,omitempty"`
 	Inference *InferenceProvenance `json:"inference,omitempty"`
 }
 

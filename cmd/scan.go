@@ -229,12 +229,14 @@ Examples:
 			// Contract enrichment is the boundary between imported design facts
 			// and rule-ready electrical intent. Rules below do not read meta.yaml,
 			// propagation structs, KiCad parser data, or file paths.
-			contractSources := []enrichment.ContractSource{
-				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
-			}
+			contractSources := make([]enrichment.ContractSource, 0, 3)
 			if metaLoaded {
 				contractSources = append(contractSources, enrichment.NewMetaYAMLSource(metaObj))
 			}
+			contractSources = append(contractSources,
+				enrichment.NewPartsLibrarySource(nil),
+				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
+			)
 			contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
 			if err != nil {
 				return internalError(err)
@@ -289,6 +291,11 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Inferred rails: %d\n", len(nameInferRes.Voltages))
 			fmt.Fprintf(cmd.OutOrStdout(), "Voltage coverage: %d/%d nets with inferred voltage\n", coveredNets, totalNets)
 			fmt.Fprintf(cmd.OutOrStdout(), "Metadata: %s\n", scanMetadataMode(metaLoaded, nameInferRes))
+			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d/%d\n", coverage.PartsMatched, coverage.PartsTotal)
+			fmt.Fprintf(cmd.OutOrStdout(), "Power contracts applied: %d\n", coverage.PowerContractsApplied)
+			fmt.Fprintf(cmd.OutOrStdout(), "Contract coverage: %.0f%%\n", coverage.ContractCoveragePct)
+			fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical parts: %s\n", scanJoinOrNone(coverage.UnknownPowerCritical))
+			fmt.Fprintf(cmd.OutOrStdout(), "Rules enabled by contracts: %s\n", scanJoinOrNone(coverage.RulesEnabledByContracts))
 			if explainRails {
 				scanPrintRailInferences(cmd.OutOrStdout(), railInferences, railCoverage)
 			}
@@ -1049,6 +1056,24 @@ func scanMetadataMode(metaLoaded bool, inferRes infer.Result) string {
 	}
 }
 
+func scanJoinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "none"
+	}
+	sort.Strings(cleaned)
+	return strings.Join(cleaned, ", ")
+}
+
 func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report.NetVoltage {
 	out := make([]report.NetVoltage, 0, len(netVoltages))
 	for _, nv := range netVoltages {
@@ -1097,6 +1122,7 @@ func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]
 			Consumer: finding.Consumer,
 			Ref:      finding.Ref,
 			Pin:      finding.Pin,
+			Source:   finding.Source,
 		}
 		if inference, ok := inferencesByNet[finding.Net]; ok {
 			result.Inference = scanReportInferenceProvenance(inference)

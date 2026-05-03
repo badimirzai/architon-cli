@@ -41,7 +41,7 @@ func ImportKiCadNetlist(path string) (*ir.DesignIR, error) {
 
 	netsSection := findSection(rootExprs, "nets")
 	if netsSection != nil {
-		design.Nets, err = parseNetlistNets(netsSection)
+		design.Nets, design.Pins, err = parseNetlistNets(netsSection)
 		if err != nil {
 			return nil, err
 		}
@@ -53,7 +53,11 @@ func ImportKiCadNetlist(path string) (*ir.DesignIR, error) {
 
 	sortPartsByRef(design.Parts)
 	sortNetsByName(design.Nets)
-	design.Pins = pinsFromNets(design.Nets)
+	if len(design.Pins) == 0 {
+		design.Pins = pinsFromNets(design.Nets)
+	} else {
+		sortDesignPins(design.Pins)
+	}
 	return design, nil
 }
 
@@ -319,8 +323,9 @@ func parseNetlistComponents(section *sExpr) []ir.Part {
 	return parts
 }
 
-func parseNetlistNets(section *sExpr) ([]ir.Net, error) {
+func parseNetlistNets(section *sExpr) ([]ir.Net, []ir.Pin, error) {
 	nets := make([]ir.Net, 0)
+	pinsByKey := map[string]ir.Pin{}
 	for _, child := range section.children[1:] {
 		if child == nil || child.kind != sExprList || child.head() != "net" {
 			continue
@@ -328,7 +333,7 @@ func parseNetlistNets(section *sExpr) ([]ir.Net, error) {
 
 		name, ok := child.fieldValue("name")
 		if !ok || strings.TrimSpace(name) == "" {
-			return nil, fmt.Errorf("net missing required name")
+			return nil, nil, fmt.Errorf("net missing required name")
 		}
 
 		net := ir.Net{Name: name}
@@ -339,19 +344,34 @@ func parseNetlistNets(section *sExpr) ([]ir.Net, error) {
 
 			ref, hasRef := netChild.fieldValue("ref")
 			if !hasRef || strings.TrimSpace(ref) == "" {
-				return nil, fmt.Errorf("net %q node missing required ref", name)
+				return nil, nil, fmt.Errorf("net %q node missing required ref", name)
 			}
 			pin, hasPin := netChild.fieldValue("pin")
 			if !hasPin || strings.TrimSpace(pin) == "" {
-				return nil, fmt.Errorf("net %q node missing required pin", name)
+				return nil, nil, fmt.Errorf("net %q node missing required pin", name)
 			}
 			net.Pins = append(net.Pins, ir.PinRef{Ref: ref, Pin: pin})
+			pinName, _ := netChild.fieldValue("pinfunction")
+			key := strings.TrimSpace(ref) + "\x00" + strings.TrimSpace(pin)
+			existing := pinsByKey[key]
+			if existing.Ref == "" {
+				existing = ir.Pin{Ref: strings.TrimSpace(ref), Pin: strings.TrimSpace(pin)}
+			}
+			if existing.Name == "" {
+				existing.Name = strings.TrimSpace(pinName)
+			}
+			pinsByKey[key] = existing
 		}
 
 		sortPinsByRef(net.Pins)
 		nets = append(nets, net)
 	}
-	return nets, nil
+	pins := make([]ir.Pin, 0, len(pinsByKey))
+	for _, pin := range pinsByKey {
+		pins = append(pins, pin)
+	}
+	sortDesignPins(pins)
+	return nets, pins, nil
 }
 
 func sortPartsByRef(parts []ir.Part) {
@@ -404,11 +424,18 @@ func pinsFromNets(nets []ir.Net) []ir.Pin {
 	for _, pin := range seen {
 		pins = append(pins, pin)
 	}
+	sortDesignPins(pins)
+	return pins
+}
+
+func sortDesignPins(pins []ir.Pin) {
 	sort.Slice(pins, func(i, j int) bool {
 		if pins[i].Ref != pins[j].Ref {
 			return pins[i].Ref < pins[j].Ref
 		}
-		return pins[i].Pin < pins[j].Pin
+		if pins[i].Pin != pins[j].Pin {
+			return pins[i].Pin < pins[j].Pin
+		}
+		return pins[i].Name < pins[j].Name
 	})
-	return pins
 }

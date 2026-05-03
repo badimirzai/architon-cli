@@ -14,6 +14,14 @@ const (
 	RuleSupplyContract     = "RULE_SUPPLY_CONTRACT"
 	RuleLogicLevelContract = "RULE_LOGIC_LEVEL_CONTRACT"
 	RuleBusRoleContract    = "RULE_BUS_ROLE_CONTRACT"
+	RuleSupplyAbsMax       = "RULE_SUPPLY_ABS_MAX"
+	RuleSupplyRange        = "RULE_SUPPLY_RECOMMENDED_RANGE"
+	RuleGPIOAbsMax         = "RULE_GPIO_ABS_MAX"
+	RuleLogicLevelMargin   = "RULE_LOGIC_LEVEL_MARGIN"
+	RuleRegulatorCurrent   = "RULE_REGULATOR_OUTPUT_CURRENT"
+	RuleMotorDriverVMRange = "RULE_MOTOR_DRIVER_VM_RANGE"
+	RuleMotorDriverCurrent = "RULE_MOTOR_DRIVER_CURRENT_MARGIN"
+	RuleProtectionClamp    = "RULE_PROTECTION_CLAMP_CURRENT"
 )
 
 // Finding is the rule-engine result type before it is adapted into report JSON.
@@ -26,6 +34,7 @@ type Finding struct {
 	Consumer string `json:"consumer,omitempty"`
 	Ref      string `json:"ref,omitempty"`
 	Pin      string `json:"pin,omitempty"`
+	Source   string `json:"source,omitempty"`
 }
 
 // Rule is the only interface rule implementations need. It deliberately exposes
@@ -38,6 +47,14 @@ type Rule interface {
 // DefaultRules returns the scan-time contract rule set.
 func DefaultRules() []Rule {
 	return []Rule{
+		SupplyAbsMaxRule{},
+		SupplyRecommendedRangeRule{},
+		GPIOAbsMaxRule{},
+		LogicLevelMarginRule{},
+		RegulatorOutputCurrentRule{},
+		MotorDriverVMRangeRule{},
+		MotorDriverCurrentMarginRule{},
+		ProtectionClampCurrentRule{},
 		SupplyContractRule{},
 		LogicLevelContractRule{},
 		BusRoleContractRule{},

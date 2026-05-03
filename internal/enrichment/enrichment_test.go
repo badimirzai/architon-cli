@@ -62,3 +62,38 @@ func TestContractEnricher_RecordsMissingContractDataWarnings(t *testing.T) {
 		t.Fatalf("expected coverage warnings, got %+v", coverage)
 	}
 }
+
+func TestContractEnricher_MetaOverridesBuiltInLibrary(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", Value: "STM32F103C8T6"}},
+		Nets: []ir.Net{
+			{Name: "5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}}},
+		},
+	}
+	metaObj := &meta.Meta{
+		Components: []meta.Component{{Ref: "U1", MaxVoltage: 3.3}},
+	}
+
+	contractIR, err := (ContractEnricher{Sources: []ContractSource{
+		NewMetaYAMLSource(metaObj),
+		NewPartsLibrarySource(nil),
+		NewNetVoltageSource("test-voltage", []NetVoltage{{Net: "5V", Voltage: 5.0, Source: "inferred"}}),
+	}}).Enrich(design)
+	if err != nil {
+		t.Fatalf("enrich failed: %v", err)
+	}
+
+	pin, ok := contractIR.Pin("U1", "VDD")
+	if !ok {
+		t.Fatalf("expected U1 VDD contract")
+	}
+	if pin.VoltageMax == nil || *pin.VoltageMax != 3.3 {
+		t.Fatalf("expected meta voltage max to win, got %+v", pin)
+	}
+	if pin.Source != "meta.yaml" {
+		t.Fatalf("expected meta source to win, got %+v", pin)
+	}
+	if pin.AbsVoltageMax == nil {
+		t.Fatalf("expected built-in to fill non-conflicting richer fields, got %+v", pin)
+	}
+}
