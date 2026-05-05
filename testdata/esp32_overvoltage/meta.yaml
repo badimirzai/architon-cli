@@ -1,0 +1,5 @@
+version: "0"
+
+sources:
+  - net: /+5V
+    voltage: 5.0

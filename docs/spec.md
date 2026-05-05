@@ -166,6 +166,15 @@ Current built-in categories include:
 - `parts/mcus/*`
 - `parts/sensors/*` (I2C sensor defaults)
 
+`rv scan` also has a separate built-in contract source for a small curated set of common components. This source is not the YAML parts library and is not a generic parts database. Inspect it with:
+
+```bash
+rv parts list
+rv parts show ESP32-WROOM-32
+```
+
+The v0.3.1 built-in contract source covers `ESP32-WROOM-32`, `STM32F103C8T6`, `RP2040`, `MPU-6050`, `BNO055`, `AMS1117-3.3`, `AP2114H-3.3`, `DRV8833`, `TB6612FNG`, `L298N`, `PCA9306`, and `TXS0108E`.
+
 ### Project-local parts
 
 Project-local overrides path: `./rv_parts`

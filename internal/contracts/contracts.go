@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -42,6 +43,8 @@ const (
 type ContractIR struct {
 	Components          map[string]ComponentContract `json:"components"`
 	Nets                map[string]NetContract       `json:"nets"`
+	PartMatches         []PartMatch                  `json:"part_matches,omitempty"`
+	AppliedRequirements []AppliedRequirement         `json:"applied_requirements,omitempty"`
 	MissingContractData []MissingContractData        `json:"missing_contract_data,omitempty"`
 }
 
@@ -92,13 +95,18 @@ type MissingContractData struct {
 
 // CoverageSummary is report-facing coverage data for contract completeness.
 type CoverageSummary struct {
-	ComponentsTotal         int      `json:"components_total"`
-	ComponentsWithContracts int      `json:"components_with_contracts"`
-	PinsTotal               int      `json:"pins_total"`
-	PinsWithContracts       int      `json:"pins_with_contracts"`
-	NetsTotal               int      `json:"nets_total"`
-	NetsWithContracts       int      `json:"nets_with_contracts"`
-	MissingWarnings         []string `json:"missing_warnings,omitempty"`
+	ComponentsTotal          int      `json:"components_total"`
+	ComponentsWithContracts  int      `json:"components_with_contracts"`
+	PinsTotal                int      `json:"pins_total"`
+	PinsWithContracts        int      `json:"pins_with_contracts"`
+	NetsTotal                int      `json:"nets_total"`
+	NetsWithContracts        int      `json:"nets_with_contracts"`
+	PartsMatched             int      `json:"parts_matched"`
+	ContractsApplied         int      `json:"contracts_applied"`
+	CoveragePercentage       float64  `json:"coverage_percentage"`
+	UnknownPowerCriticalRefs []string `json:"unknown_power_critical_refs,omitempty"`
+	EnabledContractRules     []string `json:"enabled_contract_rules,omitempty"`
+	MissingWarnings          []string `json:"missing_warnings,omitempty"`
 }
 
 // NewContractIR creates an initialized contract container.
@@ -109,13 +117,9 @@ func NewContractIR() *ContractIR {
 	}
 }
 
-// Float64 is a small helper for tests and contract builders.
+// Float64 makes pointer-valued numeric fields readable in struct literals.
+// Go does not allow taking the address of a literal such as &3.3.
 func Float64(v float64) *float64 {
-	return &v
-}
-
-// Bool is a small helper for tests and contract builders.
-func Bool(v bool) *bool {
 	return &v
 }
 
@@ -181,6 +185,22 @@ func (c *ContractIR) PutNet(net string, contract NetContract) {
 	c.Nets[net] = mergeNetContract(existing, contract, net)
 }
 
+// PutAppliedRequirement records a concrete requirement after source matching.
+func (c *ContractIR) PutAppliedRequirement(req AppliedRequirement) {
+	req.ComponentRef = strings.TrimSpace(req.ComponentRef)
+	if req.ComponentRef == "" || req.Type == "" {
+		return
+	}
+	req.Provenance = mergeProvenance(req.Provenance, req.Requirement.Provenance)
+	if req.Source == "" {
+		req.Source = req.Provenance.Source
+	}
+	if req.Source == "" {
+		req.Source = "contract"
+	}
+	c.AppliedRequirements = append(c.AppliedRequirements, req)
+}
+
 // Pin looks up a pin contract by component reference and pin name/number.
 func (c *ContractIR) Pin(ref string, pin string) (PinContract, bool) {
 	if c == nil {
@@ -240,6 +260,18 @@ func (c *ContractIR) Merge(other *ContractIR) {
 	for net, contract := range other.Nets {
 		c.PutNet(net, contract)
 	}
+	for _, match := range other.PartMatches {
+		c.putPartMatch(match)
+	}
+	for _, req := range other.AppliedRequirements {
+		if c.hasHigherPrecedenceRequirement(req) {
+			continue
+		}
+		if c.hasAppliedRequirement(req) {
+			continue
+		}
+		c.PutAppliedRequirement(req)
+	}
 	c.MissingContractData = append(c.MissingContractData, other.MissingContractData...)
 }
 
@@ -289,8 +321,133 @@ func SummarizeCoverage(design *ir.DesignIR, contractIR *ContractIR) CoverageSumm
 			summary.MissingWarnings = append(summary.MissingWarnings, missing.Message)
 		}
 	}
+	summary.PartsMatched = len(uniquePartMatches(contractIR.PartMatches))
+	summary.ContractsApplied = len(contractIR.AppliedRequirements)
+	summary.EnabledContractRules = EnabledRuleIDs()
+	summary.UnknownPowerCriticalRefs = UnknownPowerCriticalRefs(design, contractIR)
+	if summary.ComponentsTotal > 0 {
+		summary.CoveragePercentage = roundPercentage(float64(summary.ComponentsWithContracts) / float64(summary.ComponentsTotal) * 100)
+	}
 	sort.Strings(summary.MissingWarnings)
 	return summary
+}
+
+func (c *ContractIR) putPartMatch(match PartMatch) {
+	match.Ref = strings.TrimSpace(match.Ref)
+	if match.Ref == "" {
+		return
+	}
+	for i, existing := range c.PartMatches {
+		if existing.Ref == match.Ref {
+			c.PartMatches[i] = match
+			return
+		}
+	}
+	c.PartMatches = append(c.PartMatches, match)
+}
+
+func (c *ContractIR) hasHigherPrecedenceRequirement(req AppliedRequirement) bool {
+	// Contract sources are merged in precedence order. Once an earlier source
+	// has supplied the same requirement type for the same component, later
+	// sources cannot replace it.
+	for _, existing := range c.AppliedRequirements {
+		if existing.ComponentRef == req.ComponentRef && existing.Type == req.Type && existing.Source != req.Source {
+			return true
+		}
+	}
+	component, ok := c.Components[req.ComponentRef]
+	if !ok {
+		return false
+	}
+	if component.Source == "meta.yaml" && (component.VoltageMax != nil || len(component.Pins) > 0) {
+		switch req.Type {
+		case ContractSupplyAbsMax, ContractSupplyRecommendedRange, ContractGPIOAbsMax:
+			return true
+		}
+	}
+	for _, pin := range req.Scope.Pins {
+		if pinContract, ok := component.Pins[pin]; ok && pinContract.Source != "" && pinContract.Source != req.Source {
+			switch req.Type {
+			case ContractSupplyAbsMax, ContractSupplyRecommendedRange, ContractGPIOAbsMax, ContractMotorDriverVMRange:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *ContractIR) hasAppliedRequirement(req AppliedRequirement) bool {
+	key := appliedRequirementKey(req)
+	for _, existing := range c.AppliedRequirements {
+		if appliedRequirementKey(existing) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func appliedRequirementKey(req AppliedRequirement) string {
+	pins := append([]string(nil), req.Scope.Pins...)
+	sort.Strings(pins)
+	return req.ComponentRef + "\x00" + string(req.Type) + "\x00" + strings.Join(pins, ",")
+}
+
+func uniquePartMatches(matches []PartMatch) map[string]PartMatch {
+	out := make(map[string]PartMatch, len(matches))
+	for _, match := range matches {
+		if strings.TrimSpace(match.Ref) == "" {
+			continue
+		}
+		out[match.Ref] = match
+	}
+	return out
+}
+
+func UnknownPowerCriticalRefs(design *ir.DesignIR, contractIR *ContractIR) []string {
+	if design == nil || contractIR == nil {
+		return nil
+	}
+	matched := uniquePartMatches(contractIR.PartMatches)
+	refs := map[string]struct{}{}
+	for _, net := range design.Nets {
+		netContract, ok := contractIR.Net(net.Name)
+		if !ok || netContract.VoltageNominal == nil || *netContract.VoltageNominal <= 0 {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(net.Name), "GND") {
+			continue
+		}
+		for _, pin := range net.Pins {
+			ref := strings.TrimSpace(pin.Ref)
+			if ref == "" {
+				continue
+			}
+			if _, ok := matched[ref]; ok {
+				continue
+			}
+			if _, ok := contractIR.Components[ref]; ok {
+				continue
+			}
+			if isPowerCriticalRef(ref) {
+				refs[ref] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(refs))
+	for ref := range refs {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isPowerCriticalRef(ref string) bool {
+	ref = strings.ToUpper(strings.TrimSpace(ref))
+	return strings.HasPrefix(ref, "U") || strings.HasPrefix(ref, "IC")
+}
+
+func roundPercentage(value float64) float64 {
+	return math.Round(value*100) / 100
 }
 
 // mergePinContract fills missing fields in an existing pin contract from a

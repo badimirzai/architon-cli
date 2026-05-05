@@ -55,6 +55,22 @@ func MergeProjectIR(bom *DesignIR, netlist *DesignIR, projectPath string, now ti
 				if merged.Parts[idx].Footprint == "" && cloned.Footprint != "" {
 					merged.Parts[idx].Footprint = cloned.Footprint
 				}
+				if merged.Parts[idx].MPN == "" && cloned.MPN != "" {
+					merged.Parts[idx].MPN = cloned.MPN
+				}
+				if merged.Parts[idx].Manufacturer == "" && cloned.Manufacturer != "" {
+					merged.Parts[idx].Manufacturer = cloned.Manufacturer
+				}
+				if len(cloned.Fields) > 0 {
+					if merged.Parts[idx].Fields == nil {
+						merged.Parts[idx].Fields = map[string]string{}
+					}
+					for key, value := range cloned.Fields {
+						if _, exists := merged.Parts[idx].Fields[key]; !exists {
+							merged.Parts[idx].Fields[key] = value
+						}
+					}
+				}
 				continue
 			}
 			partIndex[cloned.Ref] = len(merged.Parts)

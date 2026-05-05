@@ -10,18 +10,10 @@ import (
 	"github.com/badimirzai/architon-cli/internal/meta"
 )
 
-// ContractSource is one independent source of contract data.
-// Examples today are meta.yaml and inferred net voltages; future sources can be
-// a parts database, datasheet lookup, manual UI input, or native Architon data.
-type ContractSource interface {
-	Name() string
-	Enrich(design *ir.DesignIR) (*contracts.ContractIR, error)
-}
-
 // ContractEnricher combines multiple contract sources into one ContractIR.
 // The rule engine consumes only this merged ContractIR plus DesignIR.
 type ContractEnricher struct {
-	Sources []ContractSource
+	Sources []contracts.ContractSource
 }
 
 func (e ContractEnricher) Enrich(design *ir.DesignIR) (*contracts.ContractIR, error) {

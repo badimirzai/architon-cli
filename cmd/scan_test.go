@@ -18,11 +18,13 @@ import (
 type scanReport struct {
 	ReportVersion string `json:"report_version"`
 	Summary       struct {
-		Parts            int      `json:"parts"`
-		Nets             int      `json:"nets"`
-		ParseErrorsCount int      `json:"parse_errors_count"`
-		ParseWarnings    []string `json:"parse_warnings"`
-		ParseErrors      []string `json:"parse_errors"`
+		Parts                    int      `json:"parts"`
+		Nets                     int      `json:"nets"`
+		ParseErrorsCount         int      `json:"parse_errors_count"`
+		ParseWarnings            []string `json:"parse_warnings"`
+		ParseErrors              []string `json:"parse_errors"`
+		PartsMatched             int      `json:"parts_matched"`
+		UnknownPowerCriticalRefs []string `json:"unknown_power_critical_refs"`
 	} `json:"summary"`
 	DesignIR struct {
 		Version string `json:"version"`
@@ -35,9 +37,20 @@ type scanReport struct {
 		} `json:"nets"`
 	} `json:"design_ir"`
 	Rules []struct {
-		ID        string `json:"id"`
-		Severity  string `json:"severity"`
-		Message   string `json:"message"`
+		ID           string `json:"id"`
+		RuleID       string `json:"rule_id"`
+		Severity     string `json:"severity"`
+		Message      string `json:"message"`
+		ComponentRef string `json:"component_ref"`
+		Net          string `json:"net"`
+		Pin          string `json:"pin"`
+		Source       string `json:"source"`
+		Provenance   *struct {
+			Source   string `json:"source"`
+			SourceID string `json:"source_id"`
+			Detail   string `json:"detail"`
+		} `json:"provenance"`
+		Fix       string `json:"fix"`
 		Inference *struct {
 			NetName         string  `json:"net_name"`
 			Source          string  `json:"source"`
@@ -97,6 +110,15 @@ func kicadFixturePath(t *testing.T, name string) string {
 		t.Fatal("unable to locate test file path")
 	}
 	return filepath.Join(filepath.Dir(file), "..", "internal", "importers", "kicad", "testdata", name)
+}
+
+func rootFixturePath(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("unable to locate test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "testdata", name)
 }
 
 func runScanCommand(t *testing.T, cwd string, args ...string) (string, error) {
@@ -194,6 +216,160 @@ func TestScan_WritesReportWhenParseErrorsExist(t *testing.T) {
 	}
 }
 
+func TestScan_ESP32BuiltInContractOvervoltage(t *testing.T) {
+	tmpDir := t.TempDir()
+	reportPath := filepath.Join(tmpDir, "report.json")
+	netlist := rootFixturePath(t, filepath.Join("esp32_overvoltage", "netlist.net"))
+	metaPath := rootFixturePath(t, filepath.Join("esp32_overvoltage", "meta.yaml"))
+
+	_, err := runScanCommand(t, tmpDir, netlist, "--meta", metaPath, "--out", reportPath)
+	if err == nil {
+		t.Fatal("expected overvoltage exit")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %d", exitErr.Code)
+	}
+
+	report := readScanReport(t, reportPath)
+	if report.ReportVersion != "1" {
+		t.Fatalf("expected report_version 1, got %q", report.ReportVersion)
+	}
+	if len(report.Rules) != 1 {
+		t.Fatalf("expected one violation, got %+v", report.Rules)
+	}
+	finding := report.Rules[0]
+	if finding.RuleID != "supply_abs_max" || finding.Severity != "ERROR" {
+		t.Fatalf("expected supply_abs_max ERROR, got %+v", finding)
+	}
+	if finding.ComponentRef != "U1" || finding.Net != "/+5V" || finding.Pin != "VDD" {
+		t.Fatalf("expected U1 /+5V VDD finding, got %+v", finding)
+	}
+	if finding.Source != "built-in" {
+		t.Fatalf("expected built-in source, got %+v", finding)
+	}
+	if finding.Provenance == nil || finding.Provenance.Source != "built-in" {
+		t.Fatalf("expected built-in provenance, got %+v", finding)
+	}
+	if finding.Fix == "" {
+		t.Fatalf("expected fix, got %+v", finding)
+	}
+}
+
+func TestScan_KiCadBuiltInPinAliasesAcrossParts(t *testing.T) {
+	tmpDir := t.TempDir()
+	reportPath := filepath.Join(tmpDir, "report.json")
+	netlistPath := filepath.Join(tmpDir, "pin_aliases.net")
+	metaPath := filepath.Join(tmpDir, "meta.yaml")
+
+	writeScanTestFile(t, netlistPath, `(export (version "E")
+  (design
+    (source "pin_aliases.kicad_sch")
+    (date "2026-05-05T00:00:00+0000")
+    (tool "Eeschema")
+    (sheet (number "1") (name "/") (tstamps "/")))
+  (components
+    (comp (ref "J1")
+      (value "Power")
+      (fields (field (name "MPN") "POWER_HEADER"))
+      (libsource (lib "Connector") (part "Conn_01x03")))
+    (comp (ref "U1")
+      (value "ESP32-WROOM-32")
+      (fields (field (name "MPN") "ESP32-WROOM-32"))
+      (libsource (lib "RF_Module") (part "ESP32-WROOM-32")))
+    (comp (ref "U2")
+      (value "TB6612FNG")
+      (fields (field (name "MPN") "TB6612FNG"))
+      (libsource (lib "Driver_Motor") (part "TB6612FNG")))
+    (comp (ref "U3")
+      (value "MPU-6050")
+      (fields (field (name "MPN") "MPU-6050"))
+      (libsource (lib "Sensor_Motion") (part "MPU-6050")))
+    (comp (ref "U4")
+      (value "LSM9DS1")
+      (fields (field (name "MPN") "LSM9DS1"))
+      (libsource (lib "Sensor_Motion") (part "LSM9DS1"))))
+  (libparts
+    (libpart (lib "Connector") (part "Conn_01x03")
+      (pins
+        (pin (num "1") (name "Pin_1") (type "passive"))
+        (pin (num "2") (name "Pin_2") (type "passive"))
+        (pin (num "3") (name "Pin_3") (type "passive"))))
+    (libpart (lib "RF_Module") (part "ESP32-WROOM-32")
+      (pins
+        (pin (num "1") (name "VDD") (type "power_in"))
+        (pin (num "2") (name "GND") (type "power_in"))))
+    (libpart (lib "Driver_Motor") (part "TB6612FNG")
+      (pins
+        (pin (num "1") (name "VM1") (type "power_in"))
+        (pin (num "2") (name "VM2") (type "power_in"))
+        (pin (num "3") (name "VM3") (type "power_in"))
+        (pin (num "4") (name "GND") (type "power_in"))))
+    (libpart (lib "Sensor_Motion") (part "MPU-6050")
+      (pins
+        (pin (num "1") (name "VDD") (type "power_in"))
+        (pin (num "2") (name "VLOGIC") (type "power_in"))
+        (pin (num "3") (name "GND") (type "power_in"))))
+    (libpart (lib "Sensor_Motion") (part "LSM9DS1")
+      (pins
+        (pin (num "1") (name "VDD") (type "power_in"))
+        (pin (num "2") (name "GND") (type "power_in")))))
+  (libraries)
+  (nets
+    (net (code "1") (name "/+5V") (class "Default")
+      (node (ref "J1") (pin "1") (pinfunction "Pin_1") (pintype "passive"))
+      (node (ref "U1") (pin "1") (pinfunction "VDD") (pintype "power_in")))
+    (net (code "2") (name "+3V3") (class "Default")
+      (node (ref "J1") (pin "2") (pinfunction "Pin_2") (pintype "passive"))
+      (node (ref "U2") (pin "1") (pinfunction "VM1") (pintype "power_in"))
+      (node (ref "U2") (pin "2") (pinfunction "VM2") (pintype "power_in"))
+      (node (ref "U2") (pin "3") (pinfunction "VM3") (pintype "power_in"))
+      (node (ref "U3") (pin "1") (pinfunction "VDD") (pintype "power_in"))
+      (node (ref "U3") (pin "2") (pinfunction "VLOGIC") (pintype "power_in"))
+      (node (ref "U4") (pin "1") (pinfunction "VDD") (pintype "power_in")))
+    (net (code "3") (name "GND") (class "Default")
+      (node (ref "J1") (pin "3") (pinfunction "Pin_3") (pintype "passive"))
+      (node (ref "U1") (pin "2") (pinfunction "GND") (pintype "power_in"))
+      (node (ref "U2") (pin "4") (pinfunction "GND") (pintype "power_in"))
+      (node (ref "U3") (pin "3") (pinfunction "GND") (pintype "power_in"))
+      (node (ref "U4") (pin "2") (pinfunction "GND") (pintype "power_in")))))`)
+	writeScanTestFile(t, metaPath, `version: "0"
+
+sources:
+  - net: /+5V
+    voltage: 5.0
+  - net: +3V3
+    voltage: 3.3
+`)
+
+	_, err := runScanCommand(t, tmpDir, netlistPath, "--meta", metaPath, "--out", reportPath)
+	if err == nil {
+		t.Fatal("expected contract violations")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %d", exitErr.Code)
+	}
+
+	report := readScanReport(t, reportPath)
+	if report.Summary.PartsMatched != 3 {
+		t.Fatalf("expected ESP32, TB6612FNG, and MPU-6050 to match, got parts_matched=%d", report.Summary.PartsMatched)
+	}
+	if !stringSliceContains(report.Summary.UnknownPowerCriticalRefs, "U4") {
+		t.Fatalf("expected LSM9DS1 U4 to remain unknown power-critical, got %+v", report.Summary.UnknownPowerCriticalRefs)
+	}
+	requireReportFinding(t, report, "supply_abs_max", "U1", "/+5V")
+	if got := countReportFindings(report, "motor_driver_vm_range", "U2", "+3V3"); got != 3 {
+		t.Fatalf("expected TB6612 VM1/VM2/VM3 findings, got %d in %+v", got, report.Rules)
+	}
+}
+
 func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -239,6 +415,38 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if report.Summary.ParseErrorsCount != 0 {
 		t.Fatalf("expected 0 parse errors, got %d", report.Summary.ParseErrorsCount)
 	}
+}
+
+func requireReportFinding(t *testing.T, report scanReport, ruleID string, ref string, net string) {
+	t.Helper()
+	for _, finding := range report.Rules {
+		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
+			if finding.Pin == "" || finding.Source == "" || finding.Provenance == nil || finding.Fix == "" {
+				t.Fatalf("expected complete report finding, got %+v", finding)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected %s finding for %s on %s, got %+v", ruleID, ref, net, report.Rules)
+}
+
+func countReportFindings(report scanReport, ruleID string, ref string, net string) int {
+	count := 0
+	for _, finding := range report.Rules {
+		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
+			count++
+		}
+	}
+	return count
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestScan_WritesReportToCustomPath(t *testing.T) {
@@ -848,7 +1056,7 @@ func TestScanExitCode(t *testing.T) {
 			name: "warning only",
 			report: reportpkg.VerificationReport{
 				Rules: []reportpkg.RuleResult{
-					{ID: "BOM_RULE", Severity: "warning", Message: "check part"},
+					{ID: "BOM_RULE", Severity: "WARN", Message: "check part"},
 				},
 			},
 			want: 1,

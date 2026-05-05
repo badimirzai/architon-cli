@@ -111,8 +111,15 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `RULE_LOGIC_LEVEL_CONTRACT` (`ERROR`): output logic voltage exceeds an input pin's contracted tolerance
 - `RULE_BUS_ROLE_CONTRACT` (`WARNING`/`ERROR`): obvious I2C role/direction conflicts without guessing when data is missing
 - `RULE_VOLTAGE_CONFLICT` (`ERROR`): metadata, inferred, or propagated voltage evidence conflicts on a net
+- `supply_abs_max` (`ERROR`): powered supply pin exceeds a matched part's absolute maximum supply voltage
+- `supply_recommended_range` (`WARNING`): powered supply pin is outside the recommended operating range but within absolute maximum
+- `gpio_abs_max` (`ERROR`): GPIO-like pin is on a net above its absolute maximum voltage
+- `motor_driver_vm_range` (`ERROR`): motor-driver VM pin is outside the supported motor-supply voltage range
+- `regulator_output_current` (`ERROR`): known downstream load current exceeds a regulator output-current contract
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
+
+Contract source precedence is deterministic: explicit `.architon/meta.yaml`, then schematic/BOM contract fields, then the curated built-in contract source, then inferred net names. Built-ins are intentionally small and local; there is no network lookup, datasheet scraping, or generic parts database.
 
 ## Determinism contract
 

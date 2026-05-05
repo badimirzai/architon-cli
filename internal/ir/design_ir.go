@@ -60,6 +60,7 @@ type Net struct {
 
 // PinRef identifies one component pin connected to a net.
 type PinRef struct {
-	Ref string `json:"ref"`
-	Pin string `json:"pin"`
+	Ref  string `json:"ref"`
+	Pin  string `json:"pin"`
+	Name string `json:"name,omitempty"`
 }

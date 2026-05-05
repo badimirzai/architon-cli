@@ -137,8 +137,10 @@ Exit behavior is documented in the canonical exit code table in `README.md`.
 - `summary.delimiter` for BOM-backed scans
 - `summary.nets` and `design_ir.nets` for netlist-backed scans
 - `summary.next_steps` only on parse failure
+- contract coverage fields: `summary.parts_matched`, `summary.contracts_applied`, `summary.contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules`
 - `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, and `derived.rail_coverage` when voltage inference data is present
 - optional `rules[].inference` provenance for voltage-based findings, including reason when available
+- optional contract finding details: `rules[].component_ref`, `rules[].source`, `rules[].provenance`, and `rules[].fix`
 
 Successful CLI output also prints a short deterministic terminal summary with:
 
@@ -150,6 +152,7 @@ Successful CLI output also prints a short deterministic terminal summary with:
 - `Errors`
 - `Warnings`
 - `Rules`
+- `Parts matched`, `Contracts applied`, `Contract coverage`, `Unknown power-critical refs`, and `Enabled contract rules`
 - `Violations`
 - compact rail coverage counts and level
 - inferred rails, voltage coverage, and metadata mode
@@ -162,7 +165,7 @@ Example success snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": ","
   },
@@ -176,7 +179,7 @@ Example failure snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": ",",
     "next_steps": [
@@ -197,14 +200,16 @@ Example failure snippet:
 - `internal/ir`: stable, input-agnostic `DesignIR` model
 - `internal/importers`: importer adapter interface; KiCad, Altium, and future sources compile to DesignIR
 - `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion, header mapping, and KiCad `.net` S-expression parsing
-- `internal/contracts`: importer-agnostic component, pin, and net contract schema
-- `internal/enrichment`: pluggable contract sources such as `meta.yaml`, inferred rail voltages, future databases, or UI input
+- `internal/contracts`: importer-agnostic component, pin, net, and system-contract schema plus the small curated built-in source
+- `internal/enrichment`: pluggable contract assembly for `meta.yaml`, inferred rail voltages, and other deterministic sources
 - `internal/rules`: contract-level rules that consume only DesignIR + ContractIR
 - `cmd/scan.go`: deterministic single-file or project-directory scan input resolution, including optional KiCad CLI netlist export from one root `*.kicad_sch`
 - `internal/ir`: deterministic BOM + netlist merge into one project-level DesignIR
 - `internal/infer`: deterministic net-name and metadata-enriched rail voltage inference
 - `internal/rails`: pure rail coverage summary and terminal explanation formatting
 - `internal/report`: deterministic scan report JSON builder/writer
+
+Contract source precedence is explicit metadata, schematic/BOM fields, built-in contracts, then inferred net names. Built-ins are one source, not the architecture.
 
 ## Deterministic design philosophy
 

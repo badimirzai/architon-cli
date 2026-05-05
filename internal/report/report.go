@@ -12,21 +12,25 @@ import (
 	"github.com/badimirzai/architon-cli/internal/rails"
 )
 
-const SchemaVersion = "0"
+const SchemaVersion = "1"
 
 // RuleResult is the report-facing shape of a rule finding.
 // The legacy id field is kept alongside rule_id for compatibility.
 type RuleResult struct {
-	ID        string               `json:"id"`
-	RuleID    string               `json:"rule_id,omitempty"`
-	Severity  string               `json:"severity"`
-	Net       string               `json:"net,omitempty"`
-	Message   string               `json:"message"`
-	Provider  string               `json:"provider,omitempty"`
-	Consumer  string               `json:"consumer,omitempty"`
-	Ref       string               `json:"ref,omitempty"`
-	Pin       string               `json:"pin,omitempty"`
-	Inference *InferenceProvenance `json:"inference,omitempty"`
+	ID           string                `json:"id"`
+	RuleID       string                `json:"rule_id,omitempty"`
+	Severity     string                `json:"severity"`
+	Net          string                `json:"net,omitempty"`
+	Message      string                `json:"message"`
+	Provider     string                `json:"provider,omitempty"`
+	Consumer     string                `json:"consumer,omitempty"`
+	Ref          string                `json:"ref,omitempty"`
+	ComponentRef string                `json:"component_ref,omitempty"`
+	Pin          string                `json:"pin,omitempty"`
+	Source       string                `json:"source,omitempty"`
+	Provenance   *contracts.Provenance `json:"provenance,omitempty"`
+	Fix          string                `json:"fix,omitempty"`
+	Inference    *InferenceProvenance  `json:"inference,omitempty"`
 }
 
 // InferenceProvenance links a voltage-based finding back to rail inference.
@@ -40,20 +44,25 @@ type InferenceProvenance struct {
 
 // Summary is the compact report header used by both JSON and CLI output.
 type Summary struct {
-	Source             string   `json:"source"`
-	SourceImporter     string   `json:"source_importer,omitempty"`
-	InputFile          string   `json:"input_file"`
-	Parts              int      `json:"parts"`
-	Pins               int      `json:"pins,omitempty"`
-	Rules              int      `json:"rules"`
-	HasFailures        bool     `json:"has_failures"`
-	Delimiter          string   `json:"delimiter,omitempty"`
-	ParseErrorsCount   int      `json:"parse_errors_count"`
-	ParseWarningsCount int      `json:"parse_warnings_count"`
-	ParseErrors        []string `json:"parse_errors"`
-	ParseWarnings      []string `json:"parse_warnings"`
-	NextSteps          []string `json:"next_steps,omitempty"`
-	Nets               int      `json:"nets,omitempty"`
+	Source                     string   `json:"source"`
+	SourceImporter             string   `json:"source_importer,omitempty"`
+	InputFile                  string   `json:"input_file"`
+	Parts                      int      `json:"parts"`
+	Pins                       int      `json:"pins,omitempty"`
+	Rules                      int      `json:"rules"`
+	HasFailures                bool     `json:"has_failures"`
+	Delimiter                  string   `json:"delimiter,omitempty"`
+	ParseErrorsCount           int      `json:"parse_errors_count"`
+	ParseWarningsCount         int      `json:"parse_warnings_count"`
+	ParseErrors                []string `json:"parse_errors"`
+	ParseWarnings              []string `json:"parse_warnings"`
+	NextSteps                  []string `json:"next_steps,omitempty"`
+	Nets                       int      `json:"nets,omitempty"`
+	PartsMatched               int      `json:"parts_matched"`
+	ContractsApplied           int      `json:"contracts_applied"`
+	ContractCoveragePercentage float64  `json:"contract_coverage_percentage"`
+	UnknownPowerCriticalRefs   []string `json:"unknown_power_critical_refs,omitempty"`
+	EnabledContractRules       []string `json:"enabled_contract_rules,omitempty"`
 }
 
 // VerificationReport is the output schema for scan results.

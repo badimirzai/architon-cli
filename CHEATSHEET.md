@@ -22,6 +22,8 @@ rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
 rv scan . --kicad-cli /full/path/to/kicad-cli
                                       Use an explicit KiCad CLI binary
+rv parts list                         List built-in deterministic contract parts
+rv parts show ESP32-WROOM-32          Show one built-in contract part
 rv doctor                             Check rv and KiCad CLI setup
 rv init                                Create .architon/meta.yaml and README.md
 rv init --list                        List available templates
@@ -94,8 +96,11 @@ rv check robot.yaml
 - `summary.delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
 - `summary.nets` when KiCad netlist data is present
 - `summary.next_steps` only when `parse_errors_count > 0`
+- `summary.parts_matched`, `summary.contracts_applied`, and `summary.contract_coverage_percentage`
+- `summary.unknown_power_critical_refs` and `summary.enabled_contract_rules`
 - `derived.rail_inferences` and `derived.rail_coverage` for netlist-backed voltage inference
 - `rules[].inference` provenance for voltage-based findings when available
+- contract findings may include `component_ref`, `net`, `pin`, `source`, `provenance`, and `fix`
 
 Directory scan detection order:
 
@@ -107,6 +112,7 @@ Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
 - `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
+- contract coverage: `Parts matched`, `Contracts applied`, `Contract coverage`, `Unknown power-critical refs`, `Enabled contract rules`
 - compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
 - `Inferred rails`, `Voltage coverage`, and `Metadata`
 - `Detected BOM`, `Detected Netlist`, and `Generated Netlist` when directory scan auto-detects or exports files
@@ -116,7 +122,7 @@ Example success snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": ","
   },
@@ -130,7 +136,7 @@ Example failure snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": "\\t",
     "parse_errors_count": 1,

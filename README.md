@@ -178,6 +178,8 @@ Core commands:
 ```text
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
+rv parts list              List built-in deterministic contract parts
+rv parts show <mpn>        Show one built-in contract part
 rv init                    Create .architon metadata or write a starter robot spec
 rv version                 Show installed version
 rv check --output json     Emit JSON findings to stdout
@@ -210,6 +212,8 @@ rv scan exports/project.net --meta .architon/meta.yaml
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv scan . --no-kicad-cli
 rv scan . --kicad-cli /full/path/to/kicad-cli
+rv parts list
+rv parts show ESP32-WROOM-32
 
 # KiCad project folder scan (demo repo)
 git clone https://github.com/badimirzai/architon-kicad-demo.git demos
@@ -266,7 +270,16 @@ For a project directory scan, Architon auto-discovers `.architon/meta.yaml`:
 rv scan .
 ```
 
-Architon deterministically infers obvious rail voltages from net names, then enriches contracts with metadata sources and regulator outputs from `meta.yaml`. Rules run on DesignIR + ContractIR, not on KiCad files.
+Architon deterministically infers obvious rail voltages from net names, then enriches contracts with metadata sources, explicit schematic/BOM fields, curated built-in contracts, and regulator outputs from `meta.yaml`. Rules run on DesignIR + ContractIR, not on KiCad files.
+
+Contract source precedence is:
+
+1. explicit `.architon/meta.yaml`
+2. schematic/BOM fields
+3. built-in contract source
+4. inferred net names
+
+The built-in contract source is intentionally small and deterministic. It is not a generic parts database or datasheet lookup. v0.3.1 includes curated contracts for `ESP32-WROOM-32`, `STM32F103C8T6`, `RP2040`, `MPU-6050`, `BNO055`, `AMS1117-3.3`, `AP2114H-3.3`, `DRV8833`, `TB6612FNG`, `L298N`, `PCA9306`, and `TXS0108E`.
 
 Minimal voltage-rule metadata:
 
@@ -299,6 +312,11 @@ Nets: 3
 Errors: 0
 Warnings: 0
 Rules: 1
+Parts matched: 0
+Contracts applied: 0
+Contract coverage: 66.67%
+Unknown power-critical refs: 0
+Enabled contract rules: supply_abs_max, supply_recommended_range, gpio_abs_max, motor_driver_vm_range, regulator_output_current
 Violations: 1
 Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%
 Inferred rails: 2
@@ -416,6 +434,7 @@ The report includes:
 - findings for `rv check`, or scan `rules` for `rv scan`
 - normalized DesignIR for scans, including nets when imported
 - rail inference, rail coverage, and voltage-finding provenance for netlist-backed scans
+- contract coverage summary fields: `parts_matched`, `contracts_applied`, `contract_coverage_percentage`, `unknown_power_critical_refs`, and `enabled_contract_rules`
 
 Exit codes indicate pass/fail. The JSON report provides detailed structured results for CI integration and tooling.
 
@@ -425,7 +444,7 @@ For netlist-backed scans, `summary.nets` and `design_ir.nets` are populated. For
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "source": "kicad_bom_csv",
     "input_file": "bom.csv",
@@ -436,7 +455,17 @@ For netlist-backed scans, `summary.nets` and `design_ir.nets` are populated. For
     "parse_errors_count": 0,
     "parse_warnings_count": 0,
     "parse_errors": [],
-    "parse_warnings": []
+    "parse_warnings": [],
+    "parts_matched": 0,
+    "contracts_applied": 0,
+    "contract_coverage_percentage": 0,
+    "enabled_contract_rules": [
+      "supply_abs_max",
+      "supply_recommended_range",
+      "gpio_abs_max",
+      "motor_driver_vm_range",
+      "regulator_output_current"
+    ]
   },
   "design_ir": {
     "version": "0",
@@ -570,12 +599,14 @@ The same input always produces the same result.
 
 ## Schema versioning
 
-`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
+`rv scan` reports include `report_version` and `design_ir.version`. `report_version` is currently `"1"` and `design_ir.version` is currently `"0"`.
 
 `summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
 `summary.nets` is set when netlist data is present.
 `summary.next_steps` appears only when parse failures are present.
+`summary.parts_matched`, `summary.contracts_applied`, `summary.contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules` describe deterministic contract coverage.
 Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `rules[].inference` provenance.
+Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `source`, `provenance`, and `fix`.
 
 Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
 
