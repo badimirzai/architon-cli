@@ -20,6 +20,7 @@ type SystemContract struct {
 	Aliases      []string      `json:"aliases,omitempty"`
 	Description  string        `json:"description,omitempty"`
 	Requirements []Requirement `json:"requirements"`
+	GroundPins   []string      `json:"-"`
 	Provenance   Provenance    `json:"provenance"`
 }
 

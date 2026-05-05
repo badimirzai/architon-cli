@@ -87,6 +87,13 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 				})
 			}
 		}
+		for _, pin := range concretePinsForAliases(design, part.Ref, match.Contract.GroundPins) {
+			out.PutPin(part.Ref, pin.Pin, PinContract{
+				Role:      RoleGround,
+				Direction: DirectionPassive,
+				Source:    s.Name(),
+			})
+		}
 	}
 	return out, nil
 }
@@ -101,10 +108,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"ESP32 WROOM 32", "ESP32-WROOM", "ESP32WROOM32"},
 			Description:  "ESP32 Wi-Fi/Bluetooth module",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"3V3", "VDD", "VDDA"}, 3.6),
-				supplyRecommended([]string{"3V3", "VDD", "VDDA"}, 3.0, 3.6),
-				gpioAbsMax([]string{"GPIO*", "IO*", "SDA", "SCL", "TXD*", "RXD*"}, 3.6),
+				supplyAbsMax([]string{"+3V3", "3V3", "VCC", "VDD", "VDDA"}, 3.6),
+				supplyRecommended([]string{"+3V3", "3V3", "VCC", "VDD", "VDDA"}, 3.0, 3.6),
+				gpioAbsMax([]string{"GPIO*", "IO*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO", "TXD*", "RXD*"}, 3.6),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("ESP32-WROOM-32"),
 		},
 		{
@@ -113,10 +121,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"STM32F103", "STM32F103C8", "BLUEPILL"},
 			Description:  "STM32F103 Cortex-M3 MCU",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"VDD", "VDDA", "VBAT"}, 4.0),
-				supplyRecommended([]string{"VDD", "VDDA"}, 2.0, 3.6),
-				gpioAbsMax([]string{"PA*", "PB*", "PC*", "PD*", "GPIO*"}, 3.6),
+				supplyAbsMax([]string{"VBAT", "VCC", "VDD", "VDDA"}, 4.0),
+				supplyRecommended([]string{"VCC", "VDD", "VDDA"}, 2.0, 3.6),
+				gpioAbsMax([]string{"GPIO*", "PA*", "PB*", "PC*", "PD*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("STM32F103C8T6"),
 		},
 		{
@@ -125,10 +134,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"RP2040 MCU"},
 			Description:  "RP2040 microcontroller",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"IOVDD", "DVDD", "USB_VDD", "ADC_AVDD"}, 3.63),
-				supplyRecommended([]string{"IOVDD", "USB_VDD", "ADC_AVDD"}, 1.8, 3.3),
-				gpioAbsMax([]string{"GPIO*", "IO*", "SDA", "SCL"}, 3.63),
+				supplyAbsMax([]string{"+3V3", "3V3", "ADC_AVDD", "DVDD", "IOVDD", "USB_VDD", "VCC", "VDD", "VDDIO"}, 3.63),
+				supplyRecommended([]string{"+3V3", "3V3", "ADC_AVDD", "IOVDD", "USB_VDD", "VCC", "VDD", "VDDIO"}, 1.8, 3.3),
+				gpioAbsMax([]string{"GPIO*", "IO*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.63),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("RP2040"),
 		},
 		{
@@ -137,10 +147,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"MPU6050", "GY-521"},
 			Description:  "6-axis IMU",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"VDD"}, 3.6),
-				supplyRecommended([]string{"VDD"}, 2.375, 3.46),
-				gpioAbsMax([]string{"SDA", "SCL", "AD0", "INT", "FSYNC"}, 3.6),
+				supplyAbsMax([]string{"VCC", "VDD", "VDDIO", "VLOGIC", "VL"}, 3.6),
+				supplyRecommended([]string{"VCC", "VDD", "VDDIO", "VLOGIC", "VL"}, 2.375, 3.46),
+				gpioAbsMax([]string{"AD0", "FSYNC", "INT", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("MPU-6050"),
 		},
 		{
@@ -149,10 +160,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"BNO-055"},
 			Description:  "9-axis absolute orientation sensor",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"VDD", "VDDIO"}, 3.6),
-				supplyRecommended([]string{"VDD", "VDDIO"}, 2.4, 3.6),
-				gpioAbsMax([]string{"SDA", "SCL", "PS0", "PS1", "INT", "RST"}, 3.6),
+				supplyAbsMax([]string{"VCC", "VDD", "VDDIO", "VLOGIC", "VL"}, 3.6),
+				supplyRecommended([]string{"VCC", "VDD", "VDDIO", "VLOGIC", "VL"}, 2.4, 3.6),
+				gpioAbsMax([]string{"INT", "PS0", "PS1", "RST", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("BNO055"),
 		},
 		{
@@ -161,8 +173,10 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"AMS1117 3.3", "AMS1117-3V3", "AMS1117"},
 			Description:  "3.3 V linear regulator",
 			Requirements: []Requirement{
-				regulatorOutputCurrent([]string{"VOUT", "OUT", "3"}, 1.0),
+				supplyAbsMax([]string{"IN", "VI", "VIN"}, 15.0),
+				regulatorOutputCurrent([]string{"3", "OUT", "VO", "VOUT"}, 1.0),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("AMS1117-3.3"),
 		},
 		{
@@ -171,8 +185,10 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"AP2114-3.3", "AP2114H-3V3", "AP2114"},
 			Description:  "3.3 V low-dropout regulator",
 			Requirements: []Requirement{
-				regulatorOutputCurrent([]string{"VOUT", "OUT", "5"}, 1.0),
+				supplyAbsMax([]string{"IN", "VI", "VIN"}, 6.5),
+				regulatorOutputCurrent([]string{"5", "OUT", "VO", "VOUT"}, 1.0),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("AP2114H-3.3"),
 		},
 		{
@@ -181,8 +197,10 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"DRV8833PWPR", "DRV8833PWP"},
 			Description:  "Dual H-bridge motor driver",
 			Requirements: []Requirement{
-				motorVMRange([]string{"VM", "VMOT", "VMM"}, 2.7, 10.8),
+				supplyAbsMax(logicSupplyAliases(), 7.0),
+				motorVMRange(motorSupplyAliases("VMM"), 2.7, 10.8),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("DRV8833"),
 		},
 		{
@@ -191,8 +209,11 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"TB6612", "TB6612FNGC"},
 			Description:  "Dual DC motor driver",
 			Requirements: []Requirement{
-				motorVMRange([]string{"VM", "VMOT"}, 2.5, 13.5),
+				supplyAbsMax(logicSupplyAliases(), 6.0),
+				supplyRecommended(logicSupplyAliases(), 2.7, 5.5),
+				motorVMRange(motorSupplyAliases(), 4.5, 13.5),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("TB6612FNG"),
 		},
 		{
@@ -201,8 +222,10 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"L298", "L298HN"},
 			Description:  "Dual full-bridge motor driver",
 			Requirements: []Requirement{
-				motorVMRange([]string{"VS", "VM", "VMS"}, 5.0, 46.0),
+				supplyAbsMax([]string{"VCC", "VDD", "VLOGIC", "VL", "VSS"}, 7.0),
+				motorVMRange(motorSupplyAliases("VMS"), 5.0, 46.0),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("L298N"),
 		},
 		{
@@ -211,11 +234,12 @@ func BuiltinContracts() []SystemContract {
 			Aliases:      []string{"PCA9306D", "PCA9306DC"},
 			Description:  "I2C level translator",
 			Requirements: []Requirement{
-				supplyAbsMax([]string{"VREF1", "VREF2", "EN"}, 6.0),
+				supplyAbsMax([]string{"EN", "VCC", "VDD", "VLOGIC", "VL", "VREF", "VREF1", "VREF2"}, 6.0),
 				supplyRecommended([]string{"VREF1"}, 1.2, 3.3),
 				supplyRecommended([]string{"VREF2"}, 1.8, 5.5),
-				gpioAbsMax([]string{"SDA1", "SCL1", "SDA2", "SCL2"}, 6.0),
+				gpioAbsMax([]string{"SCL", "SCL1", "SCL2", "SCL/SPC", "SDA", "SDA1", "SDA2", "SDA/SDI", "SDA/SDI/SDO"}, 6.0),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("PCA9306"),
 		},
 		{
@@ -230,11 +254,24 @@ func BuiltinContracts() []SystemContract {
 				supplyRecommended([]string{"VCCB"}, 2.3, 5.5),
 				gpioAbsMax([]string{"A*", "B*"}, 6.5),
 			},
+			GroundPins: groundAliases(),
 			Provenance: builtInProvenance("TXS0108E"),
 		},
 	}
 	sort.Slice(contracts, func(i, j int) bool { return contracts[i].MPN < contracts[j].MPN })
 	return cloneSystemContracts(contracts)
+}
+
+func groundAliases() []string {
+	return []string{"AGND", "DGND", "GND", "GND1", "GND2", "PGND", "PGND1", "PGND2"}
+}
+
+func logicSupplyAliases(extra ...string) []string {
+	return append([]string{"VCC", "VDD", "VDDIO", "VLOGIC", "VL", "VREF"}, extra...)
+}
+
+func motorSupplyAliases(extra ...string) []string {
+	return append([]string{"MOTOR_VM", "VM", "VM1", "VM2", "VM3", "VMOT", "VS", "VS1", "VS2"}, extra...)
 }
 
 func supplyAbsMax(pins []string, maxV float64) Requirement {
@@ -298,6 +335,7 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 	for i, contract := range in {
 		out[i] = contract
 		out[i].Aliases = cloneStrings(contract.Aliases)
+		out[i].GroundPins = cloneStrings(contract.GroundPins)
 		out[i].Requirements = make([]Requirement, len(contract.Requirements))
 		copy(out[i].Requirements, contract.Requirements)
 		for j := range out[i].Requirements {

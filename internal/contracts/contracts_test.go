@@ -250,6 +250,138 @@ func TestEvaluateRegulatorOverloadErrors(t *testing.T) {
 	requireFinding(t, got, string(contracts.ContractRegulatorOutputCurrent), "ERROR")
 }
 
+func TestBuiltInTB6612VMNumberedPinsTriggerRange(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "TB6612FNG"}},
+		Nets: []ir.Net{
+			{Name: "+3V3", Pins: []ir.PinRef{{Ref: "U1", Pin: "VM1"}, {Ref: "U1", Pin: "VM2"}, {Ref: "U1", Pin: "VM3"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design, enrichment.NetVoltage{Net: "+3V3", Voltage: 3.3, Source: "test"})
+
+	findings := contracts.Evaluate(design, contractIR)
+	for _, pin := range []string{"VM1", "VM2", "VM3"} {
+		requireFindingOnPin(t, findings, string(contracts.ContractMotorDriverVMRange), "U1", pin, "+3V3")
+	}
+	if countFindings(findings, string(contracts.ContractMotorDriverVMRange)) != 3 {
+		t.Fatalf("expected one motor VM finding per VM pin, got %+v", findings)
+	}
+}
+
+func TestBuiltInTB6612SingleNumberedVMEvaluates(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "TB6612FNG"}},
+		Nets: []ir.Net{
+			{Name: "+3V3", Pins: []ir.PinRef{{Ref: "U1", Pin: "VM1"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design, enrichment.NetVoltage{Net: "+3V3", Voltage: 3.3, Source: "test"})
+
+	findings := contracts.Evaluate(design, contractIR)
+	requireFindingOnPin(t, findings, string(contracts.ContractMotorDriverVMRange), "U1", "VM1", "+3V3")
+	if countFindings(findings, string(contracts.ContractMotorDriverVMRange)) != 1 {
+		t.Fatalf("expected only connected VM1 to be evaluated, got %+v", findings)
+	}
+}
+
+func TestBuiltInDRV8833VMAndLogicSupplyAreSeparate(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "DRV8833"}},
+		Nets: []ir.Net{
+			{Name: "+2V0", Pins: []ir.PinRef{{Ref: "U1", Pin: "VM"}}},
+			{Name: "+3V3", Pins: []ir.PinRef{{Ref: "U1", Pin: "VCC"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design,
+		enrichment.NetVoltage{Net: "+2V0", Voltage: 2.0, Source: "test"},
+		enrichment.NetVoltage{Net: "+3V3", Voltage: 3.3, Source: "test"},
+	)
+
+	if pin, ok := contractIR.Pin("U1", "VCC"); !ok || pin.Role != contracts.RolePowerIn {
+		t.Fatalf("expected VCC logic supply pin contract, got %+v ok=%v", pin, ok)
+	}
+	findings := contracts.Evaluate(design, contractIR)
+	requireFindingOnPin(t, findings, string(contracts.ContractMotorDriverVMRange), "U1", "VM", "+2V0")
+	if hasFindingOnPin(findings, string(contracts.ContractMotorDriverVMRange), "VCC") {
+		t.Fatalf("did not expect VCC to be evaluated as motor VM, got %+v", findings)
+	}
+}
+
+func TestBuiltInAMS1117AliasesRecognized(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "AMS1117-3.3"}},
+		Nets: []ir.Net{
+			{Name: "VIN", Pins: []ir.PinRef{{Ref: "U1", Pin: "VI"}, {Ref: "U1", Pin: "IN"}}},
+			{Name: "3V3", Pins: []ir.PinRef{{Ref: "U1", Pin: "VO"}, {Ref: "U1", Pin: "OUT"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design)
+
+	for _, pinName := range []string{"VI", "IN"} {
+		if pin, ok := contractIR.Pin("U1", pinName); !ok || pin.Role != contracts.RolePowerIn {
+			t.Fatalf("expected %s input pin contract, got %+v ok=%v", pinName, pin, ok)
+		}
+	}
+	for _, pinName := range []string{"VO", "OUT"} {
+		if pin, ok := contractIR.Pin("U1", pinName); !ok || pin.Role != contracts.RoleRegulatorOut {
+			t.Fatalf("expected %s regulator output pin contract, got %+v ok=%v", pinName, pin, ok)
+		}
+	}
+}
+
+func TestBuiltInESP32SupplyGroundAndGPIOAliases(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "ESP32-WROOM-32"}},
+		Nets: []ir.Net{
+			{Name: "+5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}, {Ref: "U1", Pin: "GPIO0"}}},
+			{Name: "GND", Pins: []ir.PinRef{{Ref: "U1", Pin: "GND"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design, enrichment.NetVoltage{Net: "+5V", Voltage: 5.0, Source: "test"})
+
+	if pin, ok := contractIR.Pin("U1", "VDD"); !ok || pin.Role != contracts.RolePowerIn {
+		t.Fatalf("expected VDD supply pin contract, got %+v ok=%v", pin, ok)
+	}
+	if pin, ok := contractIR.Pin("U1", "GND"); !ok || pin.Role != contracts.RoleGround {
+		t.Fatalf("expected GND ground pin contract, got %+v ok=%v", pin, ok)
+	}
+	findings := contracts.Evaluate(design, contractIR)
+	requireFindingOnPin(t, findings, string(contracts.ContractSupplyAbsMax), "U1", "VDD", "+5V")
+	requireFindingOnPin(t, findings, string(contracts.ContractGPIOAbsMax), "U1", "GPIO0", "+5V")
+}
+
+func TestBuiltInMPU6050SupplyAndI2CAliases(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "MPU-6050"}},
+		Nets: []ir.Net{
+			{Name: "+5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}, {Ref: "U1", Pin: "VLOGIC"}, {Ref: "U1", Pin: "SDA/SDI"}, {Ref: "U1", Pin: "SCL/SPC"}}},
+		},
+	}
+	contractIR := enrichBuiltInForTest(t, design, enrichment.NetVoltage{Net: "+5V", Voltage: 5.0, Source: "test"})
+
+	for _, pinName := range []string{"VDD", "VLOGIC"} {
+		if pin, ok := contractIR.Pin("U1", pinName); !ok || pin.Role != contracts.RolePowerIn {
+			t.Fatalf("expected %s supply pin contract, got %+v ok=%v", pinName, pin, ok)
+		}
+	}
+	findings := contracts.Evaluate(design, contractIR)
+	requireFindingOnPin(t, findings, string(contracts.ContractSupplyAbsMax), "U1", "VDD", "+5V")
+	requireFindingOnPin(t, findings, string(contracts.ContractSupplyAbsMax), "U1", "VLOGIC", "+5V")
+	if hasFindingOnPin(findings, string(contracts.ContractSupplyAbsMax), "SDA/SDI") ||
+		hasFindingOnPin(findings, string(contracts.ContractSupplyAbsMax), "SCL/SPC") {
+		t.Fatalf("did not expect I2C aliases to be evaluated as supplies, got %+v", findings)
+	}
+	requireFindingOnPin(t, findings, string(contracts.ContractGPIOAbsMax), "U1", "SDA/SDI", "+5V")
+	requireFindingOnPin(t, findings, string(contracts.ContractGPIOAbsMax), "U1", "SCL/SPC", "+5V")
+}
+
+func TestBuiltInLSM9DS1RemainsUnknown(t *testing.T) {
+	got := contracts.MatchPart(ir.Part{Ref: "U1", MPN: "LSM9DS1"}, contracts.BuiltinContracts())
+	if got.Matched || got.Ambiguous {
+		t.Fatalf("expected LSM9DS1 to remain unknown, got %+v", got)
+	}
+}
+
 func TestEvaluateMissingCurrentDataDoesNotCrash(t *testing.T) {
 	design := &ir.DesignIR{
 		Parts: []ir.Part{{Ref: "U1"}, {Ref: "U2"}},
@@ -273,11 +405,55 @@ func TestEvaluateMissingCurrentDataDoesNotCrash(t *testing.T) {
 	}
 }
 
+func enrichBuiltInForTest(t *testing.T, design *ir.DesignIR, voltages ...enrichment.NetVoltage) *contracts.ContractIR {
+	t.Helper()
+	contractIR, err := (enrichment.ContractEnricher{Sources: []contracts.ContractSource{
+		contracts.NewBuiltinPartsSource(),
+		enrichment.NewNetVoltageSource("test", voltages),
+	}}).Enrich(design)
+	if err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	return contractIR
+}
+
 func onePinDesign(ref string, pin string, net string) *ir.DesignIR {
 	return &ir.DesignIR{
 		Parts: []ir.Part{{Ref: ref}},
 		Nets:  []ir.Net{{Name: net, Pins: []ir.PinRef{{Ref: ref, Pin: pin}}}},
 	}
+}
+
+func requireFindingOnPin(t *testing.T, findings []contracts.Finding, ruleID string, ref string, pin string, net string) {
+	t.Helper()
+	for _, finding := range findings {
+		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Pin == pin && finding.Net == net {
+			if finding.Source == "" || finding.Provenance.Source == "" || finding.Fix == "" {
+				t.Fatalf("expected source/provenance/fix in finding, got %+v", finding)
+			}
+			return
+		}
+	}
+	t.Fatalf("expected %s finding on %s/%s/%s, got %+v", ruleID, ref, pin, net, findings)
+}
+
+func hasFindingOnPin(findings []contracts.Finding, ruleID string, pin string) bool {
+	for _, finding := range findings {
+		if finding.RuleID == ruleID && finding.Pin == pin {
+			return true
+		}
+	}
+	return false
+}
+
+func countFindings(findings []contracts.Finding, ruleID string) int {
+	count := 0
+	for _, finding := range findings {
+		if finding.RuleID == ruleID {
+			count++
+		}
+	}
+	return count
 }
 
 func appliedVoltageRequirement(ref string, typ contracts.ContractType, pin string, minV *float64, maxV *float64) contracts.AppliedRequirement {

@@ -222,6 +222,13 @@ func concretePinsForRequirement(design *ir.DesignIR, ref string, req Requirement
 	return out
 }
 
+func concretePinsForAliases(design *ir.DesignIR, ref string, aliases []string) []ir.Pin {
+	if len(aliases) == 0 {
+		return nil
+	}
+	return concretePinsForRequirement(design, ref, Requirement{Scope: ContractScope{Pins: aliases}})
+}
+
 func patternPins(ref string, patterns []string) []ir.Pin {
 	out := make([]ir.Pin, 0, len(patterns))
 	for _, pattern := range patterns {
@@ -259,7 +266,48 @@ func pinMatches(pattern string, pin string) bool {
 	if strings.HasSuffix(normalizedPattern, "*") {
 		return strings.HasPrefix(normalizedPin, strings.TrimSuffix(normalizedPattern, "*"))
 	}
-	return normalizedPattern == normalizedPin
+	return matchesPinAlias(pin, []string{pattern})
+}
+
+func matchesPinAlias(pinName string, aliases []string) bool {
+	normalizedPin := normalizePin(pinName)
+	if normalizedPin == "" {
+		return false
+	}
+	for _, alias := range aliases {
+		normalizedAlias := normalizePin(alias)
+		if normalizedAlias == "" {
+			continue
+		}
+		if normalizedPin == normalizedAlias {
+			return true
+		}
+		if safeNumberedPinAlias(normalizedAlias) && strings.HasPrefix(normalizedPin, normalizedAlias) {
+			suffix := strings.TrimPrefix(normalizedPin, normalizedAlias)
+			if suffix != "" && allDigits(suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func safeNumberedPinAlias(alias string) bool {
+	switch alias {
+	case "GND", "PGND", "VM":
+		return true
+	default:
+		return false
+	}
+}
+
+func allDigits(value string) bool {
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return value != ""
 }
 
 func normalizePin(value string) string {
