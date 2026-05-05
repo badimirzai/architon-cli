@@ -1,0 +1,34 @@
+(export (version "E")
+  (design
+    (source "esp32_overvoltage.kicad_sch")
+    (date "2026-05-05T00:00:00+0000")
+    (tool "Eeschema")
+    (sheet (number "1") (name "/") (tstamps "/")))
+  (components
+    (comp (ref "U1")
+      (value "ESP32-WROOM-32")
+      (fields
+        (field (name "MPN") "ESP32-WROOM-32"))
+      (libsource (lib "RF_Module") (part "ESP32-WROOM-32")))
+    (comp (ref "J1")
+      (value "Power")
+      (fields
+        (field (name "MPN") "POWER_HEADER"))
+      (libsource (lib "Connector") (part "Conn_01x02"))))
+  (libparts
+    (libpart (lib "RF_Module") (part "ESP32-WROOM-32")
+      (pins
+        (pin (num "VDD") (name "VDD") (type "power_in"))
+        (pin (num "GND") (name "GND") (type "power_in"))))
+    (libpart (lib "Connector") (part "Conn_01x02")
+      (pins
+        (pin (num "1") (name "Pin_1") (type "passive"))
+        (pin (num "2") (name "Pin_2") (type "passive")))))
+  (libraries)
+  (nets
+    (net (code "1") (name "/+5V") (class "Default")
+      (node (ref "J1") (pin "1") (pinfunction "Pin_1") (pintype "passive"))
+      (node (ref "U1") (pin "VDD") (pinfunction "VDD") (pintype "power_in")))
+    (net (code "2") (name "GND") (class "Default")
+      (node (ref "J1") (pin "2") (pinfunction "Pin_2") (pintype "passive"))
+      (node (ref "U1") (pin "GND") (pinfunction "GND") (pintype "power_in")))))

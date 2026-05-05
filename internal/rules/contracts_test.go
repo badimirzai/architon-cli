@@ -67,8 +67,8 @@ func TestSupplyContract_OvervoltageThroughContracts(t *testing.T) {
 	if got[0].RuleID != RuleSupplyContract {
 		t.Fatalf("expected %s, got %s", RuleSupplyContract, got[0].RuleID)
 	}
-	if got[0].Severity != "error" {
-		t.Fatalf("expected error, got %+v", got[0])
+	if got[0].Severity != "ERROR" {
+		t.Fatalf("expected ERROR, got %+v", got[0])
 	}
 }
 
@@ -121,7 +121,7 @@ func TestRulesRunOnSyntheticDesignWithoutImporterProducesFinding(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected synthetic DesignIR to produce one finding, got %+v", got)
 	}
-	if got[0].RuleID != RuleSupplyContract || got[0].Severity != "error" {
+	if got[0].RuleID != RuleSupplyContract || got[0].Severity != "ERROR" {
 		t.Fatalf("expected supply contract error from synthetic DesignIR, got %+v", got[0])
 	}
 }
@@ -159,7 +159,7 @@ func TestSupplyContractMutationChangesOutcome(t *testing.T) {
 	if len(mutated) != 1 {
 		t.Fatalf("expected mutated 3.3V max consumer to fail, got %+v", mutated)
 	}
-	if mutated[0].Severity != "error" || mutated[0].RuleID != RuleSupplyContract {
+	if mutated[0].Severity != "ERROR" || mutated[0].RuleID != RuleSupplyContract {
 		t.Fatalf("expected mutation to trigger supply contract error, got %+v", mutated[0])
 	}
 }
@@ -185,8 +185,8 @@ func TestSupplyContract_MissingLimitsWarns(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 warning, got %+v", got)
 	}
-	if got[0].Severity != "warning" {
-		t.Fatalf("expected warning for missing limits, got %+v", got[0])
+	if got[0].Severity != "WARN" {
+		t.Fatalf("expected WARN for missing limits, got %+v", got[0])
 	}
 }
 
@@ -237,7 +237,7 @@ func TestBusRoleContract_I2CMixedSDAAndSCL(t *testing.T) {
 	if len(got) == 0 {
 		t.Fatal("expected I2C role conflict")
 	}
-	if got[0].Severity != "error" {
-		t.Fatalf("expected error, got %+v", got[0])
+	if got[0].Severity != "ERROR" {
+		t.Fatalf("expected ERROR, got %+v", got[0])
 	}
 }

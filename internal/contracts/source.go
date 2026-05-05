@@ -99,7 +99,7 @@ func fieldRequirements(part ir.Part, source string) ([]Requirement, error) {
 			Scope:      ContractScope{Pins: supplyPins, Role: RolePowerIn},
 			MinVoltage: optionalFloat(recMin, hasRecMin),
 			MaxVoltage: optionalFloat(recMax, hasRecMax),
-			Severity:   "warning",
+			Severity:   "WARN",
 			Fix:        "Use a supply rail inside the recommended operating range.",
 		})
 	}

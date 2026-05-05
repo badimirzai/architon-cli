@@ -81,6 +81,108 @@ func TestMetaYAMLOverridesBuiltInContract(t *testing.T) {
 	}
 }
 
+func TestFieldOverridesBuiltInContract(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{
+			Ref: "U1",
+			MPN: "ESP32-WROOM-32",
+			Fields: map[string]string{
+				"architon_supply_pins":      "VDD",
+				"architon_supply_abs_max_v": "5.5",
+			},
+		}},
+		Nets: []ir.Net{
+			{Name: "5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}}},
+		},
+	}
+
+	contractIR, err := (enrichment.ContractEnricher{Sources: []contracts.ContractSource{
+		contracts.FieldContractSource{},
+		contracts.NewBuiltinPartsSource(),
+		enrichment.NewNetVoltageSource("inferred", []enrichment.NetVoltage{{Net: "5V", Voltage: 5.0, Source: "inferred"}}),
+	}}).Enrich(design)
+	if err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+
+	req := requireAppliedRequirement(t, contractIR, "U1", contracts.ContractSupplyAbsMax)
+	if req.Source != "schematic-bom-fields" {
+		t.Fatalf("expected field source to win, got %+v", req)
+	}
+	if req.MaxVoltage == nil || *req.MaxVoltage != 5.5 {
+		t.Fatalf("expected field max voltage 5.5, got %+v", req)
+	}
+	if findings := contracts.Evaluate(design, contractIR); len(findings) != 0 {
+		t.Fatalf("expected field override to avoid built-in finding, got %+v", findings)
+	}
+}
+
+func TestBuiltInOverridesInferredVoltageForEvaluation(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1", MPN: "ESP32-WROOM-32"}},
+		Nets: []ir.Net{
+			{Name: "5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}}},
+		},
+	}
+
+	contractIR, err := (enrichment.ContractEnricher{Sources: []contracts.ContractSource{
+		contracts.NewBuiltinPartsSource(),
+		enrichment.NewNetVoltageSource("inferred", []enrichment.NetVoltage{{Net: "5V", Voltage: 5.0, Source: "inferred"}}),
+	}}).Enrich(design)
+	if err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+
+	req := requireAppliedRequirement(t, contractIR, "U1", contracts.ContractSupplyAbsMax)
+	if req.Source != "built-in" {
+		t.Fatalf("expected built-in source to win over inferred voltage data, got %+v", req)
+	}
+	requireFinding(t, contracts.Evaluate(design, contractIR), string(contracts.ContractSupplyAbsMax), "ERROR")
+}
+
+func TestMultiSourceMergeRespectsPrecedenceAndEvaluates(t *testing.T) {
+	design := &ir.DesignIR{
+		Parts: []ir.Part{
+			{Ref: "U1", MPN: "ESP32-WROOM-32"},
+			{Ref: "U2", MPN: "ESP32-WROOM-32"},
+		},
+		Nets: []ir.Net{
+			{Name: "5V", Pins: []ir.PinRef{{Ref: "U1", Pin: "VDD"}, {Ref: "U2", Pin: "VDD"}}},
+		},
+	}
+
+	contractIR, err := (enrichment.ContractEnricher{Sources: []contracts.ContractSource{
+		enrichment.NewMetaYAMLSource(&meta.Meta{
+			Sources:    []meta.Source{{Net: "5V", Voltage: 5.0}},
+			Components: []meta.Component{{Ref: "U1", MaxVoltage: 5.5}},
+		}),
+		contracts.NewBuiltinPartsSource(),
+		enrichment.NewNetVoltageSource("inferred", []enrichment.NetVoltage{{Net: "5V", Voltage: 5.0, Source: "inferred"}}),
+	}}).Enrich(design)
+	if err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+
+	if _, ok := contractIR.Components["U1"]; !ok {
+		t.Fatal("expected meta component contract for U1")
+	}
+	req := requireAppliedRequirement(t, contractIR, "U2", contracts.ContractSupplyAbsMax)
+	if req.Source != "built-in" {
+		t.Fatalf("expected built-in contract for U2, got %+v", req)
+	}
+	for _, req := range contractIR.AppliedRequirements {
+		if req.ComponentRef == "U1" && req.Type == contracts.ContractSupplyAbsMax {
+			t.Fatalf("expected meta to suppress U1 built-in requirement, got %+v", req)
+		}
+	}
+
+	findings := contracts.Evaluate(design, contractIR)
+	requireFinding(t, findings, string(contracts.ContractSupplyAbsMax), "ERROR")
+	if len(findings) != 1 || findings[0].ComponentRef != "U2" {
+		t.Fatalf("expected only U2 built-in finding, got %+v", findings)
+	}
+}
+
 func TestEvaluateSupplyAboveAbsMaxErrors(t *testing.T) {
 	design := onePinDesign("U1", "VDD", "5V")
 	contractIR := contracts.NewContractIR()
@@ -88,7 +190,7 @@ func TestEvaluateSupplyAboveAbsMaxErrors(t *testing.T) {
 	contractIR.PutAppliedRequirement(appliedVoltageRequirement("U1", contracts.ContractSupplyAbsMax, "VDD", nil, contracts.Float64(3.6)))
 
 	got := contracts.Evaluate(design, contractIR)
-	requireFinding(t, got, string(contracts.ContractSupplyAbsMax), "error")
+	requireFinding(t, got, string(contracts.ContractSupplyAbsMax), "ERROR")
 }
 
 func TestEvaluateRecommendedRangeWarns(t *testing.T) {
@@ -99,7 +201,7 @@ func TestEvaluateRecommendedRangeWarns(t *testing.T) {
 	contractIR.PutAppliedRequirement(appliedVoltageRequirement("U1", contracts.ContractSupplyRecommendedRange, "VDD", contracts.Float64(3.0), contracts.Float64(3.6)))
 
 	got := contracts.Evaluate(design, contractIR)
-	requireFinding(t, got, string(contracts.ContractSupplyRecommendedRange), "warning")
+	requireFinding(t, got, string(contracts.ContractSupplyRecommendedRange), "WARN")
 	if hasFinding(got, string(contracts.ContractSupplyAbsMax)) {
 		t.Fatalf("did not expect abs max error, got %+v", got)
 	}
@@ -112,7 +214,7 @@ func TestEvaluateGPIOOvervoltageErrors(t *testing.T) {
 	contractIR.PutAppliedRequirement(appliedVoltageRequirement("U1", contracts.ContractGPIOAbsMax, "GPIO*", nil, contracts.Float64(3.6)))
 
 	got := contracts.Evaluate(design, contractIR)
-	requireFinding(t, got, string(contracts.ContractGPIOAbsMax), "error")
+	requireFinding(t, got, string(contracts.ContractGPIOAbsMax), "ERROR")
 }
 
 func TestEvaluateMotorVMRangeErrors(t *testing.T) {
@@ -122,7 +224,7 @@ func TestEvaluateMotorVMRangeErrors(t *testing.T) {
 	contractIR.PutAppliedRequirement(appliedVoltageRequirement("U1", contracts.ContractMotorDriverVMRange, "VM", contracts.Float64(2.5), contracts.Float64(13.5)))
 
 	got := contracts.Evaluate(design, contractIR)
-	requireFinding(t, got, string(contracts.ContractMotorDriverVMRange), "error")
+	requireFinding(t, got, string(contracts.ContractMotorDriverVMRange), "ERROR")
 }
 
 func TestEvaluateRegulatorOverloadErrors(t *testing.T) {
@@ -145,7 +247,7 @@ func TestEvaluateRegulatorOverloadErrors(t *testing.T) {
 	contractIR.PutPin("U2", "VCC", contracts.PinContract{CurrentMax: contracts.Float64(0.8)})
 
 	got := contracts.Evaluate(design, contractIR)
-	requireFinding(t, got, string(contracts.ContractRegulatorOutputCurrent), "error")
+	requireFinding(t, got, string(contracts.ContractRegulatorOutputCurrent), "ERROR")
 }
 
 func TestEvaluateMissingCurrentDataDoesNotCrash(t *testing.T) {
@@ -188,7 +290,19 @@ func appliedVoltageRequirement(ref string, typ contracts.ContractType, pin strin
 		},
 		ComponentRef: ref,
 		Source:       "test",
+		Provenance:   contracts.Provenance{Source: "test", SourceID: string(typ)},
 	}
+}
+
+func requireAppliedRequirement(t *testing.T, contractIR *contracts.ContractIR, ref string, typ contracts.ContractType) contracts.AppliedRequirement {
+	t.Helper()
+	for _, req := range contractIR.AppliedRequirements {
+		if req.ComponentRef == ref && req.Type == typ {
+			return req
+		}
+	}
+	t.Fatalf("expected applied requirement %s/%s, got %+v", ref, typ, contractIR.AppliedRequirements)
+	return contracts.AppliedRequirement{}
 }
 
 func requireFinding(t *testing.T, findings []contracts.Finding, ruleID string, severity string) {
@@ -197,6 +311,9 @@ func requireFinding(t *testing.T, findings []contracts.Finding, ruleID string, s
 		if finding.RuleID == ruleID && finding.Severity == severity {
 			if finding.ComponentRef == "" || finding.Net == "" || finding.Pin == "" {
 				t.Fatalf("expected component/net/pin in finding, got %+v", finding)
+			}
+			if finding.Source == "" || finding.Provenance.Source == "" || finding.Fix == "" {
+				t.Fatalf("expected source/provenance/fix in finding, got %+v", finding)
 			}
 			return
 		}

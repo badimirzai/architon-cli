@@ -165,7 +165,7 @@ Example success snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": ","
   },
@@ -179,7 +179,7 @@ Example failure snippet:
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "delimiter": ",",
     "next_steps": [

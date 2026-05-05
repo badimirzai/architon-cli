@@ -216,8 +216,15 @@ Examples:
 					result := report.RuleResult{
 						ID:       "RULE_VOLTAGE_CONFLICT",
 						RuleID:   "RULE_VOLTAGE_CONFLICT",
-						Severity: "error",
+						Severity: "ERROR",
 						Message:  c,
+						Source:   "voltage-propagation",
+						Provenance: &contracts.Provenance{
+							Source:   "voltage-propagation",
+							SourceID: "RULE_VOLTAGE_CONFLICT",
+							Detail:   "deterministic voltage propagation conflict",
+						},
+						Fix: "Resolve the conflicting voltage evidence for this net.",
 					}
 					if inference, ok := inferencesByNet[scanConflictNetName(c)]; ok {
 						result.Inference = scanReportInferenceProvenance(inference)
@@ -257,6 +264,7 @@ Examples:
 					return designReport.Rules[i].ID < designReport.Rules[j].ID
 				})
 			}
+			normalizeScanReportRules(designReport.Rules)
 			// Update summary (because report.NewVerificationReport() computed these before rules existed)
 			designReport.Summary.Rules = len(designReport.Rules)
 			designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
@@ -946,10 +954,10 @@ func scanExitCode(result report.VerificationReport) int {
 	hasWarn := false
 	hasErr := false
 	for _, rule := range result.Rules {
-		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
-		if sev == "" || sev == "error" {
+		sev := normalizeSeverity(rule.Severity)
+		if sev == "ERROR" {
 			hasErr = true
-		} else if sev == "warning" {
+		} else if sev == "WARN" {
 			hasWarn = true
 		}
 	}
@@ -971,8 +979,8 @@ func scanExitCode(result report.VerificationReport) int {
 func scanRuleViolationCount(result report.VerificationReport) int {
 	n := 0
 	for _, rule := range result.Rules {
-		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
-		if sev == "" || sev == "error" {
+		sev := normalizeSeverity(rule.Severity)
+		if sev == "ERROR" {
 			n++
 		}
 	}
@@ -982,8 +990,8 @@ func scanRuleViolationCount(result report.VerificationReport) int {
 func scanRuleWarningCount(result report.VerificationReport) int {
 	n := 0
 	for _, rule := range result.Rules {
-		sev := strings.TrimSpace(strings.ToLower(rule.Severity))
-		if sev == "warning" {
+		sev := normalizeSeverity(rule.Severity)
+		if sev == "WARN" {
 			n++
 		}
 	}
@@ -1104,7 +1112,7 @@ func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]
 		result := report.RuleResult{
 			ID:           finding.RuleID,
 			RuleID:       finding.RuleID,
-			Severity:     finding.Severity,
+			Severity:     normalizeSeverity(finding.Severity),
 			Net:          finding.Net,
 			Message:      finding.Message,
 			Provider:     finding.Provider,
@@ -1112,6 +1120,13 @@ func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]
 			Ref:          finding.Ref,
 			ComponentRef: finding.Ref,
 			Pin:          finding.Pin,
+			Source:       "contract-rules",
+			Provenance: &contracts.Provenance{
+				Source:   "contract-rules",
+				SourceID: finding.RuleID,
+				Detail:   "deterministic ContractIR rule",
+			},
+			Fix: fixForRule(finding.RuleID),
 		}
 		if inference, ok := inferencesByNet[finding.Net]; ok {
 			result.Inference = scanReportInferenceProvenance(inference)
@@ -1129,7 +1144,7 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 		result := report.RuleResult{
 			ID:           finding.RuleID,
 			RuleID:       finding.RuleID,
-			Severity:     finding.Severity,
+			Severity:     normalizeSeverity(finding.Severity),
 			Net:          finding.Net,
 			Message:      finding.Message,
 			Ref:          finding.ComponentRef,
@@ -1148,6 +1163,59 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 		out = append(out, result)
 	}
 	return out
+}
+
+func normalizeScanReportRules(rules []report.RuleResult) {
+	for i := range rules {
+		rules[i].Severity = normalizeSeverity(rules[i].Severity)
+		if strings.TrimSpace(rules[i].Source) == "" {
+			rules[i].Source = "scan-rule"
+		}
+		if rules[i].Provenance == nil {
+			rules[i].Provenance = &contracts.Provenance{
+				Source:   rules[i].Source,
+				SourceID: rules[i].RuleID,
+				Detail:   "deterministic scan finding",
+			}
+		}
+		if strings.TrimSpace(rules[i].Provenance.Source) == "" {
+			rules[i].Provenance.Source = rules[i].Source
+		}
+		if strings.TrimSpace(rules[i].Provenance.SourceID) == "" {
+			rules[i].Provenance.SourceID = rules[i].RuleID
+		}
+		if strings.TrimSpace(rules[i].Fix) == "" {
+			rules[i].Fix = fixForRule(rules[i].RuleID)
+		}
+	}
+}
+
+func normalizeSeverity(severity string) string {
+	switch strings.ToUpper(strings.TrimSpace(severity)) {
+	case "", "ERROR":
+		return "ERROR"
+	case "WARN", "WARNING":
+		return "WARN"
+	case "INFO":
+		return "INFO"
+	default:
+		return "ERROR"
+	}
+}
+
+func fixForRule(ruleID string) string {
+	switch ruleID {
+	case rules.RuleSupplyContract:
+		return "Move the consumer to a compatible supply rail or update the provider/consumer contract."
+	case rules.RuleLogicLevelContract:
+		return "Add level shifting or drive the signal at a compatible voltage."
+	case rules.RuleBusRoleContract:
+		return "Separate incompatible bus roles or correct the pin role contracts."
+	case "RULE_VOLTAGE_CONFLICT":
+		return "Resolve the conflicting voltage evidence for this net."
+	default:
+		return "Review the schematic connection and contract data for this finding."
+	}
 }
 
 // scanVoltageEvidence converts propagated net voltages into inference evidence.

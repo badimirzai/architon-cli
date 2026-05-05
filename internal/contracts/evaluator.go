@@ -62,7 +62,7 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 				absVoltageViolations[voltageViolationKey(req.ComponentRef, conn.Pin, conn.Net)] = struct{}{}
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
-					Severity:     severityOrDefault(req.Severity, "error"),
+					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
@@ -100,7 +100,7 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 				}
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
-					Severity:     severityOrDefault(req.Severity, "error"),
+					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
@@ -140,7 +140,7 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 				}
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
-					Severity:     severityOrDefault(req.Severity, "error"),
+					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
@@ -160,6 +160,7 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 		}
 	}
 
+	normalizeContractFindings(findings)
 	sortContractFindings(findings)
 	return findings
 }
@@ -284,7 +285,7 @@ func netVoltage(contractIR *ContractIR, net string) (float64, bool) {
 func recommendedVoltageFinding(req AppliedRequirement, conn connectedPin, voltage float64, direction string, limit float64) Finding {
 	return Finding{
 		RuleID:       string(req.Type),
-		Severity:     severityOrDefault(req.Severity, "warning"),
+		Severity:     severityOrDefault(req.Severity, "WARN"),
 		ComponentRef: req.ComponentRef,
 		Net:          conn.Net,
 		Pin:          conn.Pin,
@@ -306,7 +307,7 @@ func recommendedVoltageFinding(req AppliedRequirement, conn connectedPin, voltag
 func motorVMFinding(req AppliedRequirement, conn connectedPin, voltage float64, direction string, limit float64) Finding {
 	return Finding{
 		RuleID:       string(req.Type),
-		Severity:     severityOrDefault(req.Severity, "error"),
+		Severity:     severityOrDefault(req.Severity, "ERROR"),
 		ComponentRef: req.ComponentRef,
 		Net:          conn.Net,
 		Pin:          conn.Pin,
@@ -429,11 +430,39 @@ func directionForRequirement(contractType ContractType) Direction {
 }
 
 func severityOrDefault(severity string, fallback string) string {
-	severity = strings.ToLower(strings.TrimSpace(severity))
+	severity = strings.ToUpper(strings.TrimSpace(severity))
 	if severity == "" {
-		return fallback
+		return strings.ToUpper(strings.TrimSpace(fallback))
 	}
-	return severity
+	switch severity {
+	case "WARNING":
+		return "WARN"
+	case "ERROR", "WARN", "INFO":
+		return severity
+	default:
+		return strings.ToUpper(strings.TrimSpace(fallback))
+	}
+}
+
+func normalizeContractFindings(findings []Finding) {
+	for i := range findings {
+		findings[i].Severity = severityOrDefault(findings[i].Severity, "ERROR")
+		if strings.TrimSpace(findings[i].Source) == "" {
+			findings[i].Source = findings[i].Provenance.Source
+		}
+		if strings.TrimSpace(findings[i].Source) == "" {
+			findings[i].Source = "contract"
+		}
+		if strings.TrimSpace(findings[i].Provenance.Source) == "" {
+			findings[i].Provenance.Source = findings[i].Source
+		}
+		if strings.TrimSpace(findings[i].Provenance.SourceID) == "" {
+			findings[i].Provenance.SourceID = findings[i].RuleID
+		}
+		if strings.TrimSpace(findings[i].Fix) == "" {
+			findings[i].Fix = "Update the component contract or schematic connection so the electrical limit is respected."
+		}
+	}
 }
 
 func messageOrDefault(message string, fallback string) string {

@@ -12,7 +12,7 @@ import (
 	"github.com/badimirzai/architon-cli/internal/rails"
 )
 
-const SchemaVersion = "0"
+const SchemaVersion = "1"
 
 // RuleResult is the report-facing shape of a rule finding.
 // The legacy id field is kept alongside rule_id for compatibility.

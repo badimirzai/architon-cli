@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -27,13 +28,18 @@ func newPartsCmd() *cobra.Command {
 }
 
 func newPartsListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "list",
 		Args:  cobra.NoArgs,
 		Short: "List built-in contract parts",
 		Run: func(cmd *cobra.Command, args []string) {
+			format, _ := cmd.Flags().GetString("format")
 			parts := contracts.BuiltinContracts()
 			sort.Slice(parts, func(i, j int) bool { return parts[i].MPN < parts[j].MPN })
+			if isJSONFormat(format) {
+				writeJSON(cmd, parts)
+				return
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Built-in contract parts:")
 			for _, part := range parts {
 				fmt.Fprintf(cmd.OutOrStdout(), "- %s", part.MPN)
@@ -44,14 +50,17 @@ func newPartsListCmd() *cobra.Command {
 			}
 		},
 	}
+	cmd.Flags().String("format", "text", "Output format: text or json")
+	return cmd
 }
 
 func newPartsShowCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "show <mpn>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Show one built-in contract part",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			format, _ := cmd.Flags().GetString("format")
 			match := contracts.MatchPart(ir.Part{MPN: args[0], Value: args[0]}, contracts.BuiltinContracts())
 			if match.Ambiguous {
 				return userError(fmt.Errorf("ambiguous built-in part %q: %s", args[0], strings.Join(match.Candidates, ", ")))
@@ -60,6 +69,10 @@ func newPartsShowCmd() *cobra.Command {
 				return userError(fmt.Errorf("built-in part %q not found", args[0]))
 			}
 			part := match.Contract
+			if isJSONFormat(format) {
+				writeJSON(cmd, part)
+				return nil
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "MPN: %s\n", part.MPN)
 			if part.Manufacturer != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Manufacturer: %s\n", part.Manufacturer)
@@ -87,6 +100,18 @@ func newPartsShowCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("format", "text", "Output format: text or json")
+	return cmd
+}
+
+func isJSONFormat(format string) bool {
+	return strings.EqualFold(strings.TrimSpace(format), "json")
+}
+
+func writeJSON(cmd *cobra.Command, value any) {
+	encoder := json.NewEncoder(cmd.OutOrStdout())
+	encoder.SetIndent("", "  ")
+	_ = encoder.Encode(value)
 }
 
 func requirementTypes(reqs []contracts.Requirement) string {

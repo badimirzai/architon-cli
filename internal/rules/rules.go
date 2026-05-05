@@ -104,7 +104,7 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 				if consumer.contract.VoltageMax == nil && consumer.contract.VoltageMin == nil {
 					findings = append(findings, Finding{
 						RuleID:   r.ID(),
-						Severity: "warning",
+						Severity: "WARN",
 						Net:      net.Name,
 						Message: fmt.Sprintf(
 							"Net %s has provider %.2fV but %s has no voltage limits",
@@ -122,7 +122,7 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 				if consumer.contract.VoltageMax != nil && greaterThan(*provider.voltage, *consumer.contract.VoltageMax) {
 					findings = append(findings, Finding{
 						RuleID:   r.ID(),
-						Severity: "error",
+						Severity: "ERROR",
 						Net:      net.Name,
 						Message: fmt.Sprintf(
 							"Net %s provides %.2fV but %s allows max %.2fV",
@@ -140,7 +140,7 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 				if consumer.contract.VoltageMin != nil && lessThan(*provider.voltage, *consumer.contract.VoltageMin) {
 					findings = append(findings, Finding{
 						RuleID:   r.ID(),
-						Severity: "error",
+						Severity: "ERROR",
 						Net:      net.Name,
 						Message: fmt.Sprintf(
 							"Net %s provides %.2fV but %s requires min %.2fV",
@@ -205,7 +205,7 @@ func (r LogicLevelContractRule) Check(design *ir.DesignIR, contractIR *contracts
 				}
 				findings = append(findings, Finding{
 					RuleID:   r.ID(),
-					Severity: "error",
+					Severity: "ERROR",
 					Net:      net.Name,
 					Message: fmt.Sprintf(
 						"Net %s has %s driving %.2fV logic into %s max %.2fV",
@@ -260,7 +260,7 @@ func (r BusRoleContractRule) Check(design *ir.DesignIR, contractIR *contracts.Co
 		if hasSDA && hasSCL {
 			findings = append(findings, Finding{
 				RuleID:   r.ID(),
-				Severity: "error",
+				Severity: "ERROR",
 				Net:      net.Name,
 				Message:  fmt.Sprintf("I2C net %s mixes SDA and SCL pin roles", net.Name),
 			})
@@ -273,7 +273,7 @@ func (r BusRoleContractRule) Check(design *ir.DesignIR, contractIR *contracts.Co
 				}
 				findings = append(findings, Finding{
 					RuleID:   r.ID(),
-					Severity: "warning",
+					Severity: "WARN",
 					Net:      net.Name,
 					Message:  fmt.Sprintf("I2C net %s includes %s with non-I2C role %s", net.Name, pin.label, pin.contract.Role),
 					Ref:      pin.ref,
@@ -289,7 +289,7 @@ func (r BusRoleContractRule) Check(design *ir.DesignIR, contractIR *contracts.Co
 			}
 			findings = append(findings, Finding{
 				RuleID:   r.ID(),
-				Severity: "warning",
+				Severity: "WARN",
 				Net:      net.Name,
 				Message:  fmt.Sprintf("I2C %s should be bidirectional or open-drain compatible on net %s", pin.label, net.Name),
 				Ref:      pin.ref,

@@ -444,7 +444,7 @@ For netlist-backed scans, `summary.nets` and `design_ir.nets` are populated. For
 
 ```json
 {
-  "report_version": "0",
+  "report_version": "1",
   "summary": {
     "source": "kicad_bom_csv",
     "input_file": "bom.csv",
@@ -599,7 +599,7 @@ The same input always produces the same result.
 
 ## Schema versioning
 
-`rv scan` reports include `report_version` and `design_ir.version`. Both are currently `"0"`.
+`rv scan` reports include `report_version` and `design_ir.version`. `report_version` is currently `"1"` and `design_ir.version` is currently `"0"`.
 
 `summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
 `summary.nets` is set when netlist data is present.

@@ -35,9 +35,20 @@ type scanReport struct {
 		} `json:"nets"`
 	} `json:"design_ir"`
 	Rules []struct {
-		ID        string `json:"id"`
-		Severity  string `json:"severity"`
-		Message   string `json:"message"`
+		ID           string `json:"id"`
+		RuleID       string `json:"rule_id"`
+		Severity     string `json:"severity"`
+		Message      string `json:"message"`
+		ComponentRef string `json:"component_ref"`
+		Net          string `json:"net"`
+		Pin          string `json:"pin"`
+		Source       string `json:"source"`
+		Provenance   *struct {
+			Source   string `json:"source"`
+			SourceID string `json:"source_id"`
+			Detail   string `json:"detail"`
+		} `json:"provenance"`
+		Fix       string `json:"fix"`
 		Inference *struct {
 			NetName         string  `json:"net_name"`
 			Source          string  `json:"source"`
@@ -97,6 +108,15 @@ func kicadFixturePath(t *testing.T, name string) string {
 		t.Fatal("unable to locate test file path")
 	}
 	return filepath.Join(filepath.Dir(file), "..", "internal", "importers", "kicad", "testdata", name)
+}
+
+func rootFixturePath(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("unable to locate test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "testdata", name)
 }
 
 func runScanCommand(t *testing.T, cwd string, args ...string) (string, error) {
@@ -191,6 +211,49 @@ func TestScan_WritesReportWhenParseErrorsExist(t *testing.T) {
 	}
 	if report.DesignIR.Version != ir.SchemaVersion {
 		t.Fatalf("expected design IR version %q, got %q", ir.SchemaVersion, report.DesignIR.Version)
+	}
+}
+
+func TestScan_ESP32BuiltInContractOvervoltage(t *testing.T) {
+	tmpDir := t.TempDir()
+	reportPath := filepath.Join(tmpDir, "report.json")
+	netlist := rootFixturePath(t, filepath.Join("esp32_overvoltage", "netlist.net"))
+	metaPath := rootFixturePath(t, filepath.Join("esp32_overvoltage", "meta.yaml"))
+
+	_, err := runScanCommand(t, tmpDir, netlist, "--meta", metaPath, "--out", reportPath)
+	if err == nil {
+		t.Fatal("expected overvoltage exit")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %d", exitErr.Code)
+	}
+
+	report := readScanReport(t, reportPath)
+	if report.ReportVersion != "1" {
+		t.Fatalf("expected report_version 1, got %q", report.ReportVersion)
+	}
+	if len(report.Rules) != 1 {
+		t.Fatalf("expected one violation, got %+v", report.Rules)
+	}
+	finding := report.Rules[0]
+	if finding.RuleID != "supply_abs_max" || finding.Severity != "ERROR" {
+		t.Fatalf("expected supply_abs_max ERROR, got %+v", finding)
+	}
+	if finding.ComponentRef != "U1" || finding.Net != "/+5V" || finding.Pin != "VDD" {
+		t.Fatalf("expected U1 /+5V VDD finding, got %+v", finding)
+	}
+	if finding.Source != "built-in" {
+		t.Fatalf("expected built-in source, got %+v", finding)
+	}
+	if finding.Provenance == nil || finding.Provenance.Source != "built-in" {
+		t.Fatalf("expected built-in provenance, got %+v", finding)
+	}
+	if finding.Fix == "" {
+		t.Fatalf("expected fix, got %+v", finding)
 	}
 }
 
@@ -848,7 +911,7 @@ func TestScanExitCode(t *testing.T) {
 			name: "warning only",
 			report: reportpkg.VerificationReport{
 				Rules: []reportpkg.RuleResult{
-					{ID: "BOM_RULE", Severity: "warning", Message: "check part"},
+					{ID: "BOM_RULE", Severity: "WARN", Message: "check part"},
 				},
 			},
 			want: 1,

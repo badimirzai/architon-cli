@@ -9,7 +9,8 @@ import (
 const builtInContractSourceName = "built-in"
 
 // BuiltinPartsSource exposes the curated v0.3.1 built-in contracts as one
-// ContractSource. It is deliberately not a general parts database.
+// ContractSource. Built-in contracts are intentionally minimal. This is NOT a
+// general-purpose parts database.
 type BuiltinPartsSource struct {
 	contracts []SystemContract
 }
@@ -90,8 +91,8 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 	return out, nil
 }
 
-// BuiltinContracts returns the small curated v0.3.1 catalog. It is a contract
-// foundation for common robotics parts, not a generic component database.
+// BuiltinContracts returns the small curated v0.3.1 catalog. Built-in contracts
+// are intentionally minimal. This is NOT a general-purpose parts database.
 func BuiltinContracts() []SystemContract {
 	contracts := []SystemContract{
 		{
@@ -251,7 +252,7 @@ func supplyRecommended(pins []string, minV float64, maxV float64) Requirement {
 		Scope:      ContractScope{Pins: cloneStrings(pins), Role: RolePowerIn},
 		MinVoltage: Float64(minV),
 		MaxVoltage: Float64(maxV),
-		Severity:   "warning",
+		Severity:   "WARN",
 		Fix:        "Use a supply rail inside the recommended operating range.",
 	}
 }

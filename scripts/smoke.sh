@@ -81,7 +81,7 @@ echo "==> 7) Quick JSON sanity checks (optional, best-effort)"
 # jq optional
 if command -v jq >/dev/null 2>&1; then
   ./bin/rv scan internal/importers/kicad/testdata/bom_kicad_default.csv --out /tmp/rv-report.json
-  jq -e '.report_version == "0"' /tmp/rv-report.json >/dev/null
+  jq -e '.report_version == "1"' /tmp/rv-report.json >/dev/null
   jq -e '.design_ir.version == "0"' /tmp/rv-report.json >/dev/null
   jq -e '.summary.source == "kicad_bom_csv"' /tmp/rv-report.json >/dev/null
   echo "jq checks OK"
