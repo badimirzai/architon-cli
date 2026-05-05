@@ -314,9 +314,93 @@ func parseNetlistComponents(section *sExpr) []ir.Part {
 		if footprint, ok := child.fieldValue("footprint"); ok {
 			part.Footprint = footprint
 		}
+		part.Fields = parseComponentFields(child)
+		if mpn := componentMPN(part.Fields); mpn != "" {
+			part.MPN = mpn
+		}
 		parts = append(parts, part)
 	}
 	return parts
+}
+
+func parseComponentFields(comp *sExpr) map[string]string {
+	fields := map[string]string{}
+	for _, child := range comp.children[1:] {
+		if child == nil || child.kind != sExprList {
+			continue
+		}
+		switch child.head() {
+		case "fields":
+			for _, field := range child.children[1:] {
+				if field == nil || field.kind != sExprList || field.head() != "field" {
+					continue
+				}
+				name, ok := field.fieldValue("name")
+				if !ok || strings.TrimSpace(name) == "" {
+					continue
+				}
+				fields[name] = fieldAtomValue(field)
+			}
+		case "property":
+			name, value, ok := propertyNameValue(child)
+			if ok {
+				fields[name] = value
+			}
+		}
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+func fieldAtomValue(field *sExpr) string {
+	if value, ok := field.fieldValue("value"); ok {
+		return value
+	}
+	for _, child := range field.children[1:] {
+		if child == nil || child.kind != sExprAtom {
+			continue
+		}
+		return child.atom
+	}
+	return ""
+}
+
+func propertyNameValue(property *sExpr) (string, string, bool) {
+	if name, ok := property.fieldValue("name"); ok {
+		value, _ := property.fieldValue("value")
+		return name, value, strings.TrimSpace(name) != ""
+	}
+	if len(property.children) >= 3 && property.children[1].kind == sExprAtom && property.children[2].kind == sExprAtom {
+		name := strings.TrimSpace(property.children[1].atom)
+		if name == "" {
+			return "", "", false
+		}
+		return name, property.children[2].atom, true
+	}
+	return "", "", false
+}
+
+func componentMPN(fields map[string]string) string {
+	for key, value := range fields {
+		switch normalizeNetlistFieldKey(key) {
+		case "mpn", "manufacturerpartnumber", "partnumber", "mfrpartnumber", "mfrpn", "pn":
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func normalizeNetlistFieldKey(value string) string {
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func parseNetlistNets(section *sExpr) ([]ir.Net, error) {
@@ -345,7 +429,8 @@ func parseNetlistNets(section *sExpr) ([]ir.Net, error) {
 			if !hasPin || strings.TrimSpace(pin) == "" {
 				return nil, fmt.Errorf("net %q node missing required pin", name)
 			}
-			net.Pins = append(net.Pins, ir.PinRef{Ref: ref, Pin: pin})
+			pinName, _ := netChild.fieldValue("pinfunction")
+			net.Pins = append(net.Pins, ir.PinRef{Ref: ref, Pin: pin, Name: pinName})
 		}
 
 		sortPinsByRef(net.Pins)
@@ -396,7 +481,7 @@ func pinsFromNets(nets []ir.Net) []ir.Pin {
 			if ref == "" || pinID == "" {
 				continue
 			}
-			seen[ref+"\x00"+pinID] = ir.Pin{Ref: ref, Pin: pinID}
+			seen[ref+"\x00"+pinID] = ir.Pin{Ref: ref, Pin: pinID, Name: strings.TrimSpace(pin.Name)}
 		}
 	}
 

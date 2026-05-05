@@ -229,12 +229,15 @@ Examples:
 			// Contract enrichment is the boundary between imported design facts
 			// and rule-ready electrical intent. Rules below do not read meta.yaml,
 			// propagation structs, KiCad parser data, or file paths.
-			contractSources := []enrichment.ContractSource{
-				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
-			}
+			contractSources := []contracts.ContractSource{}
 			if metaLoaded {
 				contractSources = append(contractSources, enrichment.NewMetaYAMLSource(metaObj))
 			}
+			contractSources = append(contractSources,
+				contracts.FieldContractSource{},
+				contracts.NewBuiltinPartsSource(),
+				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
+			)
 			contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
 			if err != nil {
 				return internalError(err)
@@ -243,6 +246,7 @@ Examples:
 			designReport.ContractCoverage = &coverage
 			contractFindings := rules.CheckAll(design, contractIR, rules.DefaultRules())
 			designReport.Rules = append(designReport.Rules, scanReportRuleResults(contractFindings, inferencesByNet)...)
+			designReport.Rules = append(designReport.Rules, scanReportContractResults(contracts.Evaluate(design, contractIR), inferencesByNet)...)
 
 			if len(designReport.Rules) > 0 {
 				// Deterministic rule ordering
@@ -256,6 +260,11 @@ Examples:
 			// Update summary (because report.NewVerificationReport() computed these before rules existed)
 			designReport.Summary.Rules = len(designReport.Rules)
 			designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
+			designReport.Summary.PartsMatched = coverage.PartsMatched
+			designReport.Summary.ContractsApplied = coverage.ContractsApplied
+			designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
+			designReport.Summary.UnknownPowerCriticalRefs = coverage.UnknownPowerCriticalRefs
+			designReport.Summary.EnabledContractRules = coverage.EnabledContractRules
 
 			// Write report JSON after derived/rules are attached
 			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
@@ -283,6 +292,11 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
+			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d\n", designReport.Summary.PartsMatched)
+			fmt.Fprintf(cmd.OutOrStdout(), "Contracts applied: %d\n", designReport.Summary.ContractsApplied)
+			fmt.Fprintf(cmd.OutOrStdout(), "Contract coverage: %.2f%%\n", designReport.Summary.ContractCoveragePercentage)
+			fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
+			fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
 			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
 			coveredNets, totalNets := scanInferredVoltageCoverage(design, nameInferRes)
@@ -1088,15 +1102,45 @@ func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]
 	out := make([]report.RuleResult, 0, len(findings))
 	for _, finding := range findings {
 		result := report.RuleResult{
-			ID:       finding.RuleID,
-			RuleID:   finding.RuleID,
-			Severity: finding.Severity,
-			Net:      finding.Net,
-			Message:  finding.Message,
-			Provider: finding.Provider,
-			Consumer: finding.Consumer,
-			Ref:      finding.Ref,
-			Pin:      finding.Pin,
+			ID:           finding.RuleID,
+			RuleID:       finding.RuleID,
+			Severity:     finding.Severity,
+			Net:          finding.Net,
+			Message:      finding.Message,
+			Provider:     finding.Provider,
+			Consumer:     finding.Consumer,
+			Ref:          finding.Ref,
+			ComponentRef: finding.Ref,
+			Pin:          finding.Pin,
+		}
+		if inference, ok := inferencesByNet[finding.Net]; ok {
+			result.Inference = scanReportInferenceProvenance(inference)
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+// scanReportContractResults adapts built-in/custom system contract findings
+// into the same report schema as the generic scan rules.
+func scanReportContractResults(findings []contracts.Finding, inferencesByNet map[string]infer.VoltageInference) []report.RuleResult {
+	out := make([]report.RuleResult, 0, len(findings))
+	for _, finding := range findings {
+		result := report.RuleResult{
+			ID:           finding.RuleID,
+			RuleID:       finding.RuleID,
+			Severity:     finding.Severity,
+			Net:          finding.Net,
+			Message:      finding.Message,
+			Ref:          finding.ComponentRef,
+			ComponentRef: finding.ComponentRef,
+			Pin:          finding.Pin,
+			Source:       finding.Source,
+			Fix:          finding.Fix,
+		}
+		if finding.Provenance.Source != "" {
+			prov := finding.Provenance
+			result.Provenance = &prov
 		}
 		if inference, ok := inferencesByNet[finding.Net]; ok {
 			result.Inference = scanReportInferenceProvenance(inference)

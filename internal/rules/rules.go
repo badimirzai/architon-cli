@@ -337,6 +337,9 @@ func consumerPins(net ir.Net, contractIR *contracts.ContractIR) []pinContractOnN
 		if !ok || contract.Role != contracts.RolePowerIn {
 			continue
 		}
+		if isSystemContractEvaluatorSource(contract.Source) {
+			continue
+		}
 		out = append(out, pinContractOnNet{
 			net:      net.Name,
 			ref:      pinRef.Ref,
@@ -346,6 +349,15 @@ func consumerPins(net ir.Net, contractIR *contracts.ContractIR) []pinContractOnN
 		})
 	}
 	return out
+}
+
+func isSystemContractEvaluatorSource(source string) bool {
+	switch strings.TrimSpace(source) {
+	case "built-in", "schematic-bom-fields":
+		return true
+	default:
+		return false
+	}
 }
 
 // signalPins filters contracted pins down to signal-bearing roles.
