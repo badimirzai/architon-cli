@@ -10,8 +10,6 @@ import (
 	"github.com/badimirzai/architon-cli/internal/meta"
 )
 
-type ContractSource = contracts.ContractSource
-
 // ContractEnricher combines multiple contract sources into one ContractIR.
 // The rule engine consumes only this merged ContractIR plus DesignIR.
 type ContractEnricher struct {

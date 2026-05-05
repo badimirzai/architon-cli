@@ -20,7 +20,7 @@ func TestContractEnricher_MetaAndNetVoltagesCatchOvervoltageThroughContracts(t *
 		Components: []meta.Component{{Ref: "U1", MaxVoltage: 3.3}},
 	}
 
-	contractIR, err := (ContractEnricher{Sources: []ContractSource{
+	contractIR, err := (ContractEnricher{Sources: []contracts.ContractSource{
 		NewNetVoltageSource("test-voltage", []NetVoltage{{Net: "/+5V", Voltage: 5.0, Source: "inferred"}}),
 		NewMetaYAMLSource(metaObj),
 	}}).Enrich(design)
@@ -47,7 +47,7 @@ func TestContractEnricher_RecordsMissingContractDataWarnings(t *testing.T) {
 		},
 	}
 
-	contractIR, err := (ContractEnricher{Sources: []ContractSource{
+	contractIR, err := (ContractEnricher{Sources: []contracts.ContractSource{
 		NewNetVoltageSource("test-voltage", []NetVoltage{{Net: "/+5V", Voltage: 5.0, Source: "inferred"}}),
 	}}).Enrich(design)
 	if err != nil {

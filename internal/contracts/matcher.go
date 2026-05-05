@@ -76,6 +76,8 @@ func matchPartQuery(value string, kind string, catalog []SystemContract) MatchRe
 	exact := make([]SystemContract, 0, 1)
 	alias := make([]SystemContract, 0, 1)
 	for _, contract := range catalog {
+		// Exact MPN matches win over aliases. Both comparisons use normalized
+		// tokens so common punctuation differences do not change the result.
 		if normalizeMPN(contract.MPN) == target {
 			exact = append(exact, contract)
 			continue

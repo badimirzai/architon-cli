@@ -52,6 +52,9 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 		for _, conn := range connections {
 			switch req.Type {
 			case ContractSupplyAbsMax:
+				// Absolute maximum checks are errors. Recommended-range checks
+				// are suppressed for the same pin/net when this check already
+				// failed, so users see the stronger finding first.
 				voltage, ok := netVoltage(contractIR, conn.Net)
 				if !ok || req.MaxVoltage == nil || !greaterThanVoltage(voltage, *req.MaxVoltage) {
 					continue
@@ -126,6 +129,8 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 					findings = append(findings, motorVMFinding(req, conn, voltage, "above", *req.MaxVoltage))
 				}
 			case ContractRegulatorOutputCurrent:
+				// Current is optional input data. If no downstream load current
+				// can be read from contracts or BOM fields, this rule stays quiet.
 				if req.MaxCurrent == nil {
 					continue
 				}
@@ -177,6 +182,9 @@ func connectedPinsForRequirement(design *ir.DesignIR, req AppliedRequirement) []
 			if strings.TrimSpace(pin.Ref) != req.ComponentRef {
 				continue
 			}
+			// KiCad netlists provide pin numbers and often pin functions. Match
+			// either one so contracts work with symbols that use names such as
+			// VDD as well as packages that expose only numeric pins.
 			if !pinMatchesAny(req.Scope.Pins, pin.Pin, pin.Name) {
 				continue
 			}

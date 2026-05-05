@@ -117,13 +117,9 @@ func NewContractIR() *ContractIR {
 	}
 }
 
-// Float64 is a small helper for tests and contract builders.
+// Float64 makes pointer-valued numeric fields readable in struct literals.
+// Go does not allow taking the address of a literal such as &3.3.
 func Float64(v float64) *float64 {
-	return &v
-}
-
-// Bool is a small helper for tests and contract builders.
-func Bool(v bool) *bool {
 	return &v
 }
 
@@ -351,6 +347,9 @@ func (c *ContractIR) putPartMatch(match PartMatch) {
 }
 
 func (c *ContractIR) hasHigherPrecedenceRequirement(req AppliedRequirement) bool {
+	// Contract sources are merged in precedence order. Once an earlier source
+	// has supplied the same requirement type for the same component, later
+	// sources cannot replace it.
 	for _, existing := range c.AppliedRequirements {
 		if existing.ComponentRef == req.ComponentRef && existing.Type == req.Type && existing.Source != req.Source {
 			return true

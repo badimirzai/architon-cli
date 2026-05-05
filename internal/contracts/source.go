@@ -71,6 +71,8 @@ func fieldRequirements(part ir.Part, source string) ([]Requirement, error) {
 	fields := normalizedFields(part.Fields)
 	reqs := make([]Requirement, 0, 4)
 
+	// Field names are explicit contract keys. This source intentionally avoids
+	// guessing from descriptions or datasheet URLs.
 	supplyPins := fieldPins(fields, []string{"architon_supply_pins", "supply_pins", "power_pins"}, []string{"VCC", "VDD", "VIN"})
 	if maxV, ok, err := fieldFloat(fields, []string{"architon_supply_abs_max_v", "supply_abs_max_v", "max_voltage", "max_voltage_v"}); err != nil {
 		return nil, fmt.Errorf("%s %s supply max: %w", source, part.Ref, err)

@@ -35,6 +35,8 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 	parts := append([]ir.Part(nil), design.Parts...)
 	sort.Slice(parts, func(i, j int) bool { return parts[i].Ref < parts[j].Ref })
 	for _, part := range parts {
+		// Built-ins are applied only after a deterministic exact or alias match.
+		// Ambiguous aliases are reported as missing data instead of guessed.
 		match := MatchPart(part, contracts)
 		if !match.Matched {
 			if match.Ambiguous {
@@ -61,6 +63,8 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 		})
 
 		for _, req := range match.Contract.Requirements {
+			// Requirements are copied and bound to the concrete schematic ref
+			// before they enter ContractIR. The catalog remains immutable.
 			req.Scope.ComponentRef = part.Ref
 			req.Scope.MPN = match.Contract.MPN
 			if req.Provenance.Source == "" {
@@ -86,6 +90,8 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 	return out, nil
 }
 
+// BuiltinContracts returns the small curated v0.3.1 catalog. It is a contract
+// foundation for common robotics parts, not a generic component database.
 func BuiltinContracts() []SystemContract {
 	contracts := []SystemContract{
 		{
