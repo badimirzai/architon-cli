@@ -36,29 +36,7 @@ type scanReport struct {
 			Name string `json:"name"`
 		} `json:"nets"`
 	} `json:"design_ir"`
-	Rules []struct {
-		ID           string `json:"id"`
-		RuleID       string `json:"rule_id"`
-		Severity     string `json:"severity"`
-		Message      string `json:"message"`
-		ComponentRef string `json:"component_ref"`
-		Net          string `json:"net"`
-		Pin          string `json:"pin"`
-		Source       string `json:"source"`
-		Provenance   *struct {
-			Source   string `json:"source"`
-			SourceID string `json:"source_id"`
-			Detail   string `json:"detail"`
-		} `json:"provenance"`
-		Fix       string `json:"fix"`
-		Inference *struct {
-			NetName         string  `json:"net_name"`
-			Source          string  `json:"source"`
-			ConfidenceScore float64 `json:"confidence_score"`
-			ConfidenceLevel string  `json:"confidence_level"`
-			Reason          string  `json:"reason"`
-		} `json:"inference"`
-	} `json:"rules"`
+	Rules   []scanRuleFinding `json:"rules"`
 	Derived *struct {
 		NetVoltages []struct {
 			Net     string  `json:"net"`
@@ -101,6 +79,34 @@ type scanReport struct {
 			Warnings            []string `json:"warnings"`
 		} `json:"rail_coverage"`
 	} `json:"derived"`
+}
+
+type scanRuleFinding struct {
+	ID             string `json:"id"`
+	RuleID         string `json:"rule_id"`
+	Severity       string `json:"severity"`
+	Message        string `json:"message"`
+	ComponentRef   string `json:"component_ref"`
+	Net            string `json:"net"`
+	Pin            string `json:"pin"`
+	Source         string `json:"source"`
+	ContractID     string `json:"contract_id"`
+	ContractSource string `json:"contract_source"`
+	ContractFile   string `json:"contract_file"`
+	Requirement    string `json:"requirement"`
+	Provenance     *struct {
+		Source   string `json:"source"`
+		SourceID string `json:"source_id"`
+		Detail   string `json:"detail"`
+	} `json:"provenance"`
+	Fix       string `json:"fix"`
+	Inference *struct {
+		NetName         string  `json:"net_name"`
+		Source          string  `json:"source"`
+		ConfidenceScore float64 `json:"confidence_score"`
+		ConfidenceLevel string  `json:"confidence_level"`
+		Reason          string  `json:"reason"`
+	} `json:"inference"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -440,6 +446,17 @@ func countReportFindings(report scanReport, ruleID string, ref string, net strin
 	return count
 }
 
+func requireReportFindingByRule(t *testing.T, report scanReport, ruleID string) scanRuleFinding {
+	t.Helper()
+	for _, finding := range report.Rules {
+		if finding.RuleID == ruleID {
+			return finding
+		}
+	}
+	t.Fatalf("expected %s finding, got %+v", ruleID, report.Rules)
+	return scanRuleFinding{}
+}
+
 func stringSliceContains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -714,6 +731,100 @@ func TestScan_NetlistFileWritesReport(t *testing.T) {
 	}
 	if len(report.DesignIR.Nets) != 2 {
 		t.Fatalf("expected 2 nets in design IR, got %d", len(report.DesignIR.Nets))
+	}
+}
+
+func TestScan_WithoutContractsYAMLStillWorks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "netlist_simple.net"))
+	if err != nil {
+		t.Fatalf("expected scan without contracts.yaml to succeed, got %v", err)
+	}
+	if strings.Contains(stdout, "contracts load failed") {
+		t.Fatalf("did not expect contracts load attempt to fail, got %q", stdout)
+	}
+}
+
+func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
+	tmpDir := t.TempDir()
+	netlistPath := filepath.Join(tmpDir, "i2c.net")
+	contractsPath := filepath.Join(tmpDir, "contracts.yaml")
+	reportPath := filepath.Join(tmpDir, "report.json")
+	writeScanTestFile(t, contractsPath, `contracts:
+  - id: i2c_policy
+    scope:
+      bus_type: i2c
+      rail: +3V3
+    require:
+      pullup_ohms:
+        min: 2200
+        max: 10000
+      no_i2c_address_conflict: true
+    severity: error
+`)
+	writeScanTestFile(t, netlistPath, `(export (version "E")
+  (design
+    (source "i2c.kicad_sch")
+    (date "2026-05-05T00:00:00+0000")
+    (tool "Eeschema")
+    (sheet (number "1") (name "/") (tstamps "/")))
+  (components
+    (comp (ref "U1")
+      (value "SensorA")
+      (fields
+        (field (name "i2c_address") "0x68"))
+      (libsource (lib "Device") (part "SensorA")))
+    (comp (ref "U2")
+      (value "SensorB")
+      (fields
+        (field (name "i2c_address") "104"))
+      (libsource (lib "Device") (part "SensorB"))))
+  (libparts
+    (libpart (lib "Device") (part "SensorA")
+      (pins
+        (pin (num "1") (name "SDA") (type "bidirectional"))
+        (pin (num "2") (name "SCL") (type "bidirectional"))
+        (pin (num "3") (name "GND") (type "power_in"))))
+    (libpart (lib "Device") (part "SensorB")
+      (pins
+        (pin (num "1") (name "SDA") (type "bidirectional"))
+        (pin (num "2") (name "SCL") (type "bidirectional"))
+        (pin (num "3") (name "GND") (type "power_in")))))
+  (libraries)
+  (nets
+    (net (code "1") (name "I2C_SDA") (class "Default")
+      (node (ref "U1") (pin "1") (pinfunction "SDA") (pintype "bidirectional"))
+      (node (ref "U2") (pin "1") (pinfunction "SDA") (pintype "bidirectional")))
+    (net (code "2") (name "I2C_SCL") (class "Default")
+      (node (ref "U1") (pin "2") (pinfunction "SCL") (pintype "bidirectional"))
+      (node (ref "U2") (pin "2") (pinfunction "SCL") (pintype "bidirectional")))
+    (net (code "3") (name "GND") (class "Default")
+      (node (ref "U1") (pin "3") (pinfunction "GND") (pintype "power_in"))
+      (node (ref "U2") (pin "3") (pinfunction "GND") (pintype "power_in")))))`)
+
+	_, err := runScanCommand(t, tmpDir, netlistPath, "--contracts", contractsPath, "--out", reportPath)
+	if err == nil {
+		t.Fatal("expected user contract findings")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %T %v", err, err)
+	}
+
+	report := readScanReport(t, reportPath)
+	finding := requireReportFindingByRule(t, report, "pullup_ohms")
+	if finding.ContractID != "i2c_policy" {
+		t.Fatalf("expected contract_id i2c_policy, got %+v", finding)
+	}
+	if finding.ContractSource != "user_yaml" {
+		t.Fatalf("expected user_yaml contract_source, got %+v", finding)
+	}
+	if finding.ContractFile != contractsPath {
+		t.Fatalf("expected contract file %q, got %+v", contractsPath, finding)
+	}
+	if finding.Requirement != "pullup_ohms" {
+		t.Fatalf("expected requirement pullup_ohms, got %+v", finding)
 	}
 }
 

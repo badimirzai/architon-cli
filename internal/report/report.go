@@ -17,20 +17,24 @@ const SchemaVersion = "1"
 // RuleResult is the report-facing shape of a rule finding.
 // The legacy id field is kept alongside rule_id for compatibility.
 type RuleResult struct {
-	ID           string                `json:"id"`
-	RuleID       string                `json:"rule_id,omitempty"`
-	Severity     string                `json:"severity"`
-	Net          string                `json:"net,omitempty"`
-	Message      string                `json:"message"`
-	Provider     string                `json:"provider,omitempty"`
-	Consumer     string                `json:"consumer,omitempty"`
-	Ref          string                `json:"ref,omitempty"`
-	ComponentRef string                `json:"component_ref,omitempty"`
-	Pin          string                `json:"pin,omitempty"`
-	Source       string                `json:"source,omitempty"`
-	Provenance   *contracts.Provenance `json:"provenance,omitempty"`
-	Fix          string                `json:"fix,omitempty"`
-	Inference    *InferenceProvenance  `json:"inference,omitempty"`
+	ID             string                `json:"id"`
+	RuleID         string                `json:"rule_id,omitempty"`
+	Severity       string                `json:"severity"`
+	Net            string                `json:"net,omitempty"`
+	Message        string                `json:"message"`
+	Provider       string                `json:"provider,omitempty"`
+	Consumer       string                `json:"consumer,omitempty"`
+	Ref            string                `json:"ref,omitempty"`
+	ComponentRef   string                `json:"component_ref,omitempty"`
+	Pin            string                `json:"pin,omitempty"`
+	Source         string                `json:"source,omitempty"`
+	ContractID     string                `json:"contract_id,omitempty"`
+	ContractSource string                `json:"contract_source,omitempty"`
+	ContractFile   string                `json:"contract_file,omitempty"`
+	Requirement    string                `json:"requirement,omitempty"`
+	Provenance     *contracts.Provenance `json:"provenance,omitempty"`
+	Fix            string                `json:"fix,omitempty"`
+	Inference      *InferenceProvenance  `json:"inference,omitempty"`
 }
 
 // InferenceProvenance links a voltage-based finding back to rail inference.

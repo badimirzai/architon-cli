@@ -51,10 +51,12 @@ type scanInputOptions struct {
 	KiCadCLIPath     string
 }
 
+// init registers scan with the root CLI.
 func init() {
 	rootCmd.AddCommand(scanCmd)
 }
 
+// newScanCmd builds the rv scan command and wires all scan flags.
 func newScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scan <path>",
@@ -80,6 +82,7 @@ Examples:
 			bomOverride, _ := cmd.Flags().GetString("bom")
 			netlistOverride, _ := cmd.Flags().GetString("netlist")
 			metaOverride, _ := cmd.Flags().GetString("meta")
+			contractsOverride, _ := cmd.Flags().GetString("contracts")
 			explainRails, _ := cmd.Flags().GetBool("explain-rails")
 			railsAlias, _ := cmd.Flags().GetBool("rails")
 			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
@@ -97,6 +100,16 @@ Examples:
 			design, err := importResolvedScanInput(resolvedInput, mappingFile)
 			if err != nil {
 				return userError(err)
+			}
+
+			// User contracts are loaded before report construction so invalid
+			// YAML is a tool error, not a partial scan result.
+			userContractsPath, userContracts, err := scanLoadUserContracts(resolvedInput, contractsOverride)
+			if err != nil {
+				return &ExitError{
+					Code: 3,
+					Err:  fmt.Errorf("contracts load failed: %w", err),
+				}
 			}
 
 			designReport := report.NewVerificationReport(design)
@@ -243,6 +256,14 @@ Examples:
 			contractSources = append(contractSources,
 				contracts.FieldContractSource{},
 				contracts.NewBuiltinPartsSource(),
+			)
+			// Project contracts are appended as another ContractSource. From this
+			// point on the evaluator does not care whether a requirement came from
+			// built-ins, fields, meta.yaml, or user YAML.
+			if len(userContracts) > 0 {
+				contractSources = append(contractSources, contracts.NewUserYAMLSource(userContractsPath, userContracts))
+			}
+			contractSources = append(contractSources,
 				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
 			)
 			contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
@@ -374,6 +395,7 @@ Examples:
 	cmd.Flags().String("bom", "", "Override BOM file path when scanning a project directory")
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
+	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
@@ -446,6 +468,7 @@ func importDirectScanPath(path string, kicadImporter kicad.Importer) (*ir.Design
 	}
 }
 
+// loadScanMapping loads an optional BOM column mapping file.
 func loadScanMapping(mappingFile string) (kicad.ColumnMapping, error) {
 	if mappingFile == "" {
 		return kicad.ColumnMapping{}, nil
@@ -458,10 +481,59 @@ func loadScanMapping(mappingFile string) (kicad.ColumnMapping, error) {
 	return mapping, nil
 }
 
+// scanLoadUserContracts loads the resolved contracts.yaml, if one is present.
+func scanLoadUserContracts(input resolvedScanInput, override string) (string, []contracts.SystemContract, error) {
+	path, ok, err := resolveScanContractsPath(input, override)
+	if err != nil || !ok {
+		return path, nil, err
+	}
+	loaded, err := contracts.LoadYAMLFile(path)
+	if err != nil {
+		return path, nil, err
+	}
+	return path, loaded, nil
+}
+
+// resolveScanContractsPath finds the explicit or default project contracts file.
+func resolveScanContractsPath(input resolvedScanInput, override string) (string, bool, error) {
+	override = strings.TrimSpace(override)
+	if override != "" {
+		// Explicit --contracts must exist and be valid; otherwise CI should fail.
+		path := filepath.Clean(override)
+		info, err := os.Stat(path)
+		if err != nil {
+			return path, false, err
+		}
+		if info.IsDir() {
+			return path, false, fmt.Errorf("%s is a directory", path)
+		}
+		return path, true, nil
+	}
+
+	candidate := filepath.Join(".architon", "contracts.yaml")
+	if input.Directory && strings.TrimSpace(input.ProjectPath) != "" {
+		candidate = filepath.Join(input.ProjectPath, ".architon", "contracts.yaml")
+	}
+	info, err := os.Stat(candidate)
+	if err == nil {
+		if info.IsDir() {
+			return candidate, false, fmt.Errorf("%s is a directory", candidate)
+		}
+		return candidate, true, nil
+	}
+	if os.IsNotExist(err) {
+		// Missing default file is normal. Projects opt in by creating it.
+		return "", false, nil
+	}
+	return candidate, false, err
+}
+
+// resolveScanInput resolves scan input with default discovery behavior.
 func resolveScanInput(inputPath string, bomOverride string, netlistOverride string) (resolvedScanInput, error) {
 	return resolveScanInputWithOptions(inputPath, bomOverride, netlistOverride, scanInputOptions{})
 }
 
+// resolveScanInputWithOptions expands a file or project directory into concrete inputs.
 func resolveScanInputWithOptions(inputPath string, bomOverride string, netlistOverride string, opts scanInputOptions) (resolvedScanInput, error) {
 	cleanInput := filepath.Clean(inputPath)
 
@@ -533,6 +605,7 @@ func resolveScanInputWithOptions(inputPath string, bomOverride string, netlistOv
 	return resolved, nil
 }
 
+// resolveDetectedBOMPath finds the preferred BOM CSV in a project directory.
 func resolveDetectedBOMPath(absInput string) (string, error) {
 	for _, relPath := range [][]string{
 		{"bom", "bom.csv"},
@@ -569,6 +642,7 @@ func resolveDetectedBOMPath(absInput string) (string, error) {
 	return "", nil
 }
 
+// findBOMCandidates lists BOM-like CSV files in one directory.
 func findBOMCandidates(dir string) ([]string, error) {
 	absDir, err := filepath.Abs(filepath.Clean(dir))
 	if err != nil {
@@ -606,6 +680,7 @@ func findBOMCandidates(dir string) ([]string, error) {
 	return matches, nil
 }
 
+// resolveDetectedNetlistPath finds the preferred KiCad netlist in a project directory.
 func resolveDetectedNetlistPath(absInput string) (string, error) {
 	for _, tierDir := range []string{
 		filepath.Join(absInput, "exports"),
@@ -622,6 +697,7 @@ func resolveDetectedNetlistPath(absInput string) (string, error) {
 	return "", nil
 }
 
+// findNetlistCandidates lists .net files in one directory.
 func findNetlistCandidates(dir string) ([]string, error) {
 	absDir, err := filepath.Abs(filepath.Clean(dir))
 	if err != nil {
@@ -656,6 +732,7 @@ func findNetlistCandidates(dir string) ([]string, error) {
 	return matches, nil
 }
 
+// resolveRootSchematicPath finds the single root schematic eligible for export.
 func resolveRootSchematicPath(projectPath string) (string, error) {
 	candidates, err := findRootSchematicCandidates(projectPath)
 	if err != nil {
@@ -679,6 +756,7 @@ func resolveRootSchematicPath(projectPath string) (string, error) {
 	return candidates[0], nil
 }
 
+// findRootSchematicCandidates lists root-level KiCad schematic files.
 func findRootSchematicCandidates(projectPath string) ([]string, error) {
 	absDir, err := filepath.Abs(filepath.Clean(projectPath))
 	if err != nil {
@@ -711,6 +789,7 @@ func findRootSchematicCandidates(projectPath string) ([]string, error) {
 	return matches, nil
 }
 
+// generateKiCadNetlistFromSchematic exports a schematic into a temporary netlist.
 func generateKiCadNetlistFromSchematic(kicadCLIPath string, schematicPath string) (string, error) {
 	tempFile, err := os.CreateTemp("", "architon-kicad-*.net")
 	if err != nil {
@@ -729,6 +808,7 @@ func generateKiCadNetlistFromSchematic(kicadCLIPath string, schematicPath string
 	return outputPath, nil
 }
 
+// runKiCadNetlistExport executes kicad-cli for netlist export.
 func runKiCadNetlistExport(kicadCLIPath string, schematicPath string, outputPath string) error {
 	binary, args, err := buildKiCadNetlistCommand(kicadCLIPath, outputPath, schematicPath)
 	if err != nil {
@@ -750,10 +830,12 @@ func runKiCadNetlistExport(kicadCLIPath string, schematicPath string, outputPath
 	return nil
 }
 
+// resolveKiCadCLIPath locates kicad-cli from the flag or common paths.
 func resolveKiCadCLIPath(binary string) (string, error) {
 	return resolveKiCadCLIPathWithLookPath(binary, commonKiCadCLIPaths(), exec.LookPath)
 }
 
+// resolveKiCadCLIPathWithLookPath is the testable kicad-cli resolver core.
 func resolveKiCadCLIPathWithLookPath(binary string, commonPaths []string, lookPath func(string) (string, error)) (string, error) {
 	binary = strings.TrimSpace(binary)
 	if binary == "" {
@@ -776,6 +858,7 @@ func resolveKiCadCLIPathWithLookPath(binary string, commonPaths []string, lookPa
 	return "", fmt.Errorf("KiCad CLI %q not found in PATH or common install locations; install KiCad, add kicad-cli to PATH, or pass --kicad-cli /full/path/to/kicad-cli", binary)
 }
 
+// commonKiCadCLIPaths returns OS-specific fallback kicad-cli locations.
 func commonKiCadCLIPaths() []string {
 	candidates := make([]string, 0, 16)
 	patterns := make([]string, 0, 16)
@@ -840,6 +923,7 @@ func commonKiCadCLIPaths() []string {
 	return out
 }
 
+// isExecutableFile checks whether a path is a runnable file.
 func isExecutableFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
@@ -848,6 +932,7 @@ func isExecutableFile(path string) bool {
 	return info.Mode()&0o111 != 0
 }
 
+// buildKiCadNetlistCommand creates the kicad-cli argv for export.
 func buildKiCadNetlistCommand(kicadCLIPath string, outputPath string, schematicPath string) (string, []string, error) {
 	binary := strings.TrimSpace(kicadCLIPath)
 	if binary == "" {
@@ -873,6 +958,7 @@ func buildKiCadNetlistCommand(kicadCLIPath string, outputPath string, schematicP
 	}, nil
 }
 
+// matchesBOMCSVPattern reports whether a filename looks like a BOM CSV.
 func matchesBOMCSVPattern(name string) bool {
 	if !strings.EqualFold(filepath.Ext(name), ".csv") {
 		return false
@@ -882,10 +968,12 @@ func matchesBOMCSVPattern(name string) bool {
 	return strings.HasSuffix(lowerName, ".bom.csv") || strings.Contains(lowerName, "bom")
 }
 
+// matchesNetlistPattern reports whether a filename is a KiCad netlist.
 func matchesNetlistPattern(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".net")
 }
 
+// matchesKiCadSchematicPattern reports whether a filename is a KiCad schematic.
 func matchesKiCadSchematicPattern(name string) bool {
 	return strings.EqualFold(filepath.Ext(name), ".kicad_sch")
 }
@@ -895,6 +983,7 @@ func matchesKiCadSchematicPattern(name string) bool {
 // 1 = warnings detected
 // 2 = violations detected (severity=error)
 // 3 = tool execution failure (analysis could not complete)
+// scanResultLabel turns an exit code into the compact result label.
 func scanResultLabel(exitCode int) string {
 	switch exitCode {
 	case 0:
@@ -908,6 +997,7 @@ func scanResultLabel(exitCode int) string {
 	}
 }
 
+// scanResultExplanation turns an exit code into one human-readable sentence.
 func scanResultExplanation(exitCode int) string {
 	switch exitCode {
 	case 0:
@@ -921,6 +1011,7 @@ func scanResultExplanation(exitCode int) string {
 	}
 }
 
+// scanExitColorToken maps exit codes to terminal color classes.
 func scanExitColorToken(exitCode int) string {
 	switch exitCode {
 	case 0:
@@ -932,6 +1023,7 @@ func scanExitColorToken(exitCode int) string {
 	}
 }
 
+// scanRuleColorToken maps severities to terminal color classes.
 func scanRuleColorToken(severity string) string {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "", "error":
@@ -945,6 +1037,7 @@ func scanRuleColorToken(severity string) string {
 	}
 }
 
+// scanExitCode derives the final scan exit code from report findings.
 func scanExitCode(result report.VerificationReport) int {
 	// Parse errors mean analysis could not complete reliably.
 	if result.Summary.ParseErrorsCount > 0 {
@@ -976,6 +1069,7 @@ func scanExitCode(result report.VerificationReport) int {
 	return 0
 }
 
+// scanRuleViolationCount counts ERROR scan findings.
 func scanRuleViolationCount(result report.VerificationReport) int {
 	n := 0
 	for _, rule := range result.Rules {
@@ -987,6 +1081,7 @@ func scanRuleViolationCount(result report.VerificationReport) int {
 	return n
 }
 
+// scanRuleWarningCount counts WARN findings plus parse warnings.
 func scanRuleWarningCount(result report.VerificationReport) int {
 	n := 0
 	for _, rule := range result.Rules {
@@ -1000,6 +1095,7 @@ func scanRuleWarningCount(result report.VerificationReport) int {
 	return n
 }
 
+// scanDetectURefs returns a small sorted sample of U*/IC-like component refs.
 func scanDetectURefs(design *ir.DesignIR) []string {
 	seen := map[string]struct{}{}
 	refs := make([]string, 0, 16)
@@ -1027,6 +1123,7 @@ func scanDetectURefs(design *ir.DesignIR) []string {
 	return refs
 }
 
+// scanInitialVoltages combines inferred and explicit source voltages.
 func scanInitialVoltages(inferRes infer.Result, m *meta.Meta) map[string]float64 {
 	initial := make(map[string]float64, len(inferRes.Voltages))
 	for net, inferred := range inferRes.Voltages {
@@ -1043,6 +1140,7 @@ func scanInitialVoltages(inferRes infer.Result, m *meta.Meta) map[string]float64
 	return initial
 }
 
+// scanInferredVoltageCoverage counts nets with net-name voltage inference.
 func scanInferredVoltageCoverage(design *ir.DesignIR, inferRes infer.Result) (int, int) {
 	if design == nil {
 		return 0, 0
@@ -1057,6 +1155,7 @@ func scanInferredVoltageCoverage(design *ir.DesignIR, inferRes infer.Result) (in
 	return covered, total
 }
 
+// scanMetadataMode labels whether scan used explicit, inferred, mixed, or no metadata.
 func scanMetadataMode(metaLoaded bool, inferRes infer.Result) string {
 	hasInferred := len(inferRes.Voltages) > 0
 	switch {
@@ -1071,6 +1170,7 @@ func scanMetadataMode(metaLoaded bool, inferRes infer.Result) string {
 	}
 }
 
+// scanReportNetVoltages converts propagated voltages into report JSON rows.
 func scanReportNetVoltages(netVoltages map[string]propagate.NetVoltage) []report.NetVoltage {
 	out := make([]report.NetVoltage, 0, len(netVoltages))
 	for _, nv := range netVoltages {
@@ -1110,17 +1210,19 @@ func scanReportRuleResults(findings []rules.Finding, inferencesByNet map[string]
 	out := make([]report.RuleResult, 0, len(findings))
 	for _, finding := range findings {
 		result := report.RuleResult{
-			ID:           finding.RuleID,
-			RuleID:       finding.RuleID,
-			Severity:     normalizeSeverity(finding.Severity),
-			Net:          finding.Net,
-			Message:      finding.Message,
-			Provider:     finding.Provider,
-			Consumer:     finding.Consumer,
-			Ref:          finding.Ref,
-			ComponentRef: finding.Ref,
-			Pin:          finding.Pin,
-			Source:       "contract-rules",
+			ID:             finding.RuleID,
+			RuleID:         finding.RuleID,
+			Severity:       normalizeSeverity(finding.Severity),
+			Net:            finding.Net,
+			Message:        finding.Message,
+			Provider:       finding.Provider,
+			Consumer:       finding.Consumer,
+			Ref:            finding.Ref,
+			ComponentRef:   finding.Ref,
+			Pin:            finding.Pin,
+			Source:         "contract-rules",
+			ContractSource: string(contracts.ContractSourceInferred),
+			Requirement:    finding.RuleID,
 			Provenance: &contracts.Provenance{
 				Source:   "contract-rules",
 				SourceID: finding.RuleID,
@@ -1142,16 +1244,20 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 	out := make([]report.RuleResult, 0, len(findings))
 	for _, finding := range findings {
 		result := report.RuleResult{
-			ID:           finding.RuleID,
-			RuleID:       finding.RuleID,
-			Severity:     normalizeSeverity(finding.Severity),
-			Net:          finding.Net,
-			Message:      finding.Message,
-			Ref:          finding.ComponentRef,
-			ComponentRef: finding.ComponentRef,
-			Pin:          finding.Pin,
-			Source:       finding.Source,
-			Fix:          finding.Fix,
+			ID:             finding.RuleID,
+			RuleID:         finding.RuleID,
+			Severity:       normalizeSeverity(finding.Severity),
+			Net:            finding.Net,
+			Message:        finding.Message,
+			Ref:            finding.ComponentRef,
+			ComponentRef:   finding.ComponentRef,
+			Pin:            finding.Pin,
+			Source:         finding.Source,
+			ContractID:     finding.ContractID,
+			ContractSource: string(finding.ContractSource),
+			ContractFile:   finding.ContractFile,
+			Requirement:    finding.Requirement,
+			Fix:            finding.Fix,
 		}
 		if finding.Provenance.Source != "" {
 			prov := finding.Provenance
@@ -1165,11 +1271,18 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 	return out
 }
 
+// normalizeScanReportRules fills stable defaults on all report findings.
 func normalizeScanReportRules(rules []report.RuleResult) {
 	for i := range rules {
 		rules[i].Severity = normalizeSeverity(rules[i].Severity)
 		if strings.TrimSpace(rules[i].Source) == "" {
 			rules[i].Source = "scan-rule"
+		}
+		if strings.TrimSpace(rules[i].ContractSource) == "" {
+			rules[i].ContractSource = string(contracts.ReportContractSource(rules[i].Source))
+		}
+		if strings.TrimSpace(rules[i].Requirement) == "" {
+			rules[i].Requirement = rules[i].RuleID
 		}
 		if rules[i].Provenance == nil {
 			rules[i].Provenance = &contracts.Provenance{
@@ -1190,6 +1303,7 @@ func normalizeScanReportRules(rules []report.RuleResult) {
 	}
 }
 
+// normalizeSeverity canonicalizes severity strings for reports and exit logic.
 func normalizeSeverity(severity string) string {
 	switch strings.ToUpper(strings.TrimSpace(severity)) {
 	case "", "ERROR":
@@ -1203,6 +1317,7 @@ func normalizeSeverity(severity string) string {
 	}
 }
 
+// fixForRule returns the default remediation hint for a rule.
 func fixForRule(ruleID string) string {
 	switch ruleID {
 	case rules.RuleSupplyContract:
@@ -1260,6 +1375,7 @@ func scanVoltageEvidence(netVoltages map[string]propagate.NetVoltage) []infer.Vo
 	return out
 }
 
+// scanReportInferredNetVoltages adapts net-name inference into report rows.
 func scanReportInferredNetVoltages(inferRes infer.Result) []report.NetVoltage {
 	out := make([]report.NetVoltage, 0, len(inferRes.Voltages))
 	for _, inferred := range inferRes.Voltages {
@@ -1275,6 +1391,7 @@ func scanReportInferredNetVoltages(inferRes infer.Result) []report.NetVoltage {
 	return out
 }
 
+// scanReportUnknownVoltageNets adapts unknown rail data into report rows.
 func scanReportUnknownVoltageNets(inferRes infer.Result) []report.UnknownVoltageNet {
 	out := make([]report.UnknownVoltageNet, 0, len(inferRes.Unknowns))
 	for _, unknown := range inferRes.Unknowns {
@@ -1319,6 +1436,7 @@ func scanReportRailInferences(inferRes infer.Result) []infer.VoltageInference {
 	return out
 }
 
+// scanInferenceByNet indexes rail inference provenance by net name.
 func scanInferenceByNet(inferences []infer.VoltageInference) map[string]infer.VoltageInference {
 	out := make(map[string]infer.VoltageInference, len(inferences))
 	for _, inference := range inferences {
@@ -1331,6 +1449,7 @@ func scanInferenceByNet(inferences []infer.VoltageInference) map[string]infer.Vo
 	return out
 }
 
+// scanReportInferenceProvenance trims rail inference to finding provenance fields.
 func scanReportInferenceProvenance(inference infer.VoltageInference) *report.InferenceProvenance {
 	return &report.InferenceProvenance{
 		NetName:         inference.NetName,
@@ -1341,6 +1460,7 @@ func scanReportInferenceProvenance(inference infer.VoltageInference) *report.Inf
 	}
 }
 
+// scanConflictNetName extracts the net name from a propagation conflict message.
 func scanConflictNetName(message string) string {
 	const prefix = "Voltage conflict on net "
 	if !strings.HasPrefix(message, prefix) {
@@ -1359,6 +1479,7 @@ func scanPrintRailInferences(out io.Writer, inferences []infer.VoltageInference,
 	fmt.Fprint(out, rails.FormatRailExplanations(inferences, summary))
 }
 
+// scanPrepareAutoMeta removes placeholder metadata entries before validation.
 func scanPrepareAutoMeta(m *meta.Meta) *meta.Meta {
 	if m == nil {
 		return &meta.Meta{}
@@ -1391,6 +1512,7 @@ func scanPrepareAutoMeta(m *meta.Meta) *meta.Meta {
 	return prepared
 }
 
+// scanMetaHasEntries reports whether auto-discovered meta has usable data.
 func scanMetaHasEntries(m *meta.Meta) bool {
 	if m == nil {
 		return false
@@ -1398,6 +1520,7 @@ func scanMetaHasEntries(m *meta.Meta) bool {
 	return len(m.Sources) > 0 || len(m.Regulators) > 0 || len(m.Components) > 0
 }
 
+// detectScanInputFormat classifies a direct scan input path.
 func detectScanInputFormat(path string) (string, error) {
 	if strings.EqualFold(filepath.Ext(path), ".csv") {
 		return "csv", nil

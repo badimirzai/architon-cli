@@ -188,7 +188,7 @@ func (c *ContractIR) PutNet(net string, contract NetContract) {
 // PutAppliedRequirement records a concrete requirement after source matching.
 func (c *ContractIR) PutAppliedRequirement(req AppliedRequirement) {
 	req.ComponentRef = strings.TrimSpace(req.ComponentRef)
-	if req.ComponentRef == "" || req.Type == "" {
+	if req.Type == "" {
 		return
 	}
 	req.Provenance = mergeProvenance(req.Provenance, req.Requirement.Provenance)
@@ -197,6 +197,12 @@ func (c *ContractIR) PutAppliedRequirement(req AppliedRequirement) {
 	}
 	if req.Source == "" {
 		req.Source = "contract"
+	}
+	if strings.TrimSpace(req.ContractID) == "" {
+		req.ContractID = req.Provenance.SourceID
+	}
+	if strings.TrimSpace(string(req.ContractSource)) == "" {
+		req.ContractSource = ReportContractSource(req.Source)
 	}
 	c.AppliedRequirements = append(c.AppliedRequirements, req)
 }
@@ -389,7 +395,18 @@ func (c *ContractIR) hasAppliedRequirement(req AppliedRequirement) bool {
 func appliedRequirementKey(req AppliedRequirement) string {
 	pins := append([]string(nil), req.Scope.Pins...)
 	sort.Strings(pins)
-	return req.ComponentRef + "\x00" + string(req.Type) + "\x00" + strings.Join(pins, ",")
+	return strings.Join([]string{
+		req.ComponentRef,
+		string(req.Type),
+		strings.Join(pins, ","),
+		req.Scope.BusType,
+		req.Scope.ComponentType,
+		req.Scope.Net,
+		req.Scope.Rail,
+		req.ContractID,
+		string(req.ContractSource),
+		req.ContractFile,
+	}, "\x00")
 }
 
 func uniquePartMatches(matches []PartMatch) map[string]PartMatch {

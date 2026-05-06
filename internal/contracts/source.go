@@ -45,6 +45,8 @@ func (s FieldContractSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 		component.Source = s.Name()
 		out.PutComponent(component)
 		for _, req := range reqs {
+			req.ContractID = part.Ref + ":" + string(req.Type)
+			req.ContractSource = ContractSourceInferred
 			out.PutAppliedRequirement(AppliedRequirement{
 				Requirement:  req,
 				ComponentRef: part.Ref,

@@ -1,0 +1,14 @@
+contracts:
+  - id: i2c_policy
+    description: Project I2C electrical policy
+    scope:
+      bus_type: i2c
+      rail: +3V3
+    require:
+      common_ground: true
+      pullup_ohms:
+        min: 2200
+        max: 10000
+      voltage_compatible: true
+      no_i2c_address_conflict: true
+    severity: error
