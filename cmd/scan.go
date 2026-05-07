@@ -358,29 +358,37 @@ Examples:
 				ui.Colorize(scanExitColorToken(exitCode), scanResultLabel(exitCode)),
 				scanResultExplanation(exitCode),
 			)
+			fmt.Fprintln(cmd.OutOrStdout())
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts: %d\n", designReport.Summary.Parts)
 			fmt.Fprintf(cmd.OutOrStdout(), "Nets: %d\n", designReport.Summary.Nets)
-			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
-			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
+			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
+			fmt.Fprintln(cmd.OutOrStdout())
 			fmt.Fprintf(cmd.OutOrStdout(), "User contracts loaded: %d\n", designReport.Summary.UserContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "Built-in contracts loaded: %d\n", designReport.Summary.BuiltInContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "Active user requirements: %d\n", designReport.Summary.ActiveUserRequirements)
 			fmt.Fprintf(cmd.OutOrStdout(), "Part contract coverage: %.2f%%\n", designReport.Summary.PartContractCoveragePercentage)
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d/%d\n", designReport.Summary.PartsMatched, designReport.Summary.Parts)
+			fmt.Fprintln(cmd.OutOrStdout())
 			if verbose {
+				fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
+				fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 				fmt.Fprintf(cmd.OutOrStdout(), "Available contract rules: %d\n", designReport.Summary.AvailableContractRules)
-				fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
 				fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
+				fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
-			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
 			coveredNets, totalNets := scanInferredVoltageCoverage(design, nameInferRes)
-			fmt.Fprintf(cmd.OutOrStdout(), "Inferred rails: %d\n", len(nameInferRes.Voltages))
-			fmt.Fprintf(cmd.OutOrStdout(), "Voltage coverage: %d/%d nets with inferred voltage\n", coveredNets, totalNets)
-			fmt.Fprintf(cmd.OutOrStdout(), "Metadata: %s\n", scanMetadataMode(metaLoaded, nameInferRes))
+			if verbose || explainRails {
+				fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
+				fmt.Fprintf(cmd.OutOrStdout(), "Inferred rails: %d\n", len(nameInferRes.Voltages))
+				fmt.Fprintf(cmd.OutOrStdout(), "Voltage coverage: %d/%d nets with inferred voltage\n", coveredNets, totalNets)
+				fmt.Fprintf(cmd.OutOrStdout(), "Metadata: %s\n", scanMetadataMode(metaLoaded, nameInferRes))
+			}
 			if explainRails {
 				scanPrintRailInferences(cmd.OutOrStdout(), railInferences, railCoverage)
+			}
+			if verbose || explainRails {
+				fmt.Fprintln(cmd.OutOrStdout())
 			}
 
 			if len(designReport.Rules) > 0 {
@@ -393,9 +401,10 @@ Examples:
 					line := fmt.Sprintf("- %s %s: %s", severity, rule.ID, rule.Message)
 					fmt.Fprintln(cmd.OutOrStdout(), ui.Colorize(scanRuleColorToken(severity), line))
 				}
+				fmt.Fprintln(cmd.OutOrStdout())
 			}
 
-			if resolvedInput.BOMDiscovered {
+			if verbose && resolvedInput.BOMDiscovered {
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected BOM: %s\n", resolvedInput.BOMPath)
 			}
 			if resolvedInput.NetlistDiscovered {
@@ -411,29 +420,13 @@ Examples:
 			if exitCode == 0 {
 				return nil
 			}
-
-			switch exitCode {
-			case 1:
-				return &ExitError{
-					Code: 1,
-					Err:  errors.New(ui.Colorize("WARN", fmt.Sprintf("scan completed with %d warning(s); wrote %s", scanRuleWarningCount(designReport), outputPath))),
-				}
-			case 2:
-				return &ExitError{
-					Code: 2,
-					Err:  errors.New(ui.Colorize("ERROR", fmt.Sprintf("scan completed with %d violation(s); wrote %s", scanRuleViolationCount(designReport), outputPath))),
-				}
-			case 3:
-				return &ExitError{
-					Code: 3,
-					Err:  errors.New(ui.Colorize("ERROR", fmt.Sprintf("scan completed with %d parse error(s); wrote %s", designReport.Summary.ParseErrorsCount, outputPath))),
-				}
-			default:
+			if exitCode < 0 || exitCode > 3 {
 				return &ExitError{
 					Code: 3,
 					Err:  fmt.Errorf("scan failed with unexpected exit code %d", exitCode),
 				}
 			}
+			return silentExit(exitCode)
 		},
 	}
 
@@ -444,7 +437,7 @@ Examples:
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
 	cmd.Flags().String("format", "text", "Output format: text or json")
-	cmd.Flags().Bool("verbose", false, "Print verbose scan summary details")
+	cmd.Flags().Bool("verbose", false, "Show detailed scan diagnostics")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")

@@ -417,11 +417,14 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if !strings.Contains(stdout, "Nets: 0\n") {
 		t.Fatalf("expected nets line, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Errors: 0\n") {
-		t.Fatalf("expected errors line, got %q", stdout)
+	if strings.Contains(stdout, "Errors:") {
+		t.Fatalf("expected errors line to be hidden by default, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Warnings: 0\n") {
-		t.Fatalf("expected warnings line, got %q", stdout)
+	if strings.Contains(stdout, "Warnings:") {
+		t.Fatalf("expected warnings line to be hidden by default, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Part contract coverage:") {
+		t.Fatalf("expected part contract coverage line, got %q", stdout)
 	}
 	if strings.Contains(stdout, "Available contract rules:") {
 		t.Fatalf("expected available contract rules to be hidden by default, got %q", stdout)
@@ -431,6 +434,9 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	}
 	if strings.Contains(stdout, "Unknown power-critical refs:") {
 		t.Fatalf("expected unknown power-critical refs to be hidden by default, got %q", stdout)
+	}
+	if strings.Contains(stdout, "Inferred voltages:") {
+		t.Fatalf("expected inferred voltages to be hidden by default, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
@@ -461,11 +467,20 @@ func TestScan_VerboseShowsInternalSummaryLines(t *testing.T) {
 	if !strings.Contains(stdout, "Available contract rules:") {
 		t.Fatalf("expected available contract rules in verbose output, got %q", stdout)
 	}
+	if !strings.Contains(stdout, "Errors: 0\n") {
+		t.Fatalf("expected errors line in verbose output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Warnings: 0\n") {
+		t.Fatalf("expected warnings line in verbose output, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "Enabled contract rules:") {
 		t.Fatalf("expected enabled contract rules in verbose output, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Unknown power-critical refs:") {
 		t.Fatalf("expected unknown power-critical refs in verbose output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Inferred voltages:") {
+		t.Fatalf("expected inferred voltages in verbose output, got %q", stdout)
 	}
 
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
@@ -731,11 +746,8 @@ func TestScan_DirectoryInputDetectsBOMAndWritesReport(t *testing.T) {
 	if !strings.Contains(stdout, "Target: .\n") {
 		t.Fatalf("expected target line, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Detected BOM: ") {
-		t.Fatalf("expected detected BOM message, got %q", stdout)
-	}
-	if !strings.Contains(stdout, filepath.Join("bom", "bom.csv")) {
-		t.Fatalf("expected detected BOM message, got %q", stdout)
+	if strings.Contains(stdout, "Detected BOM: ") {
+		t.Fatalf("expected detected BOM message to be hidden by default, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected report output message, got %q", stdout)
@@ -763,11 +775,11 @@ func TestScan_NetlistFileWritesReport(t *testing.T) {
 	if !strings.Contains(stdout, "Nets: 2\n") {
 		t.Fatalf("expected nets line, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Errors: 0\n") {
-		t.Fatalf("expected errors line, got %q", stdout)
+	if strings.Contains(stdout, "Errors:") {
+		t.Fatalf("expected errors line to be hidden by default, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Warnings: 0\n") {
-		t.Fatalf("expected warnings line, got %q", stdout)
+	if strings.Contains(stdout, "Warnings:") {
+		t.Fatalf("expected warnings line to be hidden by default, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
@@ -909,7 +921,7 @@ func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
 func TestScan_NetlistReportsInferredAndUnknownVoltageNets(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")))
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, filepath.Join("overvoltage", "netlist_overvoltage.net")), "--verbose")
 	if err != nil {
 		t.Fatalf("expected netlist scan with inferred voltages to succeed, got %v", err)
 	}
@@ -1065,6 +1077,9 @@ components:
 	if exitErr.Code != 2 {
 		t.Fatalf("expected exit code 2, got %d\n%s", exitErr.Code, stdout)
 	}
+	if !strings.Contains(stdout, "Rule findings:\n") {
+		t.Fatalf("expected default output to include finding section, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "RULE_SUPPLY_CONTRACT") {
 		t.Fatalf("expected supply contract finding, got %q", stdout)
 	}
@@ -1142,8 +1157,8 @@ func TestScan_DirectoryInputMergesBOMAndNetlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected merged directory scan to succeed, got %v", err)
 	}
-	if !strings.Contains(stdout, "Detected BOM: ") {
-		t.Fatalf("expected detected BOM message, got %q", stdout)
+	if strings.Contains(stdout, "Detected BOM: ") {
+		t.Fatalf("expected detected BOM message to be hidden by default, got %q", stdout)
 	}
 	if !strings.Contains(stdout, "Detected Netlist: ") {
 		t.Fatalf("expected detected netlist message, got %q", stdout)

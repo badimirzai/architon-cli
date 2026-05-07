@@ -59,7 +59,7 @@ rv scan --help                         Show scan command options
 --meta <file.yaml>        metadata for sources, regulators, and component limits
 --rails                   print rail voltage inference and confidence details
 --explain-rails           legacy alias for --rails
---verbose                 print debug summary lines hidden by default
+--verbose                 show detailed scan diagnostics
 --no-kicad-cli            disable automatic schematic netlist generation
 --kicad-cli <path>        override KiCad CLI binary name/path
 --format text|json        print human summary or report JSON to stdout
@@ -117,13 +117,11 @@ Directory scan detection order:
 Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
-- `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
+- `Target`, `Result`, `Parts`, `Nets`, `Rules`, `Violations`
 - contract loading and coverage: `User contracts loaded`, `Built-in contracts loaded`, `Active user requirements`, `Part contract coverage`, `Parts matched`
-- compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
-- `Inferred rails`, `Voltage coverage`, and `Metadata`
-- `Detected BOM`, `Detected Netlist`, and `Generated Netlist: .architon/generated.net` when directory scan auto-detects or exports files
+- `Detected Netlist` and `Generated Netlist: .architon/generated.net` when directory scan auto-detects or exports netlists
 - rail inference table when `--rails` is passed; `--explain-rails` remains supported as a legacy alias
-- `--verbose` additionally prints `Available contract rules`, `Enabled contract rules`, and `Unknown power-critical refs`
+- `--verbose` additionally prints `Errors`, `Warnings`, contract-rule diagnostics, `Metadata`, and compact rail inference counts
 
 Example success snippet:
 

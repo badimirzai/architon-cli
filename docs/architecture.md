@@ -2,6 +2,37 @@
 
 Architon CLI (rv) is a deterministic verification engine for hardware architecture contracts.
 
+## Verification layers
+
+Architon separates hardware verification into deterministic layers:
+
+```text
+EDA Project (KiCad / Altium / future importers)
+                    ↓
+                Importer
+                    ↓
+                 DesignIR
+     normalized electrical topology
+                    ↓
+                ContractIR
+ component + system-level requirements
+                    ↓
+               Rule Engine
+ deterministic validation passes
+                    ↓
+      JSON report + terminal findings
+```
+
+### DesignIR
+Normalized electrical topology independent of any EDA tool.
+
+### ContractIR
+Deterministic electrical constraints from built-in parts, metadata, and user policies.
+
+### Rule Engine
+Runs deterministic compatibility and architecture checks and produces stable findings and CI-safe exit codes.
+
+
 ## System flow
 
 ```text

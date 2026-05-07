@@ -65,8 +65,8 @@ func TestScan_DirectoryInputGeneratesNetlistFromRootSchematic(t *testing.T) {
 	if !strings.Contains(stdout, "Parts: 3\n") || !strings.Contains(stdout, "Nets: 2\n") {
 		t.Fatalf("expected generated netlist import summary, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Metadata: inferred\n") {
-		t.Fatalf("expected inferred metadata mode, got %q", stdout)
+	if strings.Contains(stdout, "Metadata: inferred\n") {
+		t.Fatalf("expected metadata mode to be hidden by default, got %q", stdout)
 	}
 	if _, err := os.Stat(filepath.Join(tmpDir, ".architon", "meta.yaml")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("scan must not write meta.yaml, stat err=%v", err)

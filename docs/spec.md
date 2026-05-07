@@ -293,3 +293,73 @@ Expected deterministic failures include:
 - Driver peak below motor stall current
 - Battery peak current over allowed discharge
 - I2C address conflict on the same bus
+
+## Parts lookup
+
+You can reference built-in parts from `parts/` and project-local parts from `./rv_parts` with `part:`.
+
+Resolver lookup order, earlier wins:
+
+1. `./rv_parts`
+2. `./parts`
+3. `--parts-dir` (repeatable)
+4. `RV_PARTS_DIRS`
+
+`RV_PARTS_DIRS` uses the OS path separator: `:` on Unix and `;` on Windows.
+
+## Full example spec
+
+Create `spec.yaml`:
+
+```yaml
+name: "minimal-voltage-mismatch"
+
+power:
+  battery:
+    voltage_v: 12
+    max_current_a: 10
+  logic_rail:
+    voltage_v: 3.3
+    max_current_a: 1
+
+mcu:
+  name: "Generic MCU"
+  logic_voltage_v: 3.3
+  max_gpio_current_ma: 12
+
+motor_driver:
+  name: "TB6612FNG-like"
+  motor_supply_min_v: 18
+  motor_supply_max_v: 24
+  continuous_per_channel_a: 0.6
+  peak_per_channel_a: 6
+  channels: 1
+  logic_voltage_min_v: 3.0
+  logic_voltage_max_v: 5.5
+
+motors:
+  - name: "DC motor"
+    count: 1
+    voltage_min_v: 6
+    voltage_max_v: 12
+    stall_current_a: 5
+    nominal_current_a: 1
+```
+
+Run:
+
+```bash
+rv check spec.yaml --style classic --no-color
+```
+
+Example output:
+
+```text
+rv check
+--------------
+ERROR DRV_SUPPLY_RANGE: spec.yaml:5 battery 12.00V outside motor_driver motor supply range [18.00, 24.00]V
+WARN DRV_CONT_LOW_MARGIN: spec.yaml:20 driver continuous rating 0.60A is below recommended 1.25A for motor DC motor (nominal 1.00A). Risk of overheating or current limiting under sustained load.
+WARN DRV_PEAK_MARGIN_LOW: spec.yaml:21 Total motor stall 5.00A is close to driver peak 6.00A
+
+exit code: 2
+```
