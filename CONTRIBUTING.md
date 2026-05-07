@@ -9,7 +9,7 @@ This project aims to provide deterministic, auditable checks for robotics hardwa
 
 By contributing, you confirm that you:
 
-- License your contribution under Apache-2.0
+- Agree that your contributions are licensed under the repository license (AGPLv3)
 - Agree to the terms in CLA.md
 - Have the right to submit the code
 
@@ -79,4 +79,4 @@ go build ./...
 ----
 ## Final Note
 
-This project is evolving. Expect rules to refine over time. Drive the project forward with clarity and discipline.
+Architon prioritizes deterministic behavior, stable contracts, and auditable verification over feature velocity.

@@ -4,7 +4,7 @@ By submitting any contribution to this repository, you agree to the following te
 
 ## 1. License Grant to the Maintainer
 
-You grant the Maintainer (Badi Mirzai) a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to:
+You grant the Maintainer (Badi Mirzai, or any successor legal entity designated by the Maintainer) a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to:
 
 - use, reproduce, modify, and create derivative works from your contribution
 - distribute your contribution in source or binary form

@@ -9,7 +9,15 @@ Runs before PCB fabrication and firmware bring-up to catch integration failures 
 Architon detects electrical compatibility, power, logic-level, and integration failures **before hardware is built or firmware runs**.
 Run it locally or in CI to catch integration errors early and reduce costly board spins and bring-up churn.
 
-⭐ If Architon helps you catch a hardware integration issue early, consider starring the repo.
+---
+
+## Demo on Real Kicad Project
+Run Architon on a real hardware design and detect an integration failure:
+
+![Architon scanning KiCad project demo](docs/demo-readme.gif)
+Architon detects integration failures deterministically before hardware is built.
+
+Demo predates automatic contract inference introduced in v0.4.0
 
 ---
 
@@ -58,13 +66,6 @@ Architon CLI validates hardware architecture from a specification (`.yaml`) and 
 - Machine-readable `report.json` for automation
 - Stable normalized DesignIR representation
 
----
-
-## Example
-Run Architon on a real hardware design and detect an integration failure:
-
-![Architon scanning KiCad project demo](docs/demo-readme.gif)
-Architon detects integration failures deterministically before hardware is built.
 
 ---
 
@@ -686,6 +687,9 @@ Architon CLI is a deterministic architecture verifier, not a circuit simulator.
 Open an issue before starting work so scope can be aligned.
 By contributing you agree to the CLA in `CLA.md`.
 
+Contributors retain copyright to their work.
+By contributing, you agree to the CLA in `CLA.md`, which grants the project maintainer rights to relicense contributions.
+
 ---
 
 ## Status
@@ -696,8 +700,9 @@ Early alpha. Interfaces and rule coverage evolving toward `v1.0`.
 
 ## License
 
-Apache 2.0
+Licensed under the GNU AGPLv3.
 
+See LICENSE for details.
 ---
 
 ## Disclaimer
