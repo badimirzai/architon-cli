@@ -31,20 +31,22 @@ import (
 
 const defaultScanReportPath = "architon-report.json"
 const defaultKiCadCLI = "kicad-cli"
+const generatedKiCadNetlistPath = ".architon/generated.net"
 const noScanInputsFoundInProjectDirMessage = "no BOM, netlist, or root KiCad schematic found in project directory (expected bom/bom.csv, bom.csv, exports/bom.csv, or *bom*.csv in root/bom/exports/, plus exports/*.net or *.net in root, or one root *.kicad_sch for kicad-cli netlist export)"
 
 var scanCmd = newScanCmd()
 
 type resolvedScanInput struct {
-	DirectPath        string
-	Directory         bool
-	ProjectPath       string
-	BOMPath           string
-	NetlistPath       string
-	SchematicPath     string
-	BOMDiscovered     bool
-	NetlistDiscovered bool
-	NetlistGenerated  bool
+	DirectPath                  string
+	Directory                   bool
+	ProjectPath                 string
+	BOMPath                     string
+	NetlistPath                 string
+	GeneratedNetlistDisplayPath string
+	SchematicPath               string
+	BOMDiscovered               bool
+	NetlistDiscovered           bool
+	NetlistGenerated            bool
 }
 
 type scanInputOptions struct {
@@ -397,7 +399,7 @@ Examples:
 				fmt.Fprintf(cmd.OutOrStdout(), "Detected Netlist: %s\n", resolvedInput.NetlistPath)
 			}
 			if resolvedInput.NetlistGenerated {
-				fmt.Fprintf(cmd.OutOrStdout(), "Generated Netlist: %s\n", resolvedInput.NetlistPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "Generated Netlist: %s\n", resolvedInput.GeneratedNetlistDisplayPath)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
@@ -629,11 +631,12 @@ func resolveScanInputWithOptions(inputPath string, bomOverride string, netlistOv
 		}
 		resolved.SchematicPath = schematicPath
 		if schematicPath != "" && opts.AutoKiCadNetlist {
-			generatedNetlist, err := generateKiCadNetlistFromSchematic(opts.KiCadCLIPath, schematicPath)
+			generatedNetlist, err := generateKiCadNetlistFromSchematic(opts.KiCadCLIPath, absInput, schematicPath)
 			if err != nil {
 				return resolvedScanInput{}, err
 			}
 			resolved.NetlistPath = generatedNetlist
+			resolved.GeneratedNetlistDisplayPath = generatedKiCadNetlistPath
 			resolved.NetlistGenerated = true
 		}
 		if schematicPath != "" && !opts.AutoKiCadNetlist && resolved.BOMPath == "" {
@@ -832,21 +835,16 @@ func findRootSchematicCandidates(projectPath string) ([]string, error) {
 	return matches, nil
 }
 
-// generateKiCadNetlistFromSchematic exports a schematic into a temporary netlist.
-func generateKiCadNetlistFromSchematic(kicadCLIPath string, schematicPath string) (string, error) {
-	tempFile, err := os.CreateTemp("", "architon-kicad-*.net")
-	if err != nil {
-		return "", fmt.Errorf("create temporary KiCad netlist: %w", err)
-	}
-	outputPath := tempFile.Name()
-	if closeErr := tempFile.Close(); closeErr != nil {
-		_ = os.Remove(outputPath)
-		return "", fmt.Errorf("close temporary KiCad netlist: %w", closeErr)
+// generateKiCadNetlistFromSchematic exports a schematic into the project's generated netlist.
+func generateKiCadNetlistFromSchematic(kicadCLIPath string, projectPath string, schematicPath string) (string, error) {
+	outputPath := filepath.Join(projectPath, generatedKiCadNetlistPath)
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return "", fmt.Errorf("generate KiCad netlist %s: create output directory: %w", generatedKiCadNetlistPath, err)
 	}
 
 	if err := runKiCadNetlistExport(kicadCLIPath, schematicPath, outputPath); err != nil {
-		_ = os.Remove(outputPath)
-		return "", err
+		return "", fmt.Errorf("generate KiCad netlist %s: %w", generatedKiCadNetlistPath, err)
 	}
 	return outputPath, nil
 }

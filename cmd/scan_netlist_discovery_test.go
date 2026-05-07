@@ -56,8 +56,11 @@ func TestScan_DirectoryInputGeneratesNetlistFromRootSchematic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected generated netlist scan to succeed, got %v\n%s", err, stdout)
 	}
-	if !strings.Contains(stdout, "Generated Netlist: ") {
+	if !strings.Contains(stdout, "Generated Netlist: .architon/generated.net\n") {
 		t.Fatalf("expected generated netlist line, got %q", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, ".architon", "generated.net")); err != nil {
+		t.Fatalf("expected generated netlist in project .architon directory, got %v", err)
 	}
 	if !strings.Contains(stdout, "Parts: 3\n") || !strings.Contains(stdout, "Nets: 2\n") {
 		t.Fatalf("expected generated netlist import summary, got %q", stdout)
@@ -72,6 +75,29 @@ func TestScan_DirectoryInputGeneratesNetlistFromRootSchematic(t *testing.T) {
 	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
 	if report.Summary.Nets != 2 {
 		t.Fatalf("expected generated netlist nets in report, got %d", report.Summary.Nets)
+	}
+}
+
+func TestScan_DirectoryInputGeneratedNetlistWriteFailureReturnsExitCodeThree(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "robot.kicad_sch"), "(kicad_sch)")
+	writeScanTestFile(t, filepath.Join(tmpDir, ".architon"), "not a directory")
+	fakeCLI := writeFakeKiCadCLI(t, tmpDir, kicadFixtureData(t, "netlist_simple.net"))
+
+	_, err := runScanCommand(t, tmpDir, ".", "--kicad-cli", fakeCLI)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 3 {
+		t.Fatalf("expected exit code 3, got %d", exitErr.Code)
+	}
+	if exitErr.Err == nil || !strings.Contains(exitErr.Err.Error(), "generate KiCad netlist .architon/generated.net: create output directory") {
+		t.Fatalf("expected generated netlist write error, got %v", exitErr.Err)
 	}
 }
 
