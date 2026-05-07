@@ -112,6 +112,11 @@ Nets: 59
 Errors: 0
 Warnings: 0
 Rules: 0
+User contracts loaded: 0
+Built-in contracts loaded: <n>
+Requirements enabled: <n>
+Part contract coverage: <n>%
+Parts matched: <x>/<y>
 Violations: 0
 Inferred voltages: <n> Unknown voltage nets: <n> Rail coverage: <LEVEL> <PCT>%
 Inferred rails: <n>
@@ -178,6 +183,7 @@ Core commands:
 ```text
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
+rv contracts validate <path> Validate a custom contracts.yaml schema only
 rv parts list              List built-in deterministic contract parts
 rv parts show <mpn>        Show one built-in contract part
 rv init                    Create .architon metadata or write a starter robot spec
@@ -277,9 +283,16 @@ Contract source precedence is:
 1. explicit `.architon/meta.yaml`
 2. schematic/BOM fields
 3. built-in contract source
-4. inferred net names
+4. explicit custom contracts from `.architon/contracts.yaml` or `--contracts`
+5. inferred net names
 
 The built-in contract source is intentionally small and deterministic. It is not a generic parts database or datasheet lookup. v0.3.1 includes curated contracts for `ESP32-WROOM-32`, `STM32F103C8T6`, `RP2040`, `MPU-6050`, `BNO055`, `AMS1117-3.3`, `AP2114H-3.3`, `DRV8833`, `TB6612FNG`, `L298N`, `PCA9306`, and `TXS0108E`.
+
+Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
+
+`rv contracts validate <path>` validates contract schema only; it does not verify a design. Use `rv scan --contracts <path>` to enforce contracts against a project.
+
+`pullup_ohms` is resistance-only in v0.4.0. Capacitance/rise-time validation is future work.
 
 Minimal voltage-rule metadata:
 
@@ -312,9 +325,11 @@ Nets: 3
 Errors: 0
 Warnings: 0
 Rules: 1
-Parts matched: 0
-Contracts applied: 0
-Contract coverage: 66.67%
+User contracts loaded: 0
+Built-in contracts loaded: <n>
+Requirements enabled: 0
+Part contract coverage: 66.67%
+Parts matched: 0/3
 Unknown power-critical refs: 0
 Enabled contract rules: supply_abs_max, supply_recommended_range, gpio_abs_max, motor_driver_vm_range, regulator_output_current
 Violations: 1
@@ -431,10 +446,10 @@ rv scan bom.csv --out report.json
 
 The report includes:
 - summary counts
-- findings for `rv check`, or scan `rules` for `rv scan`
+- findings for `rv check`, and canonical scan `findings` for `rv scan`
 - normalized DesignIR for scans, including nets when imported
 - rail inference, rail coverage, and voltage-finding provenance for netlist-backed scans
-- contract coverage summary fields: `parts_matched`, `contracts_applied`, `contract_coverage_percentage`, `unknown_power_critical_refs`, and `enabled_contract_rules`
+- contract loading and coverage summary fields: `user_contracts_loaded`, `built_in_contracts_loaded`, `requirements_enabled`, `parts_matched`, `part_contract_coverage_percentage`, `unknown_power_critical_refs`, and `enabled_contract_rules`
 
 Exit codes indicate pass/fail. The JSON report provides detailed structured results for CI integration and tooling.
 
@@ -456,7 +471,11 @@ For netlist-backed scans, `summary.nets` and `design_ir.nets` are populated. For
     "parse_warnings_count": 0,
     "parse_errors": [],
     "parse_warnings": [],
+    "user_contracts_loaded": 0,
+    "built_in_contracts_loaded": 12,
+    "requirements_enabled": 0,
     "parts_matched": 0,
+    "part_contract_coverage_percentage": 0,
     "contracts_applied": 0,
     "contract_coverage_percentage": 0,
     "enabled_contract_rules": [
@@ -604,9 +623,9 @@ The same input always produces the same result.
 `summary.delimiter` is set for BOM scans and uses one of `","`, `";"`, or `"\t"`.
 `summary.nets` is set when netlist data is present.
 `summary.next_steps` appears only when parse failures are present.
-`summary.parts_matched`, `summary.contracts_applied`, `summary.contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules` describe deterministic contract coverage.
-Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `rules[].inference` provenance.
-Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `source`, `provenance`, and `fix`.
+`summary.user_contracts_loaded`, `summary.built_in_contracts_loaded`, `summary.requirements_enabled`, `summary.parts_matched`, `summary.part_contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules` describe deterministic contract loading and coverage. `summary.contracts_applied` and `summary.contract_coverage_percentage` remain as deprecated compatibility aliases for one release.
+Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `findings[].inference` provenance.
+Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, and `fix`. `rules` is a deprecated alias of `findings`.
 
 Human-readable output is colorized in TTY environments. Disable with `--no-color` or `NO_COLOR=1`.
 

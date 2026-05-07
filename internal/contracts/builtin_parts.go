@@ -355,10 +355,12 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 		out[i].Aliases = cloneStrings(contract.Aliases)
 		out[i].GroundPins = cloneStrings(contract.GroundPins)
 		out[i].Scope.Pins = cloneStrings(contract.Scope.Pins)
+		out[i].Scope.Nets = cloneI2CBusNets(contract.Scope.Nets)
 		out[i].Requirements = make([]Requirement, len(contract.Requirements))
 		copy(out[i].Requirements, contract.Requirements)
 		for j := range out[i].Requirements {
 			out[i].Requirements[j].Scope.Pins = cloneStrings(contract.Requirements[j].Scope.Pins)
+			out[i].Requirements[j].Scope.Nets = cloneI2CBusNets(contract.Requirements[j].Scope.Nets)
 			out[i].Requirements[j].MinVoltage = cloneFloat(contract.Requirements[j].MinVoltage)
 			out[i].Requirements[j].MaxVoltage = cloneFloat(contract.Requirements[j].MaxVoltage)
 			out[i].Requirements[j].MaxCurrent = cloneFloat(contract.Requirements[j].MaxCurrent)
@@ -368,6 +370,13 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 		}
 	}
 	return out
+}
+
+func cloneI2CBusNets(in *I2CBusNets) *I2CBusNets {
+	if in == nil {
+		return nil
+	}
+	return &I2CBusNets{SDA: in.SDA, SCL: in.SCL}
 }
 
 func cloneStrings(in []string) []string {

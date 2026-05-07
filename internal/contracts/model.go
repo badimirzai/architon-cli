@@ -44,16 +44,24 @@ type SystemContract struct {
 	Provenance   Provenance         `json:"provenance"`
 }
 
+// I2CBusNets names the two signal nets that define one explicit I2C bus.
+type I2CBusNets struct {
+	SDA string `json:"sda,omitempty"`
+	SCL string `json:"scl,omitempty"`
+}
+
 // ContractScope says where a requirement applies after a part is matched.
 type ContractScope struct {
-	ComponentRef  string   `json:"component_ref,omitempty"`
-	ComponentType string   `json:"component_type,omitempty"`
-	BusType       string   `json:"bus_type,omitempty"`
-	MPN           string   `json:"mpn,omitempty"`
-	Pins          []string `json:"pins,omitempty"`
-	Net           string   `json:"net,omitempty"`
-	Rail          string   `json:"rail,omitempty"`
-	Role          PinRole  `json:"role,omitempty"`
+	ComponentRef  string      `json:"component_ref,omitempty"`
+	ComponentType string      `json:"component_type,omitempty"`
+	BusType       string      `json:"bus_type,omitempty"`
+	BusID         string      `json:"bus_id,omitempty"`
+	Nets          *I2CBusNets `json:"nets,omitempty"`
+	MPN           string      `json:"mpn,omitempty"`
+	Pins          []string    `json:"pins,omitempty"`
+	Net           string      `json:"net,omitempty"`
+	Rail          string      `json:"rail,omitempty"`
+	Role          PinRole     `json:"role,omitempty"`
 }
 
 // Requirement is the normalized rule input for one electrical constraint.

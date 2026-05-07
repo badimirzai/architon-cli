@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -83,11 +84,22 @@ Examples:
 			netlistOverride, _ := cmd.Flags().GetString("netlist")
 			metaOverride, _ := cmd.Flags().GetString("meta")
 			contractsOverride, _ := cmd.Flags().GetString("contracts")
+			outputFormat, _ := cmd.Flags().GetString("format")
 			explainRails, _ := cmd.Flags().GetBool("explain-rails")
 			railsAlias, _ := cmd.Flags().GetBool("rails")
 			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
 			kicadCLIPath, _ := cmd.Flags().GetString("kicad-cli")
 			explainRails = explainRails || railsAlias
+			outputFormat = strings.ToLower(strings.TrimSpace(outputFormat))
+			if outputFormat == "" {
+				outputFormat = "text"
+			}
+			if outputFormat != "text" && outputFormat != "json" {
+				return &ExitError{
+					Code: 3,
+					Err:  fmt.Errorf("unsupported output format %q (allowed: text, json)", outputFormat),
+				}
+			}
 
 			resolvedInput, err := resolveScanInputWithOptions(args[0], bomOverride, netlistOverride, scanInputOptions{
 				AutoKiCadNetlist: !noKiCadCLI,
@@ -286,10 +298,15 @@ Examples:
 				})
 			}
 			normalizeScanReportRules(designReport.Rules)
+			designReport.Findings = append([]report.RuleResult{}, designReport.Rules...)
 			// Update summary (because report.NewVerificationReport() computed these before rules existed)
-			designReport.Summary.Rules = len(designReport.Rules)
+			designReport.Summary.Rules = len(designReport.Findings)
 			designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
 			designReport.Summary.PartsMatched = coverage.PartsMatched
+			designReport.Summary.UserContractsLoaded = len(userContracts)
+			designReport.Summary.BuiltInContractsLoaded = len(contracts.BuiltinContracts())
+			designReport.Summary.RequirementsEnabled = coverage.ContractsApplied
+			designReport.Summary.PartContractCoveragePercentage = coverage.CoveragePercentage
 			designReport.Summary.ContractsApplied = coverage.ContractsApplied
 			designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
 			designReport.Summary.UnknownPowerCriticalRefs = coverage.UnknownPowerCriticalRefs
@@ -307,6 +324,26 @@ Examples:
 			// 3 tool execution failure
 			// -------------------------
 			exitCode := scanExitCode(designReport)
+			if outputFormat == "json" {
+				jsonReport := report.CanonicalizeVerificationReport(designReport)
+				data, err := json.MarshalIndent(jsonReport, "", "  ")
+				if err != nil {
+					return internalError(fmt.Errorf("marshal scan report JSON: %w", err))
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				switch exitCode {
+				case 0:
+					return nil
+				case 1:
+					return &ExitError{Code: 1, Err: errors.New("scan completed with warnings")}
+				case 2:
+					return &ExitError{Code: 2, Err: errors.New("scan violations detected")}
+				case 3:
+					return &ExitError{Code: 3, Err: errors.New("scan failed")}
+				default:
+					return &ExitError{Code: 3, Err: fmt.Errorf("scan failed with unexpected exit code %d", exitCode)}
+				}
+			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "ARCHITON SCAN\n")
 			fmt.Fprintf(cmd.OutOrStdout(), "Target: %s\n", args[0])
@@ -321,9 +358,11 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Errors: %d\n", designReport.Summary.ParseErrorsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Warnings: %d\n", designReport.Summary.ParseWarningsCount)
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
-			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d\n", designReport.Summary.PartsMatched)
-			fmt.Fprintf(cmd.OutOrStdout(), "Contracts applied: %d\n", designReport.Summary.ContractsApplied)
-			fmt.Fprintf(cmd.OutOrStdout(), "Contract coverage: %.2f%%\n", designReport.Summary.ContractCoveragePercentage)
+			fmt.Fprintf(cmd.OutOrStdout(), "User contracts loaded: %d\n", designReport.Summary.UserContractsLoaded)
+			fmt.Fprintf(cmd.OutOrStdout(), "Built-in contracts loaded: %d\n", designReport.Summary.BuiltInContractsLoaded)
+			fmt.Fprintf(cmd.OutOrStdout(), "Requirements enabled: %d\n", designReport.Summary.RequirementsEnabled)
+			fmt.Fprintf(cmd.OutOrStdout(), "Part contract coverage: %.2f%%\n", designReport.Summary.PartContractCoveragePercentage)
+			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d/%d\n", designReport.Summary.PartsMatched, designReport.Summary.Parts)
 			fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
 			fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
@@ -396,6 +435,7 @@ Examples:
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
+	cmd.Flags().String("format", "text", "Output format: text or json")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
@@ -1244,20 +1284,27 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 	out := make([]report.RuleResult, 0, len(findings))
 	for _, finding := range findings {
 		result := report.RuleResult{
-			ID:             finding.RuleID,
-			RuleID:         finding.RuleID,
-			Severity:       normalizeSeverity(finding.Severity),
-			Net:            finding.Net,
-			Message:        finding.Message,
-			Ref:            finding.ComponentRef,
-			ComponentRef:   finding.ComponentRef,
-			Pin:            finding.Pin,
-			Source:         finding.Source,
-			ContractID:     finding.ContractID,
-			ContractSource: string(finding.ContractSource),
-			ContractFile:   finding.ContractFile,
-			Requirement:    finding.Requirement,
-			Fix:            finding.Fix,
+			ID:                  finding.RuleID,
+			RuleID:              finding.RuleID,
+			Severity:            normalizeSeverity(finding.Severity),
+			Net:                 finding.Net,
+			Message:             finding.Message,
+			Ref:                 finding.ComponentRef,
+			ComponentRef:        finding.ComponentRef,
+			Pin:                 finding.Pin,
+			BusID:               finding.BusID,
+			BusType:             finding.BusType,
+			BusNets:             finding.BusNets,
+			EffectivePullupOhms: finding.EffectivePullupOhms,
+			MinPullupOhms:       finding.MinPullupOhms,
+			MaxPullupOhms:       finding.MaxPullupOhms,
+			PullupResistors:     append([]string(nil), finding.PullupResistors...),
+			Source:              finding.Source,
+			ContractID:          finding.ContractID,
+			ContractSource:      string(finding.ContractSource),
+			ContractFile:        finding.ContractFile,
+			Requirement:         finding.Requirement,
+			Fix:                 finding.Fix,
 		}
 		if finding.Provenance.Source != "" {
 			prov := finding.Provenance

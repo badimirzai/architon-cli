@@ -30,11 +30,18 @@ type contractYAML struct {
 }
 
 type scopeYAML struct {
-	BusType       string `yaml:"bus_type"`
-	ComponentType string `yaml:"component_type"`
-	ComponentRef  string `yaml:"component_ref"`
-	Net           string `yaml:"net"`
-	Rail          string `yaml:"rail"`
+	BusType       string       `yaml:"bus_type"`
+	BusID         string       `yaml:"bus_id"`
+	ComponentType string       `yaml:"component_type"`
+	ComponentRef  string       `yaml:"component_ref"`
+	Net           string       `yaml:"net"`
+	Rail          string       `yaml:"rail"`
+	Nets          *i2cNetsYAML `yaml:"nets"`
+}
+
+type i2cNetsYAML struct {
+	SDA string `yaml:"sda"`
+	SCL string `yaml:"scl"`
 }
 
 type requirementYAML struct {
@@ -73,6 +80,14 @@ func LoadYAMLFile(path string) ([]SystemContract, error) {
 
 // ParseYAML parses and validates v1 project contracts from bytes.
 func ParseYAML(data []byte, path string) ([]SystemContract, error) {
+	var root yaml.Node
+	if err := yaml.NewDecoder(bytes.NewReader(data)).Decode(&root); err != nil {
+		return nil, fmt.Errorf("parse contracts yaml: %w", err)
+	}
+	if err := validateContractsYAMLNode(&root); err != nil {
+		return nil, err
+	}
+
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	// Unknown fields should fail early; otherwise a misspelled policy key could
 	// look valid while silently doing nothing.
@@ -88,6 +103,156 @@ func ParseYAML(data []byte, path string) ([]SystemContract, error) {
 	return normalizeContractsYAML(file, filepath.Clean(strings.TrimSpace(path))), nil
 }
 
+// validateContractsYAMLNode enforces required fields and unknown-key checks
+// before typed decoding so missing maps do not collapse into zero values.
+func validateContractsYAMLNode(root *yaml.Node) error {
+	if root == nil || root.Kind == 0 {
+		return errors.New("contracts: document must not be empty")
+	}
+	doc := root
+	if root.Kind == yaml.DocumentNode {
+		if len(root.Content) == 0 {
+			return errors.New("contracts: document must not be empty")
+		}
+		doc = root.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return errors.New("contracts: document must be a mapping")
+	}
+	top, err := mappingFromNode(doc, "contracts")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(top) {
+		if key != "contracts" {
+			return fmt.Errorf("contracts: unknown top-level field %q", key)
+		}
+	}
+	contractsNode := top["contracts"]
+	if contractsNode == nil {
+		return errors.New("contracts: top-level contracts list is required")
+	}
+	if contractsNode.Kind != yaml.SequenceNode {
+		return errors.New("contracts: top-level contracts must be a list")
+	}
+
+	for i, node := range contractsNode.Content {
+		if node.Kind != yaml.MappingNode {
+			return fmt.Errorf("Invalid contract contracts[%d]: contract entry must be a mapping", i)
+		}
+		entries, err := mappingFromNode(node, fmt.Sprintf("contracts[%d]", i))
+		if err != nil {
+			return err
+		}
+		id := contractIDFromNode(entries["id"])
+		label := contractValidationLabel(i, id)
+		for _, key := range sortedMappingKeys(entries) {
+			switch key {
+			case "id", "description", "scope", "require", "severity":
+			default:
+				return contractValidationError(label, "unknown field %q", key)
+			}
+		}
+		for _, key := range []string{"id", "severity", "scope", "require"} {
+			if entries[key] == nil {
+				return contractValidationError(label, "%s is required", key)
+			}
+		}
+		if err := validateScopeYAMLNode(label, entries["scope"]); err != nil {
+			return err
+		}
+		if err := validateRequirementYAMLNode(label, entries["require"]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateScopeYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "scope must be an object")
+	}
+	entries, err := mappingFromNode(node, label+".scope")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(entries) {
+		switch key {
+		case "bus_type", "bus_id", "component_type", "component_ref", "net", "rail", "nets":
+		default:
+			return contractValidationError(label, "unknown scope key %q", key)
+		}
+	}
+	if netsNode := entries["nets"]; netsNode != nil {
+		if netsNode.Kind != yaml.MappingNode {
+			return contractValidationError(label, "scope.nets must be an object")
+		}
+		nets, err := mappingFromNode(netsNode, label+".scope.nets")
+		if err != nil {
+			return err
+		}
+		for _, key := range sortedMappingKeys(nets) {
+			switch key {
+			case "sda", "scl":
+				value := nets[key]
+				if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+					return contractValidationError(label, "scope.nets.%s must be a non-empty string", key)
+				}
+			default:
+				return contractValidationError(label, "unknown scope.nets key %q", key)
+			}
+		}
+	}
+	return nil
+}
+
+func validateRequirementYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "require must be an object")
+	}
+	entries, err := mappingFromNode(node, label+".require")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(entries) {
+		value := entries[key]
+		switch key {
+		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict":
+		default:
+			return contractValidationError(label, "unknown requirement key %q", key)
+		}
+		if key == "pullup_ohms" {
+			if value.Kind != yaml.MappingNode {
+				return contractValidationError(label, "pullup_ohms must be an object")
+			}
+			pullup, err := mappingFromNode(value, label+".require.pullup_ohms")
+			if err != nil {
+				return err
+			}
+			for _, nested := range sortedMappingKeys(pullup) {
+				if nested != "min" && nested != "max" {
+					return contractValidationError(label, "unknown pullup_ohms key %q", nested)
+				}
+			}
+		}
+		if key == "current_budget" {
+			if value.Kind != yaml.MappingNode {
+				return contractValidationError(label, "current_budget must be an object")
+			}
+			budget, err := mappingFromNode(value, label+".require.current_budget")
+			if err != nil {
+				return err
+			}
+			for _, nested := range sortedMappingKeys(budget) {
+				if nested != "max_utilization_pct" {
+					return contractValidationError(label, "unknown current_budget key %q", nested)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // validateContractsYAML checks required fields and duplicate contract IDs.
 func validateContractsYAML(file contractsYAMLFile) error {
 	if file.Contracts == nil {
@@ -97,22 +262,28 @@ func validateContractsYAML(file contractsYAMLFile) error {
 	// hard to trace back to one YAML entry.
 	seenIDs := map[string]struct{}{}
 	for i, contract := range file.Contracts {
-		prefix := fmt.Sprintf("contracts[%d]", i)
-		id := strings.TrimSpace(contract.ID)
+		id := contract.ID
+		label := contractValidationLabel(i, strings.TrimSpace(id))
 		if id == "" {
-			return fmt.Errorf("%s.id must not be empty", prefix)
+			return contractValidationError(label, "id must not be empty")
+		}
+		if strings.TrimSpace(id) != id {
+			return contractValidationError(label, "id must not have leading or trailing whitespace")
+		}
+		if !validContractID(id) {
+			return contractValidationError(label, "id must match ^[a-zA-Z0-9_.:-]+$")
 		}
 		if _, ok := seenIDs[id]; ok {
-			return fmt.Errorf("%s.id %q is duplicated", prefix, id)
+			return contractValidationError(label, "id %q is duplicated", id)
 		}
 		seenIDs[id] = struct{}{}
 		if _, ok := normalizeYAMLSeverity(contract.Severity); !ok {
-			return fmt.Errorf("%s.severity must be one of error, warn, info", prefix)
+			return contractValidationError(label, "severity must be one of error, warn, info")
 		}
-		if err := validateScopeYAML(prefix+".scope", contract.Scope); err != nil {
+		if err := validateScopeYAML(label, contract.Scope); err != nil {
 			return err
 		}
-		if err := validateRequirementYAML(prefix+".require", contract.Require); err != nil {
+		if err := validateRequirementYAML(label, contract.Require); err != nil {
 			return err
 		}
 	}
@@ -120,23 +291,51 @@ func validateContractsYAML(file contractsYAMLFile) error {
 }
 
 // validateScopeYAML rejects whitespace-only or padded scope values.
-func validateScopeYAML(prefix string, scope scopeYAML) error {
-	for name, value := range map[string]string{
-		"bus_type":       scope.BusType,
-		"component_type": scope.ComponentType,
-		"component_ref":  scope.ComponentRef,
-		"net":            scope.Net,
-		"rail":           scope.Rail,
+func validateScopeYAML(label string, scope scopeYAML) error {
+	selectors := 0
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{name: "bus_type", value: scope.BusType},
+		{name: "bus_id", value: scope.BusID},
+		{name: "component_type", value: scope.ComponentType},
+		{name: "component_ref", value: scope.ComponentRef},
+		{name: "net", value: scope.Net},
+		{name: "rail", value: scope.Rail},
 	} {
+		name := field.name
+		value := field.value
 		if strings.TrimSpace(value) != value {
-			return fmt.Errorf("%s.%s must not have leading or trailing whitespace", prefix, name)
+			return contractValidationError(label, "scope.%s must not have leading or trailing whitespace", name)
 		}
+		if value != "" {
+			selectors++
+		}
+	}
+	if scope.BusType != "" && !strings.EqualFold(scope.BusType, "i2c") {
+		return contractValidationError(label, "scope.bus_type must be i2c")
+	}
+	if scope.Nets != nil {
+		selectors++
+		if strings.TrimSpace(scope.Nets.SDA) != scope.Nets.SDA {
+			return contractValidationError(label, "scope.nets.sda must not have leading or trailing whitespace")
+		}
+		if strings.TrimSpace(scope.Nets.SCL) != scope.Nets.SCL {
+			return contractValidationError(label, "scope.nets.scl must not have leading or trailing whitespace")
+		}
+		if scope.Nets.SDA == "" || scope.Nets.SCL == "" {
+			return contractValidationError(label, "scope.nets.sda and scope.nets.scl are required when scope.nets is present")
+		}
+	}
+	if selectors == 0 {
+		return contractValidationError(label, "scope must set at least one selector")
 	}
 	return nil
 }
 
 // validateRequirementYAML checks that at least one valid requirement is active.
-func validateRequirementYAML(prefix string, req requirementYAML) error {
+func validateRequirementYAML(label string, req requirementYAML) error {
 	count := 0
 	if req.CommonGround != nil && *req.CommonGround {
 		count++
@@ -144,16 +343,16 @@ func validateRequirementYAML(prefix string, req requirementYAML) error {
 	if req.PullupOhms != nil {
 		count++
 		if req.PullupOhms.Min == nil && req.PullupOhms.Max == nil {
-			return fmt.Errorf("%s.pullup_ohms must set min or max", prefix)
+			return contractValidationError(label, "pullup_ohms must set min or max")
 		}
 		if req.PullupOhms.Min != nil && *req.PullupOhms.Min <= 0 {
-			return fmt.Errorf("%s.pullup_ohms.min must be > 0", prefix)
+			return contractValidationError(label, "pullup_ohms.min must be > 0")
 		}
 		if req.PullupOhms.Max != nil && *req.PullupOhms.Max <= 0 {
-			return fmt.Errorf("%s.pullup_ohms.max must be > 0", prefix)
+			return contractValidationError(label, "pullup_ohms.max must be > 0")
 		}
 		if req.PullupOhms.Min != nil && req.PullupOhms.Max != nil && *req.PullupOhms.Min > *req.PullupOhms.Max {
-			return fmt.Errorf("%s.pullup_ohms.min must be <= max", prefix)
+			return contractValidationError(label, "pullup_ohms.min must be <= pullup_ohms.max")
 		}
 	}
 	if req.VoltageCompatible != nil && *req.VoltageCompatible {
@@ -162,17 +361,17 @@ func validateRequirementYAML(prefix string, req requirementYAML) error {
 	if req.CurrentBudget != nil {
 		count++
 		if req.CurrentBudget.MaxUtilizationPct == nil {
-			return fmt.Errorf("%s.current_budget.max_utilization_pct is required", prefix)
+			return contractValidationError(label, "current_budget.max_utilization_pct is required")
 		}
 		if *req.CurrentBudget.MaxUtilizationPct <= 0 || *req.CurrentBudget.MaxUtilizationPct > 100 {
-			return fmt.Errorf("%s.current_budget.max_utilization_pct must be > 0 and <= 100", prefix)
+			return contractValidationError(label, "current_budget.max_utilization_pct must be > 0 and <= 100")
 		}
 	}
 	if req.NoI2CAddressConflict != nil && *req.NoI2CAddressConflict {
 		count++
 	}
 	if count == 0 {
-		return fmt.Errorf("%s must set at least one requirement", prefix)
+		return contractValidationError(label, "require must set at least one enabled requirement")
 	}
 	return nil
 }
@@ -185,10 +384,17 @@ func normalizeContractsYAML(file contractsYAMLFile, path string) []SystemContrac
 		severity, _ := normalizeYAMLSeverity(raw.Severity)
 		scope := ContractScope{
 			BusType:       strings.TrimSpace(raw.Scope.BusType),
+			BusID:         strings.TrimSpace(raw.Scope.BusID),
 			ComponentType: strings.TrimSpace(raw.Scope.ComponentType),
 			ComponentRef:  strings.TrimSpace(raw.Scope.ComponentRef),
 			Net:           strings.TrimSpace(raw.Scope.Net),
 			Rail:          strings.TrimSpace(raw.Scope.Rail),
+		}
+		if raw.Scope.Nets != nil {
+			scope.Nets = &I2CBusNets{
+				SDA: strings.TrimSpace(raw.Scope.Nets.SDA),
+				SCL: strings.TrimSpace(raw.Scope.Nets.SCL),
+			}
 		}
 		provenance := Provenance{
 			Source:   userYAMLSourceName,
@@ -277,6 +483,81 @@ func normalizeYAMLSeverity(value string) (string, bool) {
 	}
 }
 
+func mappingFromNode(node *yaml.Node, label string) (map[string]*yaml.Node, error) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s must be a mapping", label)
+	}
+	out := make(map[string]*yaml.Node, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valueNode := node.Content[i+1]
+		if keyNode.Kind != yaml.ScalarNode {
+			return nil, fmt.Errorf("%s contains a non-scalar key", label)
+		}
+		key := strings.TrimSpace(keyNode.Value)
+		if key == "" {
+			return nil, fmt.Errorf("%s contains an empty key", label)
+		}
+		if _, exists := out[key]; exists {
+			return nil, fmt.Errorf("%s contains duplicate key %q", label, key)
+		}
+		out[key] = valueNode
+	}
+	return out, nil
+}
+
+func sortedMappingKeys(values map[string]*yaml.Node) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func contractIDFromNode(node *yaml.Node) string {
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return strings.TrimSpace(node.Value)
+}
+
+func contractValidationLabel(index int, id string) string {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		return fmt.Sprintf("%q", id)
+	}
+	return fmt.Sprintf("contracts[%d]", index)
+}
+
+func contractValidationError(label string, format string, args ...any) error {
+	return fmt.Errorf("Invalid contract %s: %s", label, fmt.Sprintf(format, args...))
+}
+
+func validContractID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		switch r {
+		case '_', '.', ':', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // UserYAMLSource adapts already validated project contracts into ContractIR.
 type UserYAMLSource struct {
 	path      string
@@ -333,6 +614,12 @@ func (s UserYAMLSource) Enrich(_ *ir.DesignIR) (*ContractIR, error) {
 func mergeRequirementScope(parent ContractScope, child ContractScope) ContractScope {
 	if child.BusType == "" {
 		child.BusType = parent.BusType
+	}
+	if child.BusID == "" {
+		child.BusID = parent.BusID
+	}
+	if child.Nets == nil {
+		child.Nets = cloneI2CBusNets(parent.Nets)
 	}
 	if child.ComponentType == "" {
 		child.ComponentType = parent.ComponentType

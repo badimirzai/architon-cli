@@ -400,6 +400,8 @@ func appliedRequirementKey(req AppliedRequirement) string {
 		string(req.Type),
 		strings.Join(pins, ","),
 		req.Scope.BusType,
+		req.Scope.BusID,
+		i2cBusNetsKey(req.Scope.Nets),
 		req.Scope.ComponentType,
 		req.Scope.Net,
 		req.Scope.Rail,
@@ -407,6 +409,13 @@ func appliedRequirementKey(req AppliedRequirement) string {
 		string(req.ContractSource),
 		req.ContractFile,
 	}, "\x00")
+}
+
+func i2cBusNetsKey(nets *I2CBusNets) string {
+	if nets == nil {
+		return ""
+	}
+	return strings.Join([]string{nets.SDA, nets.SCL}, "\x00")
 }
 
 func uniquePartMatches(matches []PartMatch) map[string]PartMatch {

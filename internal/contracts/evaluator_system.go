@@ -18,9 +18,18 @@ type netConnection struct {
 }
 
 type i2cSignalNet struct {
-	Net  ir.Net
-	Role string
-	Key  string
+	Net     ir.Net
+	Role    string
+	Key     string
+	BusID   string
+	BusNets *I2CBusNets
+}
+
+type i2cBus struct {
+	ID   string
+	Type string
+	Nets *I2CBusNets
+	Refs []string
 }
 
 type pullupCandidate struct {
@@ -72,7 +81,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 		// A policy may target one named net instead of a bus. In that case the
 		// caller has already declared intent, so no I2C-name inference is needed.
 		if net, ok := findNet(design, req.Scope.Net); ok {
-			signalNets = []i2cSignalNet{{Net: net, Role: "signal", Key: "scope"}}
+			signalNets = []i2cSignalNet{{Net: net, Role: "signal", Key: "scope", BusID: req.Scope.BusID, BusNets: cloneI2CBusNets(req.Scope.Nets)}}
 		}
 	}
 	findings := make([]Finding, 0)
@@ -81,6 +90,8 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 		if len(pullups) == 0 {
 			finding := findingForRequirement(req, fmt.Sprintf("Net %s has no pull-up resistor in scope", signalNet.Net.Name))
 			finding.Net = signalNet.Net.Name
+			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
+			attachPullupBoundsToFinding(&finding, req)
 			findings = append(findings, finding)
 			continue
 		}
@@ -92,6 +103,8 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding := findingForRequirement(req, fmt.Sprintf("Net %s effective pull-up %.0f ohms is below minimum %.0f ohms", signalNet.Net.Name, effective, *req.MinOhms))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
+			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
 			continue
 		}
@@ -99,6 +112,8 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding := findingForRequirement(req, fmt.Sprintf("Net %s effective pull-up %.0f ohms is above maximum %.0f ohms", signalNet.Net.Name, effective, *req.MaxOhms))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
+			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
 		}
 	}
@@ -176,10 +191,10 @@ func evaluateNoI2CAddressConflict(design *ir.DesignIR, req AppliedRequirement) [
 	parts := partIndex(design)
 	findings := make([]Finding, 0)
 	for _, bus := range buses {
-		// Address conflicts are scoped per inferred bus, not globally across the
-		// whole design.
+		// Address conflicts are scoped per explicit or inferred bus, not
+		// globally across the whole design.
 		byAddress := map[uint64][]string{}
-		for _, ref := range bus {
+		for _, ref := range bus.Refs {
 			if passiveRef(ref) || !componentMatchesScope(parts[ref], req.Scope) {
 				continue
 			}
@@ -200,8 +215,13 @@ func evaluateNoI2CAddressConflict(design *ir.DesignIR, req AppliedRequirement) [
 			if len(refs) < 2 {
 				continue
 			}
-			finding := findingForRequirement(req, fmt.Sprintf("I2C devices %s share address 0x%02X", strings.Join(refs, ", "), address))
+			message := fmt.Sprintf("I2C devices %s share address %s", strings.Join(refs, ", "), formatI2CAddress(address))
+			if busName := i2cBusDisplayName(bus); busName != "" {
+				message += fmt.Sprintf(" on bus %s", busName)
+			}
+			finding := findingForRequirement(req, message)
 			finding.ComponentRef = refs[0]
+			attachI2CBusToFinding(&finding, bus.ID, bus.Nets)
 			findings = append(findings, finding)
 		}
 	}
@@ -219,8 +239,8 @@ func scopedComponentRefs(design *ir.DesignIR, scope ContractScope) []string {
 			refs[scope.ComponentRef] = struct{}{}
 		}
 	} else if strings.EqualFold(strings.TrimSpace(scope.BusType), "i2c") {
-		for _, busRefs := range scopedI2CBuses(design, scope) {
-			for _, ref := range busRefs {
+		for _, bus := range scopedI2CBuses(design, scope) {
+			for _, ref := range bus.Refs {
 				if !passiveRef(ref) {
 					refs[ref] = struct{}{}
 				}
@@ -258,6 +278,21 @@ func scopedI2CSignalNets(design *ir.DesignIR, scope ContractScope) []i2cSignalNe
 	if design == nil {
 		return nil
 	}
+	if hasExplicitI2CNets(scope) {
+		out := make([]i2cSignalNet, 0, 2)
+		key := explicitI2CBusKey(scope)
+		if net, ok := findNet(design, scope.Nets.SDA); ok {
+			if scope.Net == "" || net.Name == scope.Net {
+				out = append(out, i2cSignalNet{Net: net, Role: "sda", Key: key, BusID: scope.BusID, BusNets: cloneI2CBusNets(scope.Nets)})
+			}
+		}
+		if net, ok := findNet(design, scope.Nets.SCL); ok {
+			if scope.Net == "" || net.Name == scope.Net {
+				out = append(out, i2cSignalNet{Net: net, Role: "scl", Key: key, BusID: scope.BusID, BusNets: cloneI2CBusNets(scope.Nets)})
+			}
+		}
+		return out
+	}
 	out := make([]i2cSignalNet, 0)
 	for _, net := range sortedIRNets(design.Nets) {
 		if scope.Net != "" && net.Name != scope.Net {
@@ -267,24 +302,33 @@ func scopedI2CSignalNets(design *ir.DesignIR, scope ContractScope) []i2cSignalNe
 		if role == "" {
 			continue
 		}
-		out = append(out, i2cSignalNet{Net: net, Role: role, Key: i2cBusKey(net.Name, role)})
+		out = append(out, i2cSignalNet{Net: net, Role: role, Key: i2cBusKey(net.Name, role), BusID: scope.BusID})
 	}
 	return out
 }
 
-// scopedI2CBuses groups I2C components by inferred bus key.
-func scopedI2CBuses(design *ir.DesignIR, scope ContractScope) [][]string {
+// scopedI2CBuses groups I2C components by explicit or inferred bus key.
+func scopedI2CBuses(design *ir.DesignIR, scope ContractScope) []i2cBus {
 	signals := scopedI2CSignalNets(design, scope)
-	byKey := map[string]map[string]struct{}{}
+	type busBuilder struct {
+		id   string
+		nets *I2CBusNets
+		refs map[string]struct{}
+	}
+	byKey := map[string]*busBuilder{}
 	for _, signal := range signals {
 		if byKey[signal.Key] == nil {
-			byKey[signal.Key] = map[string]struct{}{}
+			byKey[signal.Key] = &busBuilder{
+				id:   signal.BusID,
+				nets: cloneI2CBusNets(signal.BusNets),
+				refs: map[string]struct{}{},
+			}
 		}
 		for _, pin := range signal.Net.Pins {
 			if passiveRef(pin.Ref) {
 				continue
 			}
-			byKey[signal.Key][pin.Ref] = struct{}{}
+			byKey[signal.Key].refs[pin.Ref] = struct{}{}
 		}
 	}
 	keys := make([]string, 0, len(byKey))
@@ -292,16 +336,78 @@ func scopedI2CBuses(design *ir.DesignIR, scope ContractScope) [][]string {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	out := make([][]string, 0, len(keys))
+	out := make([]i2cBus, 0, len(keys))
 	for _, key := range keys {
-		refs := make([]string, 0, len(byKey[key]))
-		for ref := range byKey[key] {
+		refs := make([]string, 0, len(byKey[key].refs))
+		for ref := range byKey[key].refs {
 			refs = append(refs, ref)
 		}
 		sort.Strings(refs)
-		out = append(out, refs)
+		out = append(out, i2cBus{
+			ID:   byKey[key].id,
+			Type: "i2c",
+			Nets: cloneI2CBusNets(byKey[key].nets),
+			Refs: refs,
+		})
 	}
 	return out
+}
+
+func hasExplicitI2CNets(scope ContractScope) bool {
+	return scope.Nets != nil && strings.TrimSpace(scope.Nets.SDA) != "" && strings.TrimSpace(scope.Nets.SCL) != ""
+}
+
+func explicitI2CBusKey(scope ContractScope) string {
+	if strings.TrimSpace(scope.BusID) != "" {
+		return "explicit:id:" + strings.TrimSpace(scope.BusID)
+	}
+	if !hasExplicitI2CNets(scope) {
+		return ""
+	}
+	return "explicit:nets:" + scope.Nets.SDA + "\x00" + scope.Nets.SCL
+}
+
+func i2cBusDisplayName(bus i2cBus) string {
+	if strings.TrimSpace(bus.ID) != "" {
+		return strings.TrimSpace(bus.ID)
+	}
+	return ""
+}
+
+func attachI2CBusToFinding(finding *Finding, busID string, nets *I2CBusNets) {
+	if finding == nil {
+		return
+	}
+	if strings.TrimSpace(busID) != "" {
+		finding.BusID = strings.TrimSpace(busID)
+	}
+	finding.BusType = "i2c"
+	if nets != nil {
+		finding.BusNets = cloneI2CBusNets(nets)
+	}
+}
+
+func attachPullupBoundsToFinding(finding *Finding, req AppliedRequirement) {
+	if finding == nil {
+		return
+	}
+	finding.MinPullupOhms = cloneFloat(req.MinOhms)
+	finding.MaxPullupOhms = cloneFloat(req.MaxOhms)
+}
+
+func attachPullupDetailsToFinding(finding *Finding, req AppliedRequirement, effective float64, pullups []pullupCandidate) {
+	attachPullupBoundsToFinding(finding, req)
+	finding.EffectivePullupOhms = cloneFloat(&effective)
+	finding.PullupResistors = pullupRefs(pullups)
+}
+
+func pullupRefs(pullups []pullupCandidate) []string {
+	refs := make([]string, 0, len(pullups))
+	for _, pullup := range pullups {
+		refs = append(refs, pullup.Ref)
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 // scopedVoltageNets returns nets that voltage compatibility should inspect.
@@ -387,13 +493,13 @@ func pullupsForSignalNet(design *ir.DesignIR, contractIR *ContractIR, signalNet 
 	out := make([]pullupCandidate, 0)
 	for ref, nets := range connected {
 		part := parts[ref]
-		if passiveRef(ref) && !looksLikeResistor(part) {
-			continue
-		}
-		if !looksLikeResistor(part) && pullupOhms(part) == 0 {
+		if !looksLikeResistor(part) {
 			continue
 		}
 		if len(nets) < 2 || !componentConnectedToNet(nets, signalNet) {
+			continue
+		}
+		if componentConnectedToGround(nets) {
 			continue
 		}
 		ohms := pullupOhms(part)
@@ -412,13 +518,7 @@ func pullupsForSignalNet(design *ir.DesignIR, contractIR *ContractIR, signalNet 
 			if scope.Net != "" && signalNet != scope.Net {
 				continue
 			}
-			if contractIR != nil {
-				if netContract, ok := contractIR.Net(conn.Net); ok && netContract.VoltageNominal != nil {
-					out = append(out, pullupCandidate{Ref: ref, Ohms: ohms, RailNet: conn.Net, SignalNet: signalNet})
-					break
-				}
-			}
-			if looksLikeRailNet(conn.Net) {
+			if isPositiveSupplyNet(contractIR, conn.Net) {
 				out = append(out, pullupCandidate{Ref: ref, Ohms: ohms, RailNet: conn.Net, SignalNet: signalNet})
 				break
 			}
@@ -654,6 +754,15 @@ func componentConnectedToNet(connections []netConnection, netName string) bool {
 	return false
 }
 
+func componentConnectedToGround(connections []netConnection) bool {
+	for _, conn := range connections {
+		if isGroundNetName(conn.Net) {
+			return true
+		}
+	}
+	return false
+}
+
 // partByRef finds a DesignIR part by reference.
 func partByRef(design *ir.DesignIR, ref string) ir.Part {
 	if design == nil {
@@ -740,7 +849,7 @@ func i2cAddress(part ir.Part) (uint64, bool) {
 	return 0, false
 }
 
-// parseInteger parses decimal or 0x-prefixed integer strings.
+// parseInteger parses decimal, 0x-prefixed hex, or 68h-style hex strings.
 func parseInteger(value string) (uint64, error) {
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, `"'`)
@@ -748,10 +857,18 @@ func parseInteger(value string) (uint64, error) {
 		return 0, fmt.Errorf("empty integer")
 	}
 	base := 10
-	if strings.HasPrefix(strings.ToLower(value), "0x") {
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "0x") {
 		base = 0
+	} else if strings.HasSuffix(lower, "h") {
+		base = 16
+		value = value[:len(value)-1]
 	}
 	return strconv.ParseUint(value, base, 16)
+}
+
+func formatI2CAddress(address uint64) string {
+	return fmt.Sprintf("0x%02x", address)
 }
 
 // i2cNetRole classifies a net as SDA, SCL, or neither.
@@ -821,8 +938,10 @@ func pullupOhms(part ir.Part) float64 {
 
 // parseResistanceOhms parses resistor values like 4700, 4.7k, or 4k7.
 func parseResistanceOhms(value string) (float64, error) {
-	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimSpace(value)
 	value = strings.ReplaceAll(value, "Ω", "ohm")
+	value = strings.ReplaceAll(value, "ω", "ohm")
+	value = strings.ToLower(value)
 	value = strings.ReplaceAll(value, "ohms", "")
 	value = strings.ReplaceAll(value, "ohm", "")
 	value = strings.ReplaceAll(value, " ", "")
@@ -869,10 +988,31 @@ func looksLikeResistor(part ir.Part) bool {
 		return true
 	}
 	fields := normalizedFields(part.Fields)
-	for _, key := range []string{"architon_component_type", "component_type", "type"} {
-		if strings.EqualFold(strings.TrimSpace(fields[key]), "resistor") {
+	for _, key := range []string{"architon_component_type", "component_type", "type", "category"} {
+		value := strings.ToLower(strings.TrimSpace(fields[key]))
+		if value == "resistor" || value == "res" {
 			return true
 		}
+	}
+	for _, key := range []string{
+		"architon_pullup_ohms",
+		"pullup_ohms",
+		"resistance_ohms",
+		"resistor_ohms",
+		"ohms",
+	} {
+		if value := strings.TrimSpace(fields[key]); value != "" {
+			if _, err := parseResistanceOhms(value); err == nil {
+				return true
+			}
+		}
+	}
+	if _, err := parseResistanceOhms(part.Value); err == nil {
+		return true
+	}
+	footprint := strings.ToLower(strings.TrimSpace(part.Footprint))
+	if strings.Contains(footprint, "resistor") || strings.Contains(footprint, ":r_") || strings.HasPrefix(footprint, "r_") {
+		return true
 	}
 	return false
 }
@@ -927,6 +1067,18 @@ func isGroundNetName(value string) bool {
 func isGroundPinName(value string) bool {
 	normalized := normalizeAlphaNum(value)
 	return normalized == "GND" || normalized == "GROUND" || strings.HasSuffix(normalized, "GND")
+}
+
+func isPositiveSupplyNet(contractIR *ContractIR, netName string) bool {
+	if isGroundNetName(netName) {
+		return false
+	}
+	if contractIR != nil {
+		if netContract, ok := contractIR.Net(netName); ok && netContract.VoltageNominal != nil && *netContract.VoltageNominal > 0 {
+			return true
+		}
+	}
+	return looksLikeRailNet(netName)
 }
 
 // looksLikeRailNet reports whether a net name is rail-like.

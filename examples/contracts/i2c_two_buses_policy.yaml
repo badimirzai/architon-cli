@@ -1,0 +1,24 @@
+contracts:
+  - id: i2c_main_policy
+    description: Main I2C bus must not contain duplicate addresses.
+    scope:
+      bus_type: i2c
+      bus_id: i2c_main
+      nets:
+        sda: I2C_MAIN_SDA
+        scl: I2C_MAIN_SCL
+    require:
+      no_i2c_address_conflict: true
+    severity: error
+
+  - id: i2c_aux_policy
+    description: Auxiliary I2C bus is evaluated separately from the main bus.
+    scope:
+      bus_type: i2c
+      bus_id: i2c_aux
+      nets:
+        sda: I2C_AUX_SDA
+        scl: I2C_AUX_SCL
+    require:
+      no_i2c_address_conflict: true
+    severity: error

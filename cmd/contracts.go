@@ -28,7 +28,11 @@ func newContractsValidateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate <path>",
 		Args:  cobra.ExactArgs(1),
-		Short: "Validate a contracts.yaml schema",
+		Short: "Validate a contracts.yaml schema only",
+		Long: `Validate a contracts.yaml schema only.
+
+This checks contract YAML syntax and schema. It does not verify a design.
+Use rv scan --contracts <path> to enforce contracts against a project.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validation is intentionally schema-only. It does not need a design
 			// file because contracts must be deterministic before scan time.

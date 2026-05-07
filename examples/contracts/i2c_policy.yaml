@@ -1,14 +1,16 @@
 contracts:
   - id: i2c_policy
-    description: Project I2C electrical policy
+    description: I2C sensors must share ground, have sane pullups, and avoid duplicate addresses.
     scope:
       bus_type: i2c
-      rail: +3V3
+      bus_id: i2c_main
+      nets:
+        sda: I2C_SDA
+        scl: I2C_SCL
     require:
       common_ground: true
       pullup_ohms:
         min: 2200
         max: 10000
-      voltage_compatible: true
       no_i2c_address_conflict: true
     severity: error

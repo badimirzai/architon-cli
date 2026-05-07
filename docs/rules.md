@@ -119,7 +119,11 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
-Contract source precedence is deterministic: explicit `.architon/meta.yaml`, then schematic/BOM contract fields, then the curated built-in contract source, then inferred net names. Built-ins are intentionally small and local; there is no network lookup, datasheet scraping, or generic parts database.
+Contract source precedence is deterministic: explicit `.architon/meta.yaml`, then schematic/BOM contract fields, then the curated built-in contract source, then explicit custom contracts from `.architon/contracts.yaml` or `--contracts`, then inferred net names. Built-ins are intentionally small and local; there is no network lookup, datasheet scraping, or generic parts database.
+
+Custom contracts are deterministic explicit YAML. `rv contracts validate` validates schema only; use `rv scan --contracts <path>` to enforce a contract file against a design.
+
+`pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work.
 
 ## Determinism contract
 

@@ -12,19 +12,26 @@ import (
 
 // Finding is a contract-evaluator finding before it is adapted into report JSON.
 type Finding struct {
-	RuleID         string             `json:"rule_id"`
-	Severity       string             `json:"severity"`
-	Message        string             `json:"message"`
-	ComponentRef   string             `json:"component_ref,omitempty"`
-	Net            string             `json:"net,omitempty"`
-	Pin            string             `json:"pin,omitempty"`
-	Source         string             `json:"source,omitempty"`
-	ContractID     string             `json:"contract_id,omitempty"`
-	ContractSource ContractSourceKind `json:"contract_source,omitempty"`
-	ContractFile   string             `json:"contract_file,omitempty"`
-	Requirement    string             `json:"requirement,omitempty"`
-	Provenance     Provenance         `json:"provenance,omitempty"`
-	Fix            string             `json:"fix,omitempty"`
+	RuleID              string             `json:"rule_id"`
+	Severity            string             `json:"severity"`
+	Message             string             `json:"message"`
+	ComponentRef        string             `json:"component_ref,omitempty"`
+	Net                 string             `json:"net,omitempty"`
+	Pin                 string             `json:"pin,omitempty"`
+	BusID               string             `json:"bus_id,omitempty"`
+	BusType             string             `json:"bus_type,omitempty"`
+	BusNets             *I2CBusNets        `json:"bus_nets,omitempty"`
+	EffectivePullupOhms *float64           `json:"effective_pullup_ohms,omitempty"`
+	MinPullupOhms       *float64           `json:"min_pullup_ohms,omitempty"`
+	MaxPullupOhms       *float64           `json:"max_pullup_ohms,omitempty"`
+	PullupResistors     []string           `json:"pullup_resistors,omitempty"`
+	Source              string             `json:"source,omitempty"`
+	ContractID          string             `json:"contract_id,omitempty"`
+	ContractSource      ContractSourceKind `json:"contract_source,omitempty"`
+	ContractFile        string             `json:"contract_file,omitempty"`
+	Requirement         string             `json:"requirement,omitempty"`
+	Provenance          Provenance         `json:"provenance,omitempty"`
+	Fix                 string             `json:"fix,omitempty"`
 }
 
 // EnabledRuleIDs returns the deterministic contract evaluator rule set.
@@ -615,6 +622,15 @@ func sortAppliedRequirements(reqs []AppliedRequirement) {
 		if reqs[i].Type != reqs[j].Type {
 			return reqs[i].Type < reqs[j].Type
 		}
+		if reqs[i].Scope.BusType != reqs[j].Scope.BusType {
+			return reqs[i].Scope.BusType < reqs[j].Scope.BusType
+		}
+		if reqs[i].Scope.BusID != reqs[j].Scope.BusID {
+			return reqs[i].Scope.BusID < reqs[j].Scope.BusID
+		}
+		if i2cBusNetsKey(reqs[i].Scope.Nets) != i2cBusNetsKey(reqs[j].Scope.Nets) {
+			return i2cBusNetsKey(reqs[i].Scope.Nets) < i2cBusNetsKey(reqs[j].Scope.Nets)
+		}
 		if reqs[i].Scope.Net != reqs[j].Scope.Net {
 			return reqs[i].Scope.Net < reqs[j].Scope.Net
 		}
@@ -639,6 +655,9 @@ func sortContractFindings(findings []Finding) {
 		}
 		if findings[i].Net != findings[j].Net {
 			return findings[i].Net < findings[j].Net
+		}
+		if findings[i].BusID != findings[j].BusID {
+			return findings[i].BusID < findings[j].BusID
 		}
 		if findings[i].Pin != findings[j].Pin {
 			return findings[i].Pin < findings[j].Pin

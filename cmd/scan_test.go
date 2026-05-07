@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -18,13 +19,17 @@ import (
 type scanReport struct {
 	ReportVersion string `json:"report_version"`
 	Summary       struct {
-		Parts                    int      `json:"parts"`
-		Nets                     int      `json:"nets"`
-		ParseErrorsCount         int      `json:"parse_errors_count"`
-		ParseWarnings            []string `json:"parse_warnings"`
-		ParseErrors              []string `json:"parse_errors"`
-		PartsMatched             int      `json:"parts_matched"`
-		UnknownPowerCriticalRefs []string `json:"unknown_power_critical_refs"`
+		Parts                          int      `json:"parts"`
+		Nets                           int      `json:"nets"`
+		ParseErrorsCount               int      `json:"parse_errors_count"`
+		ParseWarnings                  []string `json:"parse_warnings"`
+		ParseErrors                    []string `json:"parse_errors"`
+		PartsMatched                   int      `json:"parts_matched"`
+		UserContractsLoaded            int      `json:"user_contracts_loaded"`
+		BuiltInContractsLoaded         int      `json:"built_in_contracts_loaded"`
+		RequirementsEnabled            int      `json:"requirements_enabled"`
+		PartContractCoveragePercentage float64  `json:"part_contract_coverage_percentage"`
+		UnknownPowerCriticalRefs       []string `json:"unknown_power_critical_refs"`
 	} `json:"summary"`
 	DesignIR struct {
 		Version string `json:"version"`
@@ -36,8 +41,9 @@ type scanReport struct {
 			Name string `json:"name"`
 		} `json:"nets"`
 	} `json:"design_ir"`
-	Rules   []scanRuleFinding `json:"rules"`
-	Derived *struct {
+	Findings []scanRuleFinding `json:"findings"`
+	Rules    []scanRuleFinding `json:"rules"`
+	Derived  *struct {
 		NetVoltages []struct {
 			Net     string  `json:"net"`
 			Voltage float64 `json:"voltage"`
@@ -82,19 +88,29 @@ type scanReport struct {
 }
 
 type scanRuleFinding struct {
-	ID             string `json:"id"`
-	RuleID         string `json:"rule_id"`
-	Severity       string `json:"severity"`
-	Message        string `json:"message"`
-	ComponentRef   string `json:"component_ref"`
-	Net            string `json:"net"`
-	Pin            string `json:"pin"`
-	Source         string `json:"source"`
-	ContractID     string `json:"contract_id"`
-	ContractSource string `json:"contract_source"`
-	ContractFile   string `json:"contract_file"`
-	Requirement    string `json:"requirement"`
-	Provenance     *struct {
+	ID           string `json:"id"`
+	RuleID       string `json:"rule_id"`
+	Severity     string `json:"severity"`
+	Message      string `json:"message"`
+	ComponentRef string `json:"component_ref"`
+	Net          string `json:"net"`
+	Pin          string `json:"pin"`
+	BusID        string `json:"bus_id"`
+	BusType      string `json:"bus_type"`
+	BusNets      *struct {
+		SDA string `json:"sda"`
+		SCL string `json:"scl"`
+	} `json:"bus_nets"`
+	EffectivePullupOhms *float64 `json:"effective_pullup_ohms"`
+	MinPullupOhms       *float64 `json:"min_pullup_ohms"`
+	MaxPullupOhms       *float64 `json:"max_pullup_ohms"`
+	PullupResistors     []string `json:"pullup_resistors"`
+	Source              string   `json:"source"`
+	ContractID          string   `json:"contract_id"`
+	ContractSource      string   `json:"contract_source"`
+	ContractFile        string   `json:"contract_file"`
+	Requirement         string   `json:"requirement"`
+	Provenance          *struct {
 		Source   string `json:"source"`
 		SourceID string `json:"source_id"`
 		Detail   string `json:"detail"`
@@ -425,7 +441,7 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 
 func requireReportFinding(t *testing.T, report scanReport, ruleID string, ref string, net string) {
 	t.Helper()
-	for _, finding := range report.Rules {
+	for _, finding := range report.Findings {
 		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
 			if finding.Pin == "" || finding.Source == "" || finding.Provenance == nil || finding.Fix == "" {
 				t.Fatalf("expected complete report finding, got %+v", finding)
@@ -433,12 +449,12 @@ func requireReportFinding(t *testing.T, report scanReport, ruleID string, ref st
 			return
 		}
 	}
-	t.Fatalf("expected %s finding for %s on %s, got %+v", ruleID, ref, net, report.Rules)
+	t.Fatalf("expected %s finding for %s on %s, got %+v", ruleID, ref, net, report.Findings)
 }
 
 func countReportFindings(report scanReport, ruleID string, ref string, net string) int {
 	count := 0
-	for _, finding := range report.Rules {
+	for _, finding := range report.Findings {
 		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
 			count++
 		}
@@ -448,12 +464,12 @@ func countReportFindings(report scanReport, ruleID string, ref string, net strin
 
 func requireReportFindingByRule(t *testing.T, report scanReport, ruleID string) scanRuleFinding {
 	t.Helper()
-	for _, finding := range report.Rules {
+	for _, finding := range report.Findings {
 		if finding.RuleID == ruleID {
 			return finding
 		}
 	}
-	t.Fatalf("expected %s finding, got %+v", ruleID, report.Rules)
+	t.Fatalf("expected %s finding, got %+v", ruleID, report.Findings)
 	return scanRuleFinding{}
 }
 
@@ -755,7 +771,10 @@ func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
   - id: i2c_policy
     scope:
       bus_type: i2c
-      rail: +3V3
+      bus_id: i2c_main
+      nets:
+        sda: I2C_SDA
+        scl: I2C_SCL
     require:
       pullup_ohms:
         min: 2200
@@ -813,6 +832,18 @@ func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
 	}
 
 	report := readScanReport(t, reportPath)
+	if !reflect.DeepEqual(report.Rules, report.Findings) {
+		t.Fatalf("expected deprecated rules alias to equal canonical findings\nrules=%+v\nfindings=%+v", report.Rules, report.Findings)
+	}
+	if report.Summary.UserContractsLoaded != 1 {
+		t.Fatalf("expected one user contract loaded, got %+v", report.Summary)
+	}
+	if report.Summary.RequirementsEnabled != 2 {
+		t.Fatalf("expected two requirements enabled, got %+v", report.Summary)
+	}
+	if report.Summary.PartContractCoveragePercentage < 0 {
+		t.Fatalf("expected part contract coverage field, got %+v", report.Summary)
+	}
 	finding := requireReportFindingByRule(t, report, "pullup_ohms")
 	if finding.ContractID != "i2c_policy" {
 		t.Fatalf("expected contract_id i2c_policy, got %+v", finding)
@@ -825,6 +856,12 @@ func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
 	}
 	if finding.Requirement != "pullup_ohms" {
 		t.Fatalf("expected requirement pullup_ohms, got %+v", finding)
+	}
+	if finding.BusID != "i2c_main" || finding.BusType != "i2c" {
+		t.Fatalf("expected explicit bus fields, got %+v", finding)
+	}
+	if finding.BusNets == nil || finding.BusNets.SDA != "I2C_SDA" || finding.BusNets.SCL != "I2C_SCL" {
+		t.Fatalf("expected explicit bus nets, got %+v", finding)
 	}
 }
 
