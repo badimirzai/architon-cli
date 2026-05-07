@@ -17,7 +17,7 @@ Run Architon on a real hardware design and detect an integration failure:
 ![Architon scanning KiCad project demo](docs/demo-readme.gif)
 Architon detects integration failures deterministically before hardware is built.
 
-Demo predates automatic contract inference introduced in v0.4.0
+> Note: this demo predates automatic contract inference and system-level contract enforcement introduced in v0.4.0.
 
 ---
 
@@ -35,6 +35,54 @@ It catches failures that typically appear during bring-up, after hardware has al
 Design              Verification        Build              Firmware              Physical
 KiCad / Altium  →   Architon        →   PCB fabrication → STM32 / ESP32 / ROS → Hardware bring-up
 ```
+-----
+
+
+## Architecture
+
+Architon separates hardware verification into deterministic layers:
+
+```text
+EDA Project (KiCad / Altium / future importers)
+                    ↓
+                Importer
+                    ↓
+                 DesignIR
+     normalized electrical topology
+                    ↓
+                ContractIR
+ component + system-level requirements
+                    ↓
+               Rule Engine
+ deterministic validation passes
+                    ↓
+      JSON report + terminal findings
+```
+### DesignIR
+DesignIR represents normalized electrical topology independent of any specific EDA tool.
+
+It allows Architon rules to operate on stable electrical structure rather than importer-specific formats.
+
+### ContractIR
+ContractIR represents electrical constraints and system intent.
+
+Contracts may originate from:
+- built-in component knowledge
+- vendor/device definitions
+- user-defined system policies
+- protocol requirements
+
+### Rule Engine
+The rule engine evaluates deterministic constraints against DesignIR and ContractIR.
+
+Rules produce:
+- stable findings
+- structured JSON output
+- deterministic exit codes
+- CI-compatible enforcement
+
+
+
 
 ---
 
@@ -50,6 +98,37 @@ Architon validates system-level compatibility between components, including:
 - Current margin and stall load conditions
 
 These checks are deterministic and reproducible across local development and CI.
+
+---
+
+## Contracts
+
+Architon supports two categories of contracts.
+
+### Built-in contracts
+
+Built-in contracts represent known electrical characteristics of components.
+
+Examples:
+- voltage limits
+- GPIO tolerances
+- regulator current limits
+- driver supply ranges
+
+These are automatically applied when components are recognized.
+
+### User contracts
+
+User contracts represent system-level design intent.
+
+Examples:
+- I2C pull-up policy
+- allowed voltage domains
+- current budget constraints
+- bus topology requirements
+- organization-specific hardware standards
+
+User contracts allow deterministic enforcement of architecture policies across projects.
 
 ---
 
