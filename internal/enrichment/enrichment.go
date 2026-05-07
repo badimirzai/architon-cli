@@ -254,6 +254,9 @@ func missingContractData(design *ir.DesignIR, contractIR *contracts.ContractIR) 
 			if _, ok := contractIR.Pin(pinRef.Ref, pinRef.Pin); ok {
 				continue
 			}
+			if isPassivePullupResistorPin(design, contractIR, pinRef.Ref, net.Name) {
+				continue
+			}
 			add(contracts.MissingContractData{
 				Kind: "pin_contract",
 				Ref:  pinRef.Ref,
@@ -269,6 +272,69 @@ func missingContractData(design *ir.DesignIR, contractIR *contracts.ContractIR) 
 		}
 	}
 	return missing
+}
+
+func isPassivePullupResistorPin(design *ir.DesignIR, contractIR *contracts.ContractIR, ref string, poweredNet string) bool {
+	part, ok := partForRef(design, ref)
+	if !ok || !looksLikePassiveResistor(part) {
+		return false
+	}
+	for _, conn := range connectionsForRef(design, ref) {
+		if conn.Net == poweredNet || isGroundNetName(conn.Net) {
+			continue
+		}
+		if contract, ok := contractIR.Net(conn.Net); ok && contract.VoltageNominal != nil {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func partForRef(design *ir.DesignIR, ref string) (ir.Part, bool) {
+	if design == nil {
+		return ir.Part{}, false
+	}
+	ref = strings.TrimSpace(ref)
+	for _, part := range design.Parts {
+		if part.Ref == ref {
+			return part, true
+		}
+	}
+	return ir.Part{}, false
+}
+
+func looksLikePassiveResistor(part ir.Part) bool {
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(part.Ref)), "R") {
+		return true
+	}
+	value := strings.ToLower(strings.TrimSpace(part.Value))
+	if strings.Contains(value, "ohm") || (containsDigit(value) && (strings.Contains(value, "k") || strings.Contains(value, "r"))) {
+		return true
+	}
+	for key, value := range part.Fields {
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(value)
+		if strings.Contains(key, "ohm") || strings.Contains(key, "resistance") || strings.EqualFold(value, "resistor") || strings.EqualFold(value, "res") {
+			return true
+		}
+	}
+	footprint := strings.ToLower(strings.TrimSpace(part.Footprint))
+	return strings.Contains(footprint, "resistor") || strings.Contains(footprint, ":r_") || strings.HasPrefix(footprint, "r_")
+}
+
+func containsDigit(value string) bool {
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func isGroundNetName(name string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(name))
+	return normalized == "GND" || normalized == "GROUND" || normalized == "/GND"
 }
 
 // sortMissing keeps warning output stable across runs.
