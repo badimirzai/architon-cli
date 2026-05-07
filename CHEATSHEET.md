@@ -22,6 +22,7 @@ rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
 rv scan . --kicad-cli /full/path/to/kicad-cli
                                       Use an explicit KiCad CLI binary
+rv contracts validate contracts.yaml  Validate custom contract schema only
 rv parts list                         List built-in deterministic contract parts
 rv parts show ESP32-WROOM-32          Show one built-in contract part
 rv doctor                             Check rv and KiCad CLI setup
@@ -60,6 +61,7 @@ rv scan --help                         Show scan command options
 --explain-rails           legacy alias for --rails
 --no-kicad-cli            disable automatic schematic netlist generation
 --kicad-cli <path>        override KiCad CLI binary name/path
+--format text|json        print human summary or report JSON to stdout
 --out <report.json>       write scan report to a specific path
 ```
 
@@ -96,11 +98,13 @@ rv check robot.yaml
 - `summary.delimiter` for KiCad BOM imports: `,`, `;`, or `\t`
 - `summary.nets` when KiCad netlist data is present
 - `summary.next_steps` only when `parse_errors_count > 0`
-- `summary.parts_matched`, `summary.contracts_applied`, and `summary.contract_coverage_percentage`
+- `summary.user_contracts_loaded`, `summary.built_in_contracts_loaded`, `summary.requirements_enabled`, `summary.parts_matched`, and `summary.part_contract_coverage_percentage`
+- deprecated compatibility aliases: `summary.contracts_applied` and `summary.contract_coverage_percentage`
 - `summary.unknown_power_critical_refs` and `summary.enabled_contract_rules`
 - `derived.rail_inferences` and `derived.rail_coverage` for netlist-backed voltage inference
-- `rules[].inference` provenance for voltage-based findings when available
-- contract findings may include `component_ref`, `net`, `pin`, `source`, `provenance`, and `fix`
+- `findings[].inference` provenance for voltage-based findings when available
+- `rules` is a deprecated alias of `findings`
+- contract findings may include `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, and `fix`
 
 Directory scan detection order:
 
@@ -112,7 +116,7 @@ Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
 - `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
-- contract coverage: `Parts matched`, `Contracts applied`, `Contract coverage`, `Unknown power-critical refs`, `Enabled contract rules`
+- contract loading and coverage: `User contracts loaded`, `Built-in contracts loaded`, `Requirements enabled`, `Part contract coverage`, `Parts matched`, `Unknown power-critical refs`, `Enabled contract rules`
 - compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
 - `Inferred rails`, `Voltage coverage`, and `Metadata`
 - `Detected BOM`, `Detected Netlist`, and `Generated Netlist` when directory scan auto-detects or exports files

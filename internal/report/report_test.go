@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/badimirzai/architon-cli/internal/ir"
@@ -127,5 +128,23 @@ func TestNewVerificationReport_SetsNetCount(t *testing.T) {
 
 	if result.Summary.Nets != 2 {
 		t.Fatalf("expected 2 nets, got %d", result.Summary.Nets)
+	}
+}
+
+func TestCanonicalizeVerificationReport_PopulatesRulesAliasFromFindings(t *testing.T) {
+	result := CanonicalizeVerificationReport(VerificationReport{
+		Findings: []RuleResult{
+			{ID: "pullup_ohms", RuleID: "pullup_ohms", Severity: "ERROR", Message: "bad pullup"},
+		},
+	})
+
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected canonical findings to remain populated, got %+v", result)
+	}
+	if len(result.Rules) != 1 {
+		t.Fatalf("expected deprecated rules alias to be populated, got %+v", result)
+	}
+	if !reflect.DeepEqual(result.Rules, result.Findings) {
+		t.Fatalf("expected rules alias to equal findings, got rules=%+v findings=%+v", result.Rules, result.Findings)
 	}
 }

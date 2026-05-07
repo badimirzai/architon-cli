@@ -17,20 +17,31 @@ const SchemaVersion = "1"
 // RuleResult is the report-facing shape of a rule finding.
 // The legacy id field is kept alongside rule_id for compatibility.
 type RuleResult struct {
-	ID           string                `json:"id"`
-	RuleID       string                `json:"rule_id,omitempty"`
-	Severity     string                `json:"severity"`
-	Net          string                `json:"net,omitempty"`
-	Message      string                `json:"message"`
-	Provider     string                `json:"provider,omitempty"`
-	Consumer     string                `json:"consumer,omitempty"`
-	Ref          string                `json:"ref,omitempty"`
-	ComponentRef string                `json:"component_ref,omitempty"`
-	Pin          string                `json:"pin,omitempty"`
-	Source       string                `json:"source,omitempty"`
-	Provenance   *contracts.Provenance `json:"provenance,omitempty"`
-	Fix          string                `json:"fix,omitempty"`
-	Inference    *InferenceProvenance  `json:"inference,omitempty"`
+	ID                  string                `json:"id"`
+	RuleID              string                `json:"rule_id,omitempty"`
+	Severity            string                `json:"severity"`
+	Net                 string                `json:"net,omitempty"`
+	Message             string                `json:"message"`
+	Provider            string                `json:"provider,omitempty"`
+	Consumer            string                `json:"consumer,omitempty"`
+	Ref                 string                `json:"ref,omitempty"`
+	ComponentRef        string                `json:"component_ref,omitempty"`
+	Pin                 string                `json:"pin,omitempty"`
+	BusID               string                `json:"bus_id,omitempty"`
+	BusType             string                `json:"bus_type,omitempty"`
+	BusNets             *contracts.I2CBusNets `json:"bus_nets,omitempty"`
+	EffectivePullupOhms *float64              `json:"effective_pullup_ohms,omitempty"`
+	MinPullupOhms       *float64              `json:"min_pullup_ohms,omitempty"`
+	MaxPullupOhms       *float64              `json:"max_pullup_ohms,omitempty"`
+	PullupResistors     []string              `json:"pullup_resistors,omitempty"`
+	Source              string                `json:"source,omitempty"`
+	ContractID          string                `json:"contract_id,omitempty"`
+	ContractSource      string                `json:"contract_source,omitempty"`
+	ContractFile        string                `json:"contract_file,omitempty"`
+	Requirement         string                `json:"requirement,omitempty"`
+	Provenance          *contracts.Provenance `json:"provenance,omitempty"`
+	Fix                 string                `json:"fix,omitempty"`
+	Inference           *InferenceProvenance  `json:"inference,omitempty"`
 }
 
 // InferenceProvenance links a voltage-based finding back to rail inference.
@@ -44,25 +55,31 @@ type InferenceProvenance struct {
 
 // Summary is the compact report header used by both JSON and CLI output.
 type Summary struct {
-	Source                     string   `json:"source"`
-	SourceImporter             string   `json:"source_importer,omitempty"`
-	InputFile                  string   `json:"input_file"`
-	Parts                      int      `json:"parts"`
-	Pins                       int      `json:"pins,omitempty"`
-	Rules                      int      `json:"rules"`
-	HasFailures                bool     `json:"has_failures"`
-	Delimiter                  string   `json:"delimiter,omitempty"`
-	ParseErrorsCount           int      `json:"parse_errors_count"`
-	ParseWarningsCount         int      `json:"parse_warnings_count"`
-	ParseErrors                []string `json:"parse_errors"`
-	ParseWarnings              []string `json:"parse_warnings"`
-	NextSteps                  []string `json:"next_steps,omitempty"`
-	Nets                       int      `json:"nets,omitempty"`
-	PartsMatched               int      `json:"parts_matched"`
-	ContractsApplied           int      `json:"contracts_applied"`
-	ContractCoveragePercentage float64  `json:"contract_coverage_percentage"`
-	UnknownPowerCriticalRefs   []string `json:"unknown_power_critical_refs,omitempty"`
-	EnabledContractRules       []string `json:"enabled_contract_rules,omitempty"`
+	Source                         string   `json:"source"`
+	SourceImporter                 string   `json:"source_importer,omitempty"`
+	InputFile                      string   `json:"input_file"`
+	Parts                          int      `json:"parts"`
+	Pins                           int      `json:"pins,omitempty"`
+	Rules                          int      `json:"rules"`
+	HasFailures                    bool     `json:"has_failures"`
+	Delimiter                      string   `json:"delimiter,omitempty"`
+	ParseErrorsCount               int      `json:"parse_errors_count"`
+	ParseWarningsCount             int      `json:"parse_warnings_count"`
+	ParseErrors                    []string `json:"parse_errors"`
+	ParseWarnings                  []string `json:"parse_warnings"`
+	NextSteps                      []string `json:"next_steps,omitempty"`
+	Nets                           int      `json:"nets,omitempty"`
+	PartsMatched                   int      `json:"parts_matched"`
+	UserContractsLoaded            int      `json:"user_contracts_loaded"`
+	BuiltInContractsLoaded         int      `json:"built_in_contracts_loaded"`
+	ActiveUserRequirements         int      `json:"active_user_requirements"`
+	AvailableContractRules         int      `json:"available_contract_rules"`
+	RequirementsEnabled            int      `json:"requirements_enabled"` // Compatibility alias for ActiveUserRequirements.
+	PartContractCoveragePercentage float64  `json:"part_contract_coverage_percentage"`
+	ContractsApplied               int      `json:"contracts_applied"`
+	ContractCoveragePercentage     float64  `json:"contract_coverage_percentage"`
+	UnknownPowerCriticalRefs       []string `json:"unknown_power_critical_refs,omitempty"`
+	EnabledContractRules           []string `json:"enabled_contract_rules,omitempty"`
 }
 
 // VerificationReport is the output schema for scan results.
@@ -70,8 +87,8 @@ type VerificationReport struct {
 	ReportVersion    string                     `json:"report_version"`
 	Summary          Summary                    `json:"summary"`
 	DesignIR         *ir.DesignIR               `json:"design_ir"`
-	Rules            []RuleResult               `json:"rules"`
-	Findings         []RuleResult               `json:"findings"`
+	Findings         []RuleResult               `json:"findings"` // Canonical; future Studio consumers should use findings.
+	Rules            []RuleResult               `json:"rules"`    // Deprecated alias kept only for backward compatibility.
 	ContractCoverage *contracts.CoverageSummary `json:"contract_coverage,omitempty"`
 	Derived          *Derived                   `json:"derived,omitempty"`
 }
@@ -115,32 +132,31 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 	return VerificationReport{
 		ReportVersion: SchemaVersion,
 		Summary: Summary{
-			Source:             design.Source,
-			SourceImporter:     design.SourceInfo.Importer,
-			InputFile:          design.Metadata.InputFile,
-			Parts:              len(design.Parts),
-			Pins:               countPins(design),
-			Rules:              len(rules),
-			HasFailures:        len(design.ParseErrors) > 0 || hasRuleFailures(rules),
-			Delimiter:          design.Metadata.Delimiter,
-			ParseErrorsCount:   len(design.ParseErrors),
-			ParseWarningsCount: len(design.ParseWarnings),
-			ParseErrors:        cappedMessages(design.ParseErrors, 20),
-			ParseWarnings:      cappedMessages(design.ParseWarnings, 20),
-			NextSteps:          nextSteps(design.ParseErrors),
-			Nets:               len(design.Nets),
+			Source:                 design.Source,
+			SourceImporter:         design.SourceInfo.Importer,
+			InputFile:              design.Metadata.InputFile,
+			Parts:                  len(design.Parts),
+			Pins:                   countPins(design),
+			Rules:                  len(rules),
+			HasFailures:            len(design.ParseErrors) > 0 || hasRuleFailures(rules),
+			Delimiter:              design.Metadata.Delimiter,
+			ParseErrorsCount:       len(design.ParseErrors),
+			ParseWarningsCount:     len(design.ParseWarnings),
+			ParseErrors:            cappedMessages(design.ParseErrors, 20),
+			ParseWarnings:          cappedMessages(design.ParseWarnings, 20),
+			NextSteps:              nextSteps(design.ParseErrors),
+			Nets:                   len(design.Nets),
+			AvailableContractRules: len(contracts.EnabledRuleIDs()),
 		},
 		DesignIR: design,
-		Rules:    rules,
 		Findings: rules,
+		Rules:    rules,
 	}
 }
 
 // WriteVerificationReport writes report JSON to a file with stable formatting.
 func WriteVerificationReport(path string, result VerificationReport) error {
-	// Keep findings as a clearer alias of rules while preserving the older
-	// rules field used by existing reports and tests.
-	result.Findings = append([]RuleResult{}, result.Rules...)
+	result = CanonicalizeVerificationReport(result)
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal report JSON: %w", err)
@@ -150,6 +166,16 @@ func WriteVerificationReport(path string, result VerificationReport) error {
 		return fmt.Errorf("write report file: %w", err)
 	}
 	return nil
+}
+
+// CanonicalizeVerificationReport keeps findings canonical while preserving
+// rules as a deprecated alias for one compatibility window.
+func CanonicalizeVerificationReport(result VerificationReport) VerificationReport {
+	if len(result.Findings) == 0 && len(result.Rules) > 0 {
+		result.Findings = append([]RuleResult{}, result.Rules...)
+	}
+	result.Rules = append([]RuleResult{}, result.Findings...)
+	return result
 }
 
 func hasRuleFailures(rules []RuleResult) bool {

@@ -66,8 +66,14 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 		for _, req := range match.Contract.Requirements {
 			// Requirements are copied and bound to the concrete schematic ref
 			// before they enter ContractIR. The catalog remains immutable.
+			contractID := match.Contract.ID
+			if contractID == "" {
+				contractID = match.Contract.MPN
+			}
 			req.Scope.ComponentRef = part.Ref
 			req.Scope.MPN = match.Contract.MPN
+			req.ContractID = contractID
+			req.ContractSource = ContractSourceBuiltIn
 			if req.Provenance.Source == "" {
 				req.Provenance = match.Contract.Provenance
 			}
@@ -113,6 +119,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"GPIO*", "IO*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO", "TXD*", "RXD*"}, 3.6),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("ESP32-WROOM-32"),
 		},
 		{
@@ -126,6 +133,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"GPIO*", "PA*", "PB*", "PC*", "PD*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("STM32F103C8T6"),
 		},
 		{
@@ -139,6 +147,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"GPIO*", "IO*", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.63),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("RP2040"),
 		},
 		{
@@ -152,6 +161,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"AD0", "FSYNC", "INT", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("MPU-6050"),
 		},
 		{
@@ -165,6 +175,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"INT", "PS0", "PS1", "RST", "SCL", "SCL/SPC", "SDA", "SDA/SDI", "SDA/SDI/SDO"}, 3.6),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("BNO055"),
 		},
 		{
@@ -177,6 +188,7 @@ func BuiltinContracts() []SystemContract {
 				regulatorOutputCurrent([]string{"3", "OUT", "VO", "VOUT"}, 1.0),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("AMS1117-3.3"),
 		},
 		{
@@ -189,6 +201,7 @@ func BuiltinContracts() []SystemContract {
 				regulatorOutputCurrent([]string{"5", "OUT", "VO", "VOUT"}, 1.0),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("AP2114H-3.3"),
 		},
 		{
@@ -201,6 +214,7 @@ func BuiltinContracts() []SystemContract {
 				motorVMRange(motorSupplyAliases("VMM"), 2.7, 10.8),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("DRV8833"),
 		},
 		{
@@ -214,6 +228,7 @@ func BuiltinContracts() []SystemContract {
 				motorVMRange(motorSupplyAliases(), 4.5, 13.5),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("TB6612FNG"),
 		},
 		{
@@ -226,6 +241,7 @@ func BuiltinContracts() []SystemContract {
 				motorVMRange(motorSupplyAliases("VMS"), 5.0, 46.0),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("L298N"),
 		},
 		{
@@ -240,6 +256,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"SCL", "SCL1", "SCL2", "SCL/SPC", "SDA", "SDA1", "SDA2", "SDA/SDI", "SDA/SDI/SDO"}, 6.0),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("PCA9306"),
 		},
 		{
@@ -255,6 +272,7 @@ func BuiltinContracts() []SystemContract {
 				gpioAbsMax([]string{"A*", "B*"}, 6.5),
 			},
 			GroundPins: groundAliases(),
+			SourceKind: ContractSourceBuiltIn,
 			Provenance: builtInProvenance("TXS0108E"),
 		},
 	}
@@ -336,16 +354,29 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 		out[i] = contract
 		out[i].Aliases = cloneStrings(contract.Aliases)
 		out[i].GroundPins = cloneStrings(contract.GroundPins)
+		out[i].Scope.Pins = cloneStrings(contract.Scope.Pins)
+		out[i].Scope.Nets = cloneI2CBusNets(contract.Scope.Nets)
 		out[i].Requirements = make([]Requirement, len(contract.Requirements))
 		copy(out[i].Requirements, contract.Requirements)
 		for j := range out[i].Requirements {
 			out[i].Requirements[j].Scope.Pins = cloneStrings(contract.Requirements[j].Scope.Pins)
+			out[i].Requirements[j].Scope.Nets = cloneI2CBusNets(contract.Requirements[j].Scope.Nets)
 			out[i].Requirements[j].MinVoltage = cloneFloat(contract.Requirements[j].MinVoltage)
 			out[i].Requirements[j].MaxVoltage = cloneFloat(contract.Requirements[j].MaxVoltage)
 			out[i].Requirements[j].MaxCurrent = cloneFloat(contract.Requirements[j].MaxCurrent)
+			out[i].Requirements[j].MinOhms = cloneFloat(contract.Requirements[j].MinOhms)
+			out[i].Requirements[j].MaxOhms = cloneFloat(contract.Requirements[j].MaxOhms)
+			out[i].Requirements[j].MaxUtilizationPct = cloneFloat(contract.Requirements[j].MaxUtilizationPct)
 		}
 	}
 	return out
+}
+
+func cloneI2CBusNets(in *I2CBusNets) *I2CBusNets {
+	if in == nil {
+		return nil
+	}
+	return &I2CBusNets{SDA: in.SDA, SCL: in.SCL}
 }
 
 func cloneStrings(in []string) []string {

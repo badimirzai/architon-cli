@@ -137,10 +137,12 @@ Exit behavior is documented in the canonical exit code table in `README.md`.
 - `summary.delimiter` for BOM-backed scans
 - `summary.nets` and `design_ir.nets` for netlist-backed scans
 - `summary.next_steps` only on parse failure
-- contract coverage fields: `summary.parts_matched`, `summary.contracts_applied`, `summary.contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules`
+- contract loading and coverage fields: `summary.user_contracts_loaded`, `summary.built_in_contracts_loaded`, `summary.requirements_enabled`, `summary.parts_matched`, `summary.part_contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules`
+- deprecated compatibility aliases: `summary.contracts_applied` and `summary.contract_coverage_percentage`
 - `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, and `derived.rail_coverage` when voltage inference data is present
-- optional `rules[].inference` provenance for voltage-based findings, including reason when available
-- optional contract finding details: `rules[].component_ref`, `rules[].source`, `rules[].provenance`, and `rules[].fix`
+- optional `findings[].inference` provenance for voltage-based findings, including reason when available
+- optional contract finding details: `findings[].component_ref`, `findings[].bus_id`, `findings[].bus_type`, `findings[].bus_nets`, `findings[].source`, `findings[].provenance`, and `findings[].fix`
+- `rules` is a deprecated alias of `findings`
 
 Successful CLI output also prints a short deterministic terminal summary with:
 
@@ -152,7 +154,7 @@ Successful CLI output also prints a short deterministic terminal summary with:
 - `Errors`
 - `Warnings`
 - `Rules`
-- `Parts matched`, `Contracts applied`, `Contract coverage`, `Unknown power-critical refs`, and `Enabled contract rules`
+- `User contracts loaded`, `Built-in contracts loaded`, `Requirements enabled`, `Part contract coverage`, `Parts matched`, `Unknown power-critical refs`, and `Enabled contract rules`
 - `Violations`
 - compact rail coverage counts and level
 - inferred rails, voltage coverage, and metadata mode
@@ -209,7 +211,7 @@ Example failure snippet:
 - `internal/rails`: pure rail coverage summary and terminal explanation formatting
 - `internal/report`: deterministic scan report JSON builder/writer
 
-Contract source precedence is explicit metadata, schematic/BOM fields, built-in contracts, then inferred net names. Built-ins are one source, not the architecture.
+Contract source precedence is explicit metadata, schematic/BOM fields, built-in contracts, explicit custom contracts, then inferred net names. Built-ins are one source, not the architecture.
 
 ## Deterministic design philosophy
 

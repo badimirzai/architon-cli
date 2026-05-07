@@ -21,3 +21,17 @@ func mergeProvenance(primary Provenance, fallback Provenance) Provenance {
 	}
 	return primary
 }
+
+// ReportContractSource maps internal source names to the v0.4 report enum.
+func ReportContractSource(source string) ContractSourceKind {
+	switch strings.TrimSpace(strings.ToLower(source)) {
+	case "built-in", "built_in":
+		return ContractSourceBuiltIn
+	case "user-yaml", "user_yaml", "contracts.yaml":
+		return ContractSourceUserYAML
+	case "meta.yaml", "meta_yaml":
+		return ContractSourceMetaYAML
+	default:
+		return ContractSourceInferred
+	}
+}

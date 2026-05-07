@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
+	contractspkg "github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	reportpkg "github.com/badimirzai/architon-cli/internal/report"
 	"github.com/badimirzai/architon-cli/internal/ui"
@@ -18,13 +20,19 @@ import (
 type scanReport struct {
 	ReportVersion string `json:"report_version"`
 	Summary       struct {
-		Parts                    int      `json:"parts"`
-		Nets                     int      `json:"nets"`
-		ParseErrorsCount         int      `json:"parse_errors_count"`
-		ParseWarnings            []string `json:"parse_warnings"`
-		ParseErrors              []string `json:"parse_errors"`
-		PartsMatched             int      `json:"parts_matched"`
-		UnknownPowerCriticalRefs []string `json:"unknown_power_critical_refs"`
+		Parts                          int      `json:"parts"`
+		Nets                           int      `json:"nets"`
+		ParseErrorsCount               int      `json:"parse_errors_count"`
+		ParseWarnings                  []string `json:"parse_warnings"`
+		ParseErrors                    []string `json:"parse_errors"`
+		PartsMatched                   int      `json:"parts_matched"`
+		UserContractsLoaded            int      `json:"user_contracts_loaded"`
+		BuiltInContractsLoaded         int      `json:"built_in_contracts_loaded"`
+		ActiveUserRequirements         int      `json:"active_user_requirements"`
+		AvailableContractRules         int      `json:"available_contract_rules"`
+		RequirementsEnabled            int      `json:"requirements_enabled"`
+		PartContractCoveragePercentage float64  `json:"part_contract_coverage_percentage"`
+		UnknownPowerCriticalRefs       []string `json:"unknown_power_critical_refs"`
 	} `json:"summary"`
 	DesignIR struct {
 		Version string `json:"version"`
@@ -36,30 +44,9 @@ type scanReport struct {
 			Name string `json:"name"`
 		} `json:"nets"`
 	} `json:"design_ir"`
-	Rules []struct {
-		ID           string `json:"id"`
-		RuleID       string `json:"rule_id"`
-		Severity     string `json:"severity"`
-		Message      string `json:"message"`
-		ComponentRef string `json:"component_ref"`
-		Net          string `json:"net"`
-		Pin          string `json:"pin"`
-		Source       string `json:"source"`
-		Provenance   *struct {
-			Source   string `json:"source"`
-			SourceID string `json:"source_id"`
-			Detail   string `json:"detail"`
-		} `json:"provenance"`
-		Fix       string `json:"fix"`
-		Inference *struct {
-			NetName         string  `json:"net_name"`
-			Source          string  `json:"source"`
-			ConfidenceScore float64 `json:"confidence_score"`
-			ConfidenceLevel string  `json:"confidence_level"`
-			Reason          string  `json:"reason"`
-		} `json:"inference"`
-	} `json:"rules"`
-	Derived *struct {
+	Findings []scanRuleFinding `json:"findings"`
+	Rules    []scanRuleFinding `json:"rules"`
+	Derived  *struct {
 		NetVoltages []struct {
 			Net     string  `json:"net"`
 			Voltage float64 `json:"voltage"`
@@ -101,6 +88,44 @@ type scanReport struct {
 			Warnings            []string `json:"warnings"`
 		} `json:"rail_coverage"`
 	} `json:"derived"`
+}
+
+type scanRuleFinding struct {
+	ID           string `json:"id"`
+	RuleID       string `json:"rule_id"`
+	Severity     string `json:"severity"`
+	Message      string `json:"message"`
+	ComponentRef string `json:"component_ref"`
+	Net          string `json:"net"`
+	Pin          string `json:"pin"`
+	BusID        string `json:"bus_id"`
+	BusType      string `json:"bus_type"`
+	BusNets      *struct {
+		SDA string `json:"sda"`
+		SCL string `json:"scl"`
+	} `json:"bus_nets"`
+	EffectivePullupOhms *float64 `json:"effective_pullup_ohms"`
+	MinPullupOhms       *float64 `json:"min_pullup_ohms"`
+	MaxPullupOhms       *float64 `json:"max_pullup_ohms"`
+	PullupResistors     []string `json:"pullup_resistors"`
+	Source              string   `json:"source"`
+	ContractID          string   `json:"contract_id"`
+	ContractSource      string   `json:"contract_source"`
+	ContractFile        string   `json:"contract_file"`
+	Requirement         string   `json:"requirement"`
+	Provenance          *struct {
+		Source   string `json:"source"`
+		SourceID string `json:"source_id"`
+		Detail   string `json:"detail"`
+	} `json:"provenance"`
+	Fix       string `json:"fix"`
+	Inference *struct {
+		NetName         string  `json:"net_name"`
+		Source          string  `json:"source"`
+		ConfidenceScore float64 `json:"confidence_score"`
+		ConfidenceLevel string  `json:"confidence_level"`
+		Reason          string  `json:"reason"`
+	} `json:"inference"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -419,7 +444,7 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 
 func requireReportFinding(t *testing.T, report scanReport, ruleID string, ref string, net string) {
 	t.Helper()
-	for _, finding := range report.Rules {
+	for _, finding := range report.Findings {
 		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
 			if finding.Pin == "" || finding.Source == "" || finding.Provenance == nil || finding.Fix == "" {
 				t.Fatalf("expected complete report finding, got %+v", finding)
@@ -427,17 +452,28 @@ func requireReportFinding(t *testing.T, report scanReport, ruleID string, ref st
 			return
 		}
 	}
-	t.Fatalf("expected %s finding for %s on %s, got %+v", ruleID, ref, net, report.Rules)
+	t.Fatalf("expected %s finding for %s on %s, got %+v", ruleID, ref, net, report.Findings)
 }
 
 func countReportFindings(report scanReport, ruleID string, ref string, net string) int {
 	count := 0
-	for _, finding := range report.Rules {
+	for _, finding := range report.Findings {
 		if finding.RuleID == ruleID && finding.ComponentRef == ref && finding.Net == net {
 			count++
 		}
 	}
 	return count
+}
+
+func requireReportFindingByRule(t *testing.T, report scanReport, ruleID string) scanRuleFinding {
+	t.Helper()
+	for _, finding := range report.Findings {
+		if finding.RuleID == ruleID {
+			return finding
+		}
+	}
+	t.Fatalf("expected %s finding, got %+v", ruleID, report.Findings)
+	return scanRuleFinding{}
 }
 
 func stringSliceContains(values []string, want string) bool {
@@ -714,6 +750,127 @@ func TestScan_NetlistFileWritesReport(t *testing.T) {
 	}
 	if len(report.DesignIR.Nets) != 2 {
 		t.Fatalf("expected 2 nets in design IR, got %d", len(report.DesignIR.Nets))
+	}
+}
+
+func TestScan_WithoutContractsYAMLStillWorks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "netlist_simple.net"))
+	if err != nil {
+		t.Fatalf("expected scan without contracts.yaml to succeed, got %v", err)
+	}
+	if strings.Contains(stdout, "contracts load failed") {
+		t.Fatalf("did not expect contracts load attempt to fail, got %q", stdout)
+	}
+}
+
+func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
+	tmpDir := t.TempDir()
+	netlistPath := filepath.Join(tmpDir, "i2c.net")
+	contractsPath := filepath.Join(tmpDir, "contracts.yaml")
+	reportPath := filepath.Join(tmpDir, "report.json")
+	writeScanTestFile(t, contractsPath, `contracts:
+  - id: i2c_policy
+    scope:
+      bus_type: i2c
+      bus_id: i2c_main
+      nets:
+        sda: I2C_SDA
+        scl: I2C_SCL
+    require:
+      pullup_ohms:
+        min: 2200
+        max: 10000
+      no_i2c_address_conflict: true
+    severity: error
+`)
+	writeScanTestFile(t, netlistPath, `(export (version "E")
+  (design
+    (source "i2c.kicad_sch")
+    (date "2026-05-05T00:00:00+0000")
+    (tool "Eeschema")
+    (sheet (number "1") (name "/") (tstamps "/")))
+  (components
+    (comp (ref "U1")
+      (value "SensorA")
+      (fields
+        (field (name "i2c_address") "0x68"))
+      (libsource (lib "Device") (part "SensorA")))
+    (comp (ref "U2")
+      (value "SensorB")
+      (fields
+        (field (name "i2c_address") "104"))
+      (libsource (lib "Device") (part "SensorB"))))
+  (libparts
+    (libpart (lib "Device") (part "SensorA")
+      (pins
+        (pin (num "1") (name "SDA") (type "bidirectional"))
+        (pin (num "2") (name "SCL") (type "bidirectional"))
+        (pin (num "3") (name "GND") (type "power_in"))))
+    (libpart (lib "Device") (part "SensorB")
+      (pins
+        (pin (num "1") (name "SDA") (type "bidirectional"))
+        (pin (num "2") (name "SCL") (type "bidirectional"))
+        (pin (num "3") (name "GND") (type "power_in")))))
+  (libraries)
+  (nets
+    (net (code "1") (name "I2C_SDA") (class "Default")
+      (node (ref "U1") (pin "1") (pinfunction "SDA") (pintype "bidirectional"))
+      (node (ref "U2") (pin "1") (pinfunction "SDA") (pintype "bidirectional")))
+    (net (code "2") (name "I2C_SCL") (class "Default")
+      (node (ref "U1") (pin "2") (pinfunction "SCL") (pintype "bidirectional"))
+      (node (ref "U2") (pin "2") (pinfunction "SCL") (pintype "bidirectional")))
+    (net (code "3") (name "GND") (class "Default")
+      (node (ref "U1") (pin "3") (pinfunction "GND") (pintype "power_in"))
+      (node (ref "U2") (pin "3") (pinfunction "GND") (pintype "power_in")))))`)
+
+	_, err := runScanCommand(t, tmpDir, netlistPath, "--contracts", contractsPath, "--out", reportPath)
+	if err == nil {
+		t.Fatal("expected user contract findings")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %T %v", err, err)
+	}
+
+	report := readScanReport(t, reportPath)
+	if !reflect.DeepEqual(report.Rules, report.Findings) {
+		t.Fatalf("expected deprecated rules alias to equal canonical findings\nrules=%+v\nfindings=%+v", report.Rules, report.Findings)
+	}
+	if report.Summary.UserContractsLoaded != 1 {
+		t.Fatalf("expected one user contract loaded, got %+v", report.Summary)
+	}
+	if report.Summary.ActiveUserRequirements != 2 {
+		t.Fatalf("expected two active user requirements, got %+v", report.Summary)
+	}
+	if report.Summary.AvailableContractRules != len(contractspkg.EnabledRuleIDs()) {
+		t.Fatalf("expected available contract rules to match engine rules, got %+v", report.Summary)
+	}
+	if report.Summary.RequirementsEnabled != 2 {
+		t.Fatalf("expected legacy requirements_enabled alias to match active user requirements, got %+v", report.Summary)
+	}
+	if report.Summary.PartContractCoveragePercentage < 0 {
+		t.Fatalf("expected part contract coverage field, got %+v", report.Summary)
+	}
+	finding := requireReportFindingByRule(t, report, "pullup_ohms")
+	if finding.ContractID != "i2c_policy" {
+		t.Fatalf("expected contract_id i2c_policy, got %+v", finding)
+	}
+	if finding.ContractSource != "user_yaml" {
+		t.Fatalf("expected user_yaml contract_source, got %+v", finding)
+	}
+	if finding.ContractFile != contractsPath {
+		t.Fatalf("expected contract file %q, got %+v", contractsPath, finding)
+	}
+	if finding.Requirement != "pullup_ohms" {
+		t.Fatalf("expected requirement pullup_ohms, got %+v", finding)
+	}
+	if finding.BusID != "i2c_main" || finding.BusType != "i2c" {
+		t.Fatalf("expected explicit bus fields, got %+v", finding)
+	}
+	if finding.BusNets == nil || finding.BusNets.SDA != "I2C_SDA" || finding.BusNets.SCL != "I2C_SCL" {
+		t.Fatalf("expected explicit bus nets, got %+v", finding)
 	}
 }
 
