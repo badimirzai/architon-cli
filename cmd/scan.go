@@ -305,7 +305,9 @@ Examples:
 			designReport.Summary.PartsMatched = coverage.PartsMatched
 			designReport.Summary.UserContractsLoaded = len(userContracts)
 			designReport.Summary.BuiltInContractsLoaded = len(contracts.BuiltinContracts())
-			designReport.Summary.RequirementsEnabled = coverage.ContractsApplied
+			designReport.Summary.ActiveUserRequirements = scanActiveUserRequirements(contractIR)
+			designReport.Summary.AvailableContractRules = len(coverage.EnabledContractRules)
+			designReport.Summary.RequirementsEnabled = designReport.Summary.ActiveUserRequirements
 			designReport.Summary.PartContractCoveragePercentage = coverage.CoveragePercentage
 			designReport.Summary.ContractsApplied = coverage.ContractsApplied
 			designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
@@ -360,7 +362,8 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "Rules: %d\n", designReport.Summary.Rules)
 			fmt.Fprintf(cmd.OutOrStdout(), "User contracts loaded: %d\n", designReport.Summary.UserContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "Built-in contracts loaded: %d\n", designReport.Summary.BuiltInContractsLoaded)
-			fmt.Fprintf(cmd.OutOrStdout(), "Requirements enabled: %d\n", designReport.Summary.RequirementsEnabled)
+			fmt.Fprintf(cmd.OutOrStdout(), "Active user requirements: %d\n", designReport.Summary.ActiveUserRequirements)
+			fmt.Fprintf(cmd.OutOrStdout(), "Available contract rules: %d\n", designReport.Summary.AvailableContractRules)
 			fmt.Fprintf(cmd.OutOrStdout(), "Part contract coverage: %.2f%%\n", designReport.Summary.PartContractCoveragePercentage)
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d/%d\n", designReport.Summary.PartsMatched, designReport.Summary.Parts)
 			fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
@@ -1075,6 +1078,19 @@ func scanRuleColorToken(severity string) string {
 	default:
 		return ""
 	}
+}
+
+func scanActiveUserRequirements(contractIR *contracts.ContractIR) int {
+	if contractIR == nil {
+		return 0
+	}
+	count := 0
+	for _, req := range contractIR.AppliedRequirements {
+		if req.ContractSource == contracts.ContractSourceUserYAML || req.Source == "user_yaml" {
+			count++
+		}
+	}
+	return count
 }
 
 // scanExitCode derives the final scan exit code from report findings.

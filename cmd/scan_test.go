@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	contractspkg "github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	reportpkg "github.com/badimirzai/architon-cli/internal/report"
 	"github.com/badimirzai/architon-cli/internal/ui"
@@ -27,6 +28,8 @@ type scanReport struct {
 		PartsMatched                   int      `json:"parts_matched"`
 		UserContractsLoaded            int      `json:"user_contracts_loaded"`
 		BuiltInContractsLoaded         int      `json:"built_in_contracts_loaded"`
+		ActiveUserRequirements         int      `json:"active_user_requirements"`
+		AvailableContractRules         int      `json:"available_contract_rules"`
 		RequirementsEnabled            int      `json:"requirements_enabled"`
 		PartContractCoveragePercentage float64  `json:"part_contract_coverage_percentage"`
 		UnknownPowerCriticalRefs       []string `json:"unknown_power_critical_refs"`
@@ -838,8 +841,14 @@ func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
 	if report.Summary.UserContractsLoaded != 1 {
 		t.Fatalf("expected one user contract loaded, got %+v", report.Summary)
 	}
+	if report.Summary.ActiveUserRequirements != 2 {
+		t.Fatalf("expected two active user requirements, got %+v", report.Summary)
+	}
+	if report.Summary.AvailableContractRules != len(contractspkg.EnabledRuleIDs()) {
+		t.Fatalf("expected available contract rules to match engine rules, got %+v", report.Summary)
+	}
 	if report.Summary.RequirementsEnabled != 2 {
-		t.Fatalf("expected two requirements enabled, got %+v", report.Summary)
+		t.Fatalf("expected legacy requirements_enabled alias to match active user requirements, got %+v", report.Summary)
 	}
 	if report.Summary.PartContractCoveragePercentage < 0 {
 		t.Fatalf("expected part contract coverage field, got %+v", report.Summary)

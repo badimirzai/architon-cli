@@ -514,6 +514,80 @@ contracts:
 	}
 }
 
+func TestUserYAMLI2CExplicitMissingNetsTriggerFinding(t *testing.T) {
+	design := i2cDesign(nil)
+	contractIR := userContractIR(t, design, `
+contracts:
+  - id: i2c_pullup_policy
+    scope:
+      bus_type: i2c
+      nets:
+        sda: DOES_NOT_EXIST
+        scl: ALSO_MISSING
+    require:
+      no_i2c_address_conflict: true
+    severity: error
+`)
+
+	findings := contracts.Evaluate(design, contractIR)
+	if len(findings) != 2 {
+		t.Fatalf("expected missing SDA/SCL findings, got %+v", findings)
+	}
+	for _, want := range []string{"DOES_NOT_EXIST", "ALSO_MISSING"} {
+		found := false
+		for _, finding := range findings {
+			if finding.Net == want && strings.Contains(finding.Message, "Contract i2c_pullup_policy references missing net "+want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("expected missing net finding for %s, got %+v", want, findings)
+		}
+	}
+}
+
+func TestUserYAMLI2CExplicitNetsMatchKiCadLeadingSlash(t *testing.T) {
+	design := i2cDesign(nil)
+	design.Nets[0].Name = "/I2C_SDA"
+	design.Nets[1].Name = "/I2C_SCL"
+	contractIR := userContractIR(t, design, `
+contracts:
+  - id: i2c_pullup_policy
+    scope:
+      bus_type: i2c
+      nets:
+        sda: I2C_SDA
+        scl: I2C_SCL
+    require:
+      no_i2c_address_conflict: true
+    severity: error
+`)
+
+	if findings := contracts.Evaluate(design, contractIR); len(findings) != 0 {
+		t.Fatalf("expected slash-prefixed IR nets to match explicit scope, got %+v", findings)
+	}
+}
+
+func TestUserYAMLI2CExplicitNetsMatchContractLeadingSlash(t *testing.T) {
+	design := i2cDesign(nil)
+	contractIR := userContractIR(t, design, `
+contracts:
+  - id: i2c_pullup_policy
+    scope:
+      bus_type: i2c
+      nets:
+        sda: /I2C_SDA
+        scl: /I2C_SCL
+    require:
+      no_i2c_address_conflict: true
+    severity: error
+`)
+
+	if findings := contracts.Evaluate(design, contractIR); len(findings) != 0 {
+		t.Fatalf("expected slash-prefixed contract nets to match IR scope, got %+v", findings)
+	}
+}
+
 func TestUserYAMLVoltageCompatibleTriggersFinding(t *testing.T) {
 	design := i2cDesign(map[string]float64{"R1": 4700, "R2": 4700})
 	design.Parts[1].Fields["voltage_max_v"] = "3.6"

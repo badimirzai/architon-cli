@@ -72,7 +72,9 @@ type Summary struct {
 	PartsMatched                   int      `json:"parts_matched"`
 	UserContractsLoaded            int      `json:"user_contracts_loaded"`
 	BuiltInContractsLoaded         int      `json:"built_in_contracts_loaded"`
-	RequirementsEnabled            int      `json:"requirements_enabled"`
+	ActiveUserRequirements         int      `json:"active_user_requirements"`
+	AvailableContractRules         int      `json:"available_contract_rules"`
+	RequirementsEnabled            int      `json:"requirements_enabled"` // Compatibility alias for ActiveUserRequirements.
 	PartContractCoveragePercentage float64  `json:"part_contract_coverage_percentage"`
 	ContractsApplied               int      `json:"contracts_applied"`
 	ContractCoveragePercentage     float64  `json:"contract_coverage_percentage"`
@@ -82,12 +84,11 @@ type Summary struct {
 
 // VerificationReport is the output schema for scan results.
 type VerificationReport struct {
-	ReportVersion string       `json:"report_version"`
-	Summary       Summary      `json:"summary"`
-	DesignIR      *ir.DesignIR `json:"design_ir"`
-	Findings      []RuleResult `json:"findings"`
-	// Rules is a deprecated compatibility alias for Findings.
-	Rules            []RuleResult               `json:"rules"`
+	ReportVersion    string                     `json:"report_version"`
+	Summary          Summary                    `json:"summary"`
+	DesignIR         *ir.DesignIR               `json:"design_ir"`
+	Findings         []RuleResult               `json:"findings"` // Canonical; future Studio consumers should use findings.
+	Rules            []RuleResult               `json:"rules"`    // Deprecated alias kept only for backward compatibility.
 	ContractCoverage *contracts.CoverageSummary `json:"contract_coverage,omitempty"`
 	Derived          *Derived                   `json:"derived,omitempty"`
 }
@@ -131,20 +132,21 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 	return VerificationReport{
 		ReportVersion: SchemaVersion,
 		Summary: Summary{
-			Source:             design.Source,
-			SourceImporter:     design.SourceInfo.Importer,
-			InputFile:          design.Metadata.InputFile,
-			Parts:              len(design.Parts),
-			Pins:               countPins(design),
-			Rules:              len(rules),
-			HasFailures:        len(design.ParseErrors) > 0 || hasRuleFailures(rules),
-			Delimiter:          design.Metadata.Delimiter,
-			ParseErrorsCount:   len(design.ParseErrors),
-			ParseWarningsCount: len(design.ParseWarnings),
-			ParseErrors:        cappedMessages(design.ParseErrors, 20),
-			ParseWarnings:      cappedMessages(design.ParseWarnings, 20),
-			NextSteps:          nextSteps(design.ParseErrors),
-			Nets:               len(design.Nets),
+			Source:                 design.Source,
+			SourceImporter:         design.SourceInfo.Importer,
+			InputFile:              design.Metadata.InputFile,
+			Parts:                  len(design.Parts),
+			Pins:                   countPins(design),
+			Rules:                  len(rules),
+			HasFailures:            len(design.ParseErrors) > 0 || hasRuleFailures(rules),
+			Delimiter:              design.Metadata.Delimiter,
+			ParseErrorsCount:       len(design.ParseErrors),
+			ParseWarningsCount:     len(design.ParseWarnings),
+			ParseErrors:            cappedMessages(design.ParseErrors, 20),
+			ParseWarnings:          cappedMessages(design.ParseWarnings, 20),
+			NextSteps:              nextSteps(design.ParseErrors),
+			Nets:                   len(design.Nets),
+			AvailableContractRules: len(contracts.EnabledRuleIDs()),
 		},
 		DesignIR: design,
 		Findings: rules,

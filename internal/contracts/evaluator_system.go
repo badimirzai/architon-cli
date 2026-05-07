@@ -281,12 +281,12 @@ func scopedI2CSignalNets(design *ir.DesignIR, scope ContractScope) []i2cSignalNe
 	if hasExplicitI2CNets(scope) {
 		out := make([]i2cSignalNet, 0, 2)
 		key := explicitI2CBusKey(scope)
-		if net, ok := findNet(design, scope.Nets.SDA); ok {
+		if net, ok := findExplicitScopedNet(design, scope.Nets.SDA); ok {
 			if scope.Net == "" || net.Name == scope.Net {
 				out = append(out, i2cSignalNet{Net: net, Role: "sda", Key: key, BusID: scope.BusID, BusNets: cloneI2CBusNets(scope.Nets)})
 			}
 		}
-		if net, ok := findNet(design, scope.Nets.SCL); ok {
+		if net, ok := findExplicitScopedNet(design, scope.Nets.SCL); ok {
 			if scope.Net == "" || net.Name == scope.Net {
 				out = append(out, i2cSignalNet{Net: net, Role: "scl", Key: key, BusID: scope.BusID, BusNets: cloneI2CBusNets(scope.Nets)})
 			}
@@ -355,6 +355,53 @@ func scopedI2CBuses(design *ir.DesignIR, scope ContractScope) []i2cBus {
 
 func hasExplicitI2CNets(scope ContractScope) bool {
 	return scope.Nets != nil && strings.TrimSpace(scope.Nets.SDA) != "" && strings.TrimSpace(scope.Nets.SCL) != ""
+}
+
+func missingExplicitI2CNetFindings(design *ir.DesignIR, req AppliedRequirement) []Finding {
+	if design == nil || !hasExplicitI2CNets(req.Scope) {
+		return nil
+	}
+	out := make([]Finding, 0, 2)
+	for _, netName := range []string{req.Scope.Nets.SDA, req.Scope.Nets.SCL} {
+		if _, ok := findExplicitScopedNet(design, netName); ok {
+			continue
+		}
+		contractID := strings.TrimSpace(req.ContractID)
+		if contractID == "" {
+			contractID = strings.TrimSpace(req.Provenance.SourceID)
+		}
+		if contractID == "" {
+			contractID = string(req.Type)
+		}
+		message := fmt.Sprintf("Contract %s references missing net %s", contractID, netName)
+		finding := findingForRequirement(req, message)
+		finding.Message = message
+		finding.Severity = "ERROR"
+		if strings.TrimSpace(finding.ContractID) == "" {
+			finding.ContractID = contractID
+		}
+		finding.Net = netName
+		attachI2CBusToFinding(&finding, req.Scope.BusID, req.Scope.Nets)
+		out = append(out, finding)
+	}
+	return out
+}
+
+func normalizeNetName(name string) string {
+	return strings.TrimPrefix(name, "/")
+}
+
+func findExplicitScopedNet(design *ir.DesignIR, name string) (ir.Net, bool) {
+	if net, ok := findNet(design, name); ok {
+		return net, true
+	}
+	normalized := normalizeNetName(name)
+	for _, net := range sortedIRNets(design.Nets) {
+		if normalizeNetName(net.Name) == normalized {
+			return net, true
+		}
+	}
+	return ir.Net{}, false
 }
 
 func explicitI2CBusKey(scope ContractScope) string {

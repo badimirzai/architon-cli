@@ -62,8 +62,22 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 	partsByRef := partIndex(design)
 	findings := make([]Finding, 0)
 	absVoltageViolations := map[string]struct{}{}
+	reportedMissingNets := map[string]struct{}{}
 
 	for _, req := range reqs {
+		missingNetFindings := missingExplicitI2CNetFindings(design, req)
+		for _, finding := range missingNetFindings {
+			key := finding.ContractID + "\x00" + finding.Net
+			if _, ok := reportedMissingNets[key]; ok {
+				continue
+			}
+			reportedMissingNets[key] = struct{}{}
+			findings = append(findings, finding)
+		}
+		if len(missingNetFindings) > 0 {
+			continue
+		}
+
 		// v0.4 system-level requirements evaluate directly against DesignIR
 		// topology and explicit fields. Older component-limit requirements keep
 		// using the connected-pin loop below.
