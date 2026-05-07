@@ -59,6 +59,7 @@ rv scan --help                         Show scan command options
 --meta <file.yaml>        metadata for sources, regulators, and component limits
 --rails                   print rail voltage inference and confidence details
 --explain-rails           legacy alias for --rails
+--verbose                 print debug summary lines hidden by default
 --no-kicad-cli            disable automatic schematic netlist generation
 --kicad-cli <path>        override KiCad CLI binary name/path
 --format text|json        print human summary or report JSON to stdout
@@ -84,6 +85,7 @@ rv scan . --bom bom/bom.csv --netlist exports/project.net
 rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
 rv scan exports/project.net --meta .architon/meta.yaml --rails
+rv scan . --contracts i2c_pullup_policy.yaml --verbose
 rv init
 rv init --template 4wd-problem
 rv check robot.yaml
@@ -116,11 +118,12 @@ Successful `rv scan` terminal output includes:
 
 - `ARCHITON SCAN`
 - `Target`, `Result`, `Parts`, `Nets`, `Errors`, `Warnings`, `Rules`, `Violations`
-- contract loading and coverage: `User contracts loaded`, `Built-in contracts loaded`, `Requirements enabled`, `Part contract coverage`, `Parts matched`, `Unknown power-critical refs`, `Enabled contract rules`
+- contract loading and coverage: `User contracts loaded`, `Built-in contracts loaded`, `Active user requirements`, `Part contract coverage`, `Parts matched`
 - compact rail coverage: `Inferred voltages: N Unknown voltage nets: N Rail coverage: LEVEL PCT%`
 - `Inferred rails`, `Voltage coverage`, and `Metadata`
-- `Detected BOM`, `Detected Netlist`, and `Generated Netlist` when directory scan auto-detects or exports files
+- `Detected BOM`, `Detected Netlist`, and `Generated Netlist: .architon/generated.net` when directory scan auto-detects or exports files
 - rail inference table when `--rails` is passed; `--explain-rails` remains supported as a legacy alias
+- `--verbose` additionally prints `Available contract rules`, `Enabled contract rules`, and `Unknown power-critical refs`
 
 Example success snippet:
 

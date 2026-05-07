@@ -194,7 +194,7 @@ Warnings: 0
 Rules: 0
 User contracts loaded: 0
 Built-in contracts loaded: <n>
-Requirements enabled: <n>
+Active user requirements: <n>
 Part contract coverage: <n>%
 Parts matched: <x>/<y>
 Violations: 0
@@ -202,7 +202,7 @@ Inferred voltages: <n> Unknown voltage nets: <n> Rail coverage: <LEVEL> <PCT>%
 Inferred rails: <n>
 Voltage coverage: <x>/<y> nets with inferred voltage
 Metadata: inferred
-Detected Netlist: <path>       # or Generated Netlist: <temp path>
+Detected Netlist: <path>       # or Generated Netlist: .architon/generated.net
 Wrote architon-report.json
 exit code: 0
 ```
@@ -298,6 +298,7 @@ rv scan exports/project.net --meta .architon/meta.yaml
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv scan . --no-kicad-cli
 rv scan . --kicad-cli /full/path/to/kicad-cli
+rv scan . --contracts i2c_pullup_policy.yaml --verbose
 rv parts list
 rv parts show ESP32-WROOM-32
 
@@ -326,7 +327,7 @@ When you scan a directory, Architon looks for:
 
 - BOM candidates using the existing BOM detection rules: `bom/bom.csv`, `bom.csv`, `exports/bom.csv`, then lexical `*bom*.csv` matches in `bom/`, `exports/`, and the project root
 - Netlist candidates in this order: lexical `exports/*.net`, then lexical `*.net` in the project root
-- If no netlist is found: exactly one root `*.kicad_sch`, exported with `kicad-cli sch export netlist --format kicadsexpr --output <temp>.net <schematic>`
+- If no netlist is found: exactly one root `*.kicad_sch`, exported with `kicad-cli sch export netlist --format kicadsexpr --output .architon/generated.net <schematic>`
 
 If both a BOM and a netlist are found, Architon merges them deterministically into one DesignIR:
 
@@ -407,11 +408,9 @@ Warnings: 0
 Rules: 1
 User contracts loaded: 0
 Built-in contracts loaded: <n>
-Requirements enabled: 0
+Active user requirements: 0
 Part contract coverage: 66.67%
 Parts matched: 0/3
-Unknown power-critical refs: 0
-Enabled contract rules: supply_abs_max, supply_recommended_range, gpio_abs_max, motor_driver_vm_range, regulator_output_current
 Violations: 1
 Inferred voltages: 2 Unknown voltage nets: 0 Rail coverage: HIGH 100%
 Inferred rails: 2
@@ -419,12 +418,14 @@ Voltage coverage: 2/3 nets with inferred voltage
 Metadata: mixed
 Rule findings:
 - ERROR RULE_SUPPLY_CONTRACT: Net /+5V provides 5.00V but U1 pin 1 allows max 3.30V
-Generated Netlist: <temp path>
+Generated Netlist: .architon/generated.net
 Wrote architon-report.json
 exit code: 2
 ```
 
 `Errors` are parse/import errors. Rule failures are reported as `Violations`.
+
+Use `--verbose` to include debug summary lines such as `Available contract rules`, `Enabled contract rules`, and `Unknown power-critical refs` in terminal output. These fields are always preserved in JSON reports.
 
 Use `--rails` to print deterministic rail inference details, including voltage, confidence level, confidence score, source, and rail coverage. `--explain-rails` remains supported as a legacy alias.
 

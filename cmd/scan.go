@@ -89,6 +89,7 @@ Examples:
 			outputFormat, _ := cmd.Flags().GetString("format")
 			explainRails, _ := cmd.Flags().GetBool("explain-rails")
 			railsAlias, _ := cmd.Flags().GetBool("rails")
+			verbose, _ := cmd.Flags().GetBool("verbose")
 			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
 			kicadCLIPath, _ := cmd.Flags().GetString("kicad-cli")
 			explainRails = explainRails || railsAlias
@@ -365,11 +366,13 @@ Examples:
 			fmt.Fprintf(cmd.OutOrStdout(), "User contracts loaded: %d\n", designReport.Summary.UserContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "Built-in contracts loaded: %d\n", designReport.Summary.BuiltInContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "Active user requirements: %d\n", designReport.Summary.ActiveUserRequirements)
-			fmt.Fprintf(cmd.OutOrStdout(), "Available contract rules: %d\n", designReport.Summary.AvailableContractRules)
 			fmt.Fprintf(cmd.OutOrStdout(), "Part contract coverage: %.2f%%\n", designReport.Summary.PartContractCoveragePercentage)
 			fmt.Fprintf(cmd.OutOrStdout(), "Parts matched: %d/%d\n", designReport.Summary.PartsMatched, designReport.Summary.Parts)
-			fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
-			fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
+			if verbose {
+				fmt.Fprintf(cmd.OutOrStdout(), "Available contract rules: %d\n", designReport.Summary.AvailableContractRules)
+				fmt.Fprintf(cmd.OutOrStdout(), "Enabled contract rules: %s\n", strings.Join(designReport.Summary.EnabledContractRules, ", "))
+				fmt.Fprintf(cmd.OutOrStdout(), "Unknown power-critical refs: %d\n", len(designReport.Summary.UnknownPowerCriticalRefs))
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n", scanRuleViolationCount(designReport))
 			fmt.Fprintf(cmd.OutOrStdout(), "Inferred voltages: %d Unknown voltage nets: %d Rail coverage: %s\n", len(nameInferRes.Voltages), len(railInferRes.Unknowns), rails.FormatRailCoverage(railCoverage))
 			coveredNets, totalNets := scanInferredVoltageCoverage(design, nameInferRes)
@@ -441,6 +444,7 @@ Examples:
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
 	cmd.Flags().String("format", "text", "Output format: text or json")
+	cmd.Flags().Bool("verbose", false, "Print verbose scan summary details")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")

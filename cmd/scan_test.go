@@ -423,6 +423,15 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	if !strings.Contains(stdout, "Warnings: 0\n") {
 		t.Fatalf("expected warnings line, got %q", stdout)
 	}
+	if strings.Contains(stdout, "Available contract rules:") {
+		t.Fatalf("expected available contract rules to be hidden by default, got %q", stdout)
+	}
+	if strings.Contains(stdout, "Enabled contract rules:") {
+		t.Fatalf("expected enabled contract rules to be hidden by default, got %q", stdout)
+	}
+	if strings.Contains(stdout, "Unknown power-critical refs:") {
+		t.Fatalf("expected unknown power-critical refs to be hidden by default, got %q", stdout)
+	}
 	if !strings.Contains(stdout, "Wrote "+defaultScanReportPath) {
 		t.Fatalf("expected stdout to mention written report, got %q", stdout)
 	}
@@ -439,6 +448,29 @@ func TestScan_CleanScanReturnsExitCodeZero(t *testing.T) {
 	}
 	if report.Summary.ParseErrorsCount != 0 {
 		t.Fatalf("expected 0 parse errors, got %d", report.Summary.ParseErrorsCount)
+	}
+}
+
+func TestScan_VerboseShowsInternalSummaryLines(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "bom_minimal.csv"), "--verbose")
+	if err != nil {
+		t.Fatalf("expected clean scan to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "Available contract rules:") {
+		t.Fatalf("expected available contract rules in verbose output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Enabled contract rules:") {
+		t.Fatalf("expected enabled contract rules in verbose output, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Unknown power-critical refs:") {
+		t.Fatalf("expected unknown power-critical refs in verbose output, got %q", stdout)
+	}
+
+	report := readScanReport(t, filepath.Join(tmpDir, defaultScanReportPath))
+	if report.Summary.AvailableContractRules == 0 {
+		t.Fatalf("expected available contract rules to remain in JSON summary, got %+v", report.Summary)
 	}
 }
 
