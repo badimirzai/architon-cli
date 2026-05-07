@@ -1,27 +1,18 @@
 Output demo-readme.gif
-Set Shell "bash"
+
 Set FontSize 20
-Set Width 1000
-Set Height 650
-Require echo
-Set PlaybackSpeed 0.7
+Set Width 1400
+Set Height 900
+Set Theme "Catppuccin Mocha"
+Set Padding 40
+Set PlaybackSpeed 0.8
 
-Type "cd demos/demo1-esp32-motor/kicad"
+
+Type "cd too_strong_pull_up && ls"
 Enter
+Sleep 2000ms
 
-Sleep 1s
 
-Type "rv scan ."
+Type "rv scan . --contracts i2c_pullup_policy.yaml"
 Enter
-
-Sleep 4s
-
-Type "rv init --template 4wd-problem"
-Enter
-
-Sleep 2s
-
-Type "rv check robot.yaml"
-Enter
-
-Sleep 6s
+Sleep 20000ms
