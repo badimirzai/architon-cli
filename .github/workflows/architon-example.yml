@@ -23,13 +23,47 @@ jobs:
       - name: Install rv
         run: go install ./cmd/rv
 
-      - name: Run Architon scan
-        run: rv scan . --format github
+      - name: Scan clean fixture
+        shell: bash
+        run: |
+          rv scan internal/importers/kicad/testdata/bom_minimal.csv \
+            --format json \
+            --out architon-clean-report.json \
+            | tee architon-clean-ci.json
 
-      - name: Upload Architon report
+          grep -q '"report_version": "1"' architon-clean-ci.json
+          grep -q '"violations": 0' architon-clean-ci.json
+          grep -q '"warnings": 0' architon-clean-ci.json
+
+      - name: Scan expected violation fixture
+        shell: bash
+        run: |
+          set +e
+          rv scan testdata/esp32_overvoltage/netlist.net \
+            --meta testdata/esp32_overvoltage/meta.yaml \
+            --format github \
+            --out architon-violation-report.json \
+            | tee architon-violation-annotations.txt
+          scan_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$scan_status" -ne 2 ]; then
+            echo "expected rv scan to exit 2 for the overvoltage fixture, got $scan_status"
+            exit 1
+          fi
+
+          grep -q '::error title=ARCHITON CONTRACT VIOLATION::' architon-violation-annotations.txt
+          grep -q 'contract_id=ESP32-WROOM-32' architon-violation-annotations.txt
+          grep -q 'component=U1' architon-violation-annotations.txt
+          grep -q 'net=/+5V' architon-violation-annotations.txt
+
+      - name: Upload Architon reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: architon-report
-          path: architon-report.json
+          name: architon-reports
+          path: |
+            architon-*-report.json
+            architon-*-ci.json
+            architon-*-annotations.txt
           if-no-files-found: ignore

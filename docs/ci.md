@@ -53,6 +53,17 @@ jobs:
 
 The scan step does not need `continue-on-error`. GitHub Actions fails the job on exit code `2`, and exit code `1` also marks the step as failed if you choose to treat warnings as blocking.
 
+## Testing This Source Repository
+
+This repository is the `rv` source tree, not a KiCad project, so `rv scan .` is expected to exit `3` here. The checked-in example workflow uses deterministic fixtures instead:
+
+- `internal/importers/kicad/testdata/bom_minimal.csv` must scan cleanly.
+- `testdata/esp32_overvoltage/netlist.net` with `testdata/esp32_overvoltage/meta.yaml` must emit a GitHub error annotation and exit `2`.
+
+That keeps pushes and PRs green when behavior is correct while still proving that GitHub annotation output works. For a hardware project repository, use `rv scan . --format github` once the project root contains a discoverable BOM, netlist, or root KiCad schematic.
+
+For an external demo project, [badimirzai/architon-kicad-demo](https://github.com/badimirzai/architon-kicad-demo) is a BOM CSV demo. Its README documents `rv scan bom/bom.csv`; it is not intended to prove `rv scan .` project auto-discovery.
+
 ## Fail PRs on Violations Only
 
 To allow warnings but fail on contract violations or tool failures, capture the scan status and exit only for codes `2` and `3`.
@@ -63,10 +74,10 @@ To allow warnings but fail on contract violations or tool failures, capture the 
   run: |
     set +e
     rv scan . --format github
-    status=$?
+    scan_status=$?
     set -e
-    if [ "$status" -ge 2 ]; then
-      exit "$status"
+    if [ "$scan_status" -ge 2 ]; then
+      exit "$scan_status"
     fi
 ```
 
@@ -95,9 +106,9 @@ Use `--format markdown` to generate a PR-comment-ready review. Capture the exit 
   run: |
     set +e
     rv scan . --format markdown > architon-review.md
-    status=$?
+    scan_status=$?
     set -e
-    echo "status=$status" >> "$GITHUB_OUTPUT"
+    echo "status=$scan_status" >> "$GITHUB_OUTPUT"
 
 - name: Post Architon PR comment
   if: always() && github.event_name == 'pull_request'
