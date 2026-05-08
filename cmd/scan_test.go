@@ -128,6 +128,40 @@ type scanRuleFinding struct {
 	} `json:"inference"`
 }
 
+type scanCIOutput struct {
+	ReportVersion string `json:"report_version"`
+	RVVersion     string `json:"rv_version"`
+	Summary       struct {
+		InputPath              string   `json:"input_path"`
+		Source                 string   `json:"source"`
+		Violations             int      `json:"violations"`
+		Warnings               int      `json:"warnings"`
+		Infos                  int      `json:"infos"`
+		HasFailures            bool     `json:"has_failures"`
+		ContractsLoaded        int      `json:"contracts_loaded"`
+		UserContractsLoaded    int      `json:"user_contracts_loaded"`
+		BuiltInContractsLoaded int      `json:"built_in_contracts_loaded"`
+		ContractCoveragePct    float64  `json:"contract_coverage_pct"`
+		RulesEnabled           []string `json:"rules_enabled"`
+	} `json:"summary"`
+	Findings []scanCIFindingOutput `json:"findings"`
+}
+
+type scanCIFindingOutput struct {
+	ID             string `json:"id"`
+	RuleID         string `json:"rule_id"`
+	ContractID     string `json:"contract_id"`
+	ContractSource string `json:"contract_source"`
+	Severity       string `json:"severity"`
+	Message        string `json:"message"`
+	ComponentRef   string `json:"component_ref"`
+	Net            string `json:"net"`
+	Pin            string `json:"pin"`
+	Requirement    string `json:"requirement"`
+	Fix            string `json:"fix"`
+	Provenance     string `json:"provenance"`
+}
+
 func kicadFixturePath(t *testing.T, name string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -281,6 +315,106 @@ func TestScan_ESP32BuiltInContractOvervoltage(t *testing.T) {
 	}
 	if finding.Fix == "" {
 		t.Fatalf("expected fix, got %+v", finding)
+	}
+}
+
+func TestScan_FormatJSONEmitsCIReport(t *testing.T) {
+	tmpDir := t.TempDir()
+	reportPath := filepath.Join(tmpDir, "full-report.json")
+	netlist := rootFixturePath(t, filepath.Join("esp32_overvoltage", "netlist.net"))
+	metaPath := rootFixturePath(t, filepath.Join("esp32_overvoltage", "meta.yaml"))
+
+	stdout, err := runScanCommand(t, tmpDir, netlist, "--meta", metaPath, "--out", reportPath, "--format", "json")
+	if err == nil {
+		t.Fatal("expected overvoltage exit")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+	if exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2 to be preserved for violations, got %d", exitErr.Code)
+	}
+	if strings.Contains(stdout, "ARCHITON SCAN") || strings.Contains(stdout, "Wrote ") {
+		t.Fatalf("expected clean JSON stdout, got %q", stdout)
+	}
+
+	var payload scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("expected JSON output to parse: %v\n%s", err, stdout)
+	}
+	if payload.ReportVersion != "1" {
+		t.Fatalf("expected report_version 1, got %q", payload.ReportVersion)
+	}
+	if payload.RVVersion == "" {
+		t.Fatalf("expected rv_version, got %+v", payload)
+	}
+	if payload.Summary.InputPath != netlist {
+		t.Fatalf("expected input path %q, got %q", netlist, payload.Summary.InputPath)
+	}
+	if payload.Summary.Violations != 1 || !payload.Summary.HasFailures {
+		t.Fatalf("expected one failed violation summary, got %+v", payload.Summary)
+	}
+	if len(payload.Findings) != 1 {
+		t.Fatalf("expected one finding, got %+v", payload.Findings)
+	}
+	finding := payload.Findings[0]
+	if finding.ContractID != "ESP32-WROOM-32" {
+		t.Fatalf("expected contract_id ESP32-WROOM-32, got %+v", finding)
+	}
+	if finding.ContractSource != "built_in" {
+		t.Fatalf("expected built_in contract source, got %+v", finding)
+	}
+	if finding.ComponentRef != "U1" || finding.Net != "/+5V" || finding.Pin != "VDD" {
+		t.Fatalf("expected component/net/pin context, got %+v", finding)
+	}
+}
+
+func TestScan_FormatMarkdownContainsViolatedContractID(t *testing.T) {
+	tmpDir := t.TempDir()
+	netlist := rootFixturePath(t, filepath.Join("esp32_overvoltage", "netlist.net"))
+	metaPath := rootFixturePath(t, filepath.Join("esp32_overvoltage", "meta.yaml"))
+
+	stdout, err := runScanCommand(t, tmpDir, netlist, "--meta", metaPath, "--format", "markdown")
+	if err == nil {
+		t.Fatal("expected overvoltage exit")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %T %v", err, err)
+	}
+	if !strings.Contains(stdout, "# Architon Hardware Contract Review\n") {
+		t.Fatalf("expected markdown title, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "| ERROR | ESP32-WROOM-32 | U1 | /+5V |") {
+		t.Fatalf("expected violated contract ID in markdown table, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "Exit codes: 0 clean/info only, 1 warnings, 2 violations, 3 tool/import/internal failure.") {
+		t.Fatalf("expected exit-code footer, got %q", stdout)
+	}
+}
+
+func TestScan_FormatGitHubEmitsAnnotations(t *testing.T) {
+	tmpDir := t.TempDir()
+	netlist := rootFixturePath(t, filepath.Join("esp32_overvoltage", "netlist.net"))
+	metaPath := rootFixturePath(t, filepath.Join("esp32_overvoltage", "meta.yaml"))
+
+	stdout, err := runScanCommand(t, tmpDir, netlist, "--meta", metaPath, "--format", "github")
+	if err == nil {
+		t.Fatal("expected overvoltage exit")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %T %v", err, err)
+	}
+	if !strings.Contains(stdout, "::error title=ARCHITON CONTRACT VIOLATION::") {
+		t.Fatalf("expected GitHub error annotation, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "contract_id=ESP32-WROOM-32") || !strings.Contains(stdout, "component=U1") || !strings.Contains(stdout, "net=/+5V") {
+		t.Fatalf("expected annotation context, got %q", stdout)
+	}
+	if strings.Contains(stdout, "ARCHITON SCAN") || strings.Contains(stdout, "Wrote ") {
+		t.Fatalf("expected annotation-only stdout, got %q", stdout)
 	}
 }
 
@@ -1257,6 +1391,16 @@ func TestScanExitCode(t *testing.T) {
 			want: 2,
 		},
 		{
+			name: "rule failure with parse warning",
+			report: reportpkg.VerificationReport{
+				Summary: reportpkg.Summary{ParseWarningsCount: 1},
+				Rules: []reportpkg.RuleResult{
+					{ID: "BOM_RULE", Severity: "ERROR", Message: "bad part"},
+				},
+			},
+			want: 2,
+		},
+		{
 			name: "warning only",
 			report: reportpkg.VerificationReport{
 				Rules: []reportpkg.RuleResult{
@@ -1264,6 +1408,22 @@ func TestScanExitCode(t *testing.T) {
 				},
 			},
 			want: 1,
+		},
+		{
+			name: "parse warning only",
+			report: reportpkg.VerificationReport{
+				Summary: reportpkg.Summary{ParseWarningsCount: 1},
+			},
+			want: 1,
+		},
+		{
+			name: "info only",
+			report: reportpkg.VerificationReport{
+				Rules: []reportpkg.RuleResult{
+					{ID: "BOM_RULE", Severity: "INFO", Message: "note"},
+				},
+			},
+			want: 0,
 		},
 		{
 			name:   "clean scan",

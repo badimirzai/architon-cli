@@ -1,0 +1,35 @@
+name: Architon Example
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  architon:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install rv
+        run: go install ./cmd/rv
+
+      - name: Run Architon scan
+        run: rv scan . --format github
+
+      - name: Upload Architon report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architon-report
+          path: architon-report.json
+          if-no-files-found: ignore
