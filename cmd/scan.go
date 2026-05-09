@@ -590,9 +590,9 @@ func resolveScanContractsPath(input resolvedScanInput, override string) (string,
 		return path, true, nil
 	}
 
-	candidate := filepath.Join(".architon", "contracts.yaml")
-	if input.Directory && strings.TrimSpace(input.ProjectPath) != "" {
-		candidate = filepath.Join(input.ProjectPath, ".architon", "contracts.yaml")
+	candidate := defaultProjectContractsPath(input)
+	if candidate == "" {
+		return "", false, nil
 	}
 	info, err := os.Stat(candidate)
 	if err == nil {
@@ -606,6 +606,33 @@ func resolveScanContractsPath(input resolvedScanInput, override string) (string,
 		return "", false, nil
 	}
 	return candidate, false, err
+}
+
+// defaultProjectContractsPath returns the only implicit user contract location.
+// Direct generated netlist inputs under .architon are treated as project
+// artifacts; arbitrary standalone .net files do not trigger project guessing.
+func defaultProjectContractsPath(input resolvedScanInput) string {
+	if input.Directory && strings.TrimSpace(input.ProjectPath) != "" {
+		return filepath.Join(input.ProjectPath, ".architon", "contracts.yaml")
+	}
+
+	directPath := strings.TrimSpace(input.DirectPath)
+	if directPath == "" {
+		return ""
+	}
+	directPath = filepath.Clean(directPath)
+	if !strings.EqualFold(filepath.Ext(directPath), ".net") {
+		return ""
+	}
+	architonDir := filepath.Dir(directPath)
+	if filepath.Base(architonDir) != ".architon" {
+		return ""
+	}
+	projectRoot := filepath.Dir(architonDir)
+	if projectRoot == "." || projectRoot == "" {
+		projectRoot = "."
+	}
+	return filepath.Join(projectRoot, ".architon", "contracts.yaml")
 }
 
 // resolveScanInput resolves scan input with default discovery behavior.

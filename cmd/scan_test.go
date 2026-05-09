@@ -22,6 +22,7 @@ type scanReport struct {
 	Summary       struct {
 		Parts                          int      `json:"parts"`
 		Nets                           int      `json:"nets"`
+		HasFailures                    bool     `json:"has_failures"`
 		ParseErrorsCount               int      `json:"parse_errors_count"`
 		ParseWarnings                  []string `json:"parse_warnings"`
 		ParseErrors                    []string `json:"parse_errors"`

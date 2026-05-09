@@ -31,10 +31,14 @@ type GraphIR struct {
 }
 
 type Summary struct {
-	Violations int `json:"violations"`
-	Warnings   int `json:"warnings"`
-	Infos      int `json:"infos"`
-	Findings   int `json:"findings"`
+	Violations             int  `json:"violations"`
+	Warnings               int  `json:"warnings"`
+	Infos                  int  `json:"infos"`
+	Findings               int  `json:"findings"`
+	HasFailures            bool `json:"has_failures"`
+	UserContractsLoaded    int  `json:"user_contracts_loaded"`
+	BuiltInContractsLoaded int  `json:"built_in_contracts_loaded"`
+	ActiveUserRequirements int  `json:"active_user_requirements"`
 }
 
 type Node struct {
@@ -197,12 +201,17 @@ func Build(input BuildInput) GraphIR {
 	b.interfaces = b.buildInterfaces()
 	findingsIndex := b.attachFindings()
 	findings := b.graphFindings()
+	summary := summarizeFindings(findings)
+	summary.HasFailures = input.Report.Summary.HasFailures || summary.Violations > 0
+	summary.UserContractsLoaded = input.Report.Summary.UserContractsLoaded
+	summary.BuiltInContractsLoaded = input.Report.Summary.BuiltInContractsLoaded
+	summary.ActiveUserRequirements = input.Report.Summary.ActiveUserRequirements
 
 	return GraphIR{
 		GraphVersion:  SchemaVersion,
 		RVVersion:     strings.TrimSpace(input.RVVersion),
 		InputPath:     input.InputPath,
-		Summary:       summarizeFindings(findings),
+		Summary:       summary,
 		Nodes:         b.nodes,
 		Edges:         b.edges,
 		Rails:         b.rails,

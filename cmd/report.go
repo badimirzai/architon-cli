@@ -48,6 +48,8 @@ Examples:
 			contractsOverride, _ := cmd.Flags().GetString("contracts")
 			outputFormat, _ := cmd.Flags().GetString("format")
 			outputPath, _ := cmd.Flags().GetString("out")
+			scanOutputPath, _ := cmd.Flags().GetString("scan-out")
+			graphOutputPath, _ := cmd.Flags().GetString("graph-out")
 			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
 			kicadCLIPath, _ := cmd.Flags().GetString("kicad-cli")
 
@@ -79,6 +81,10 @@ Examples:
 			}
 
 			scanResult := report.CanonicalizeVerificationReport(pipeline.Report)
+			scanJSON, err := json.MarshalIndent(scanResult, "", "  ")
+			if err != nil {
+				return internalError(fmt.Errorf("marshal embedded scan JSON: %w", err))
+			}
 			graph := graphir.Build(graphir.BuildInput{
 				RVVersion:  version.Get().Version,
 				InputPath:  args[0],
@@ -86,13 +92,19 @@ Examples:
 				Report:     scanResult,
 				ContractIR: pipeline.ContractIR,
 			})
+			graphJSON, err := graphir.RenderJSON(graph)
+			if err != nil {
+				return internalError(fmt.Errorf("marshal embedded GraphIR JSON: %w", err))
+			}
 
 			html, err := renderHTMLReport(htmlReportInput{
-				InputPath:     args[0],
-				Scan:          scanResult,
-				Graph:         graph,
-				ContractIR:    pipeline.ContractIR,
-				UserContracts: pipeline.UserContracts,
+				InputPath:         args[0],
+				Scan:              scanResult,
+				Graph:             graph,
+				ContractIR:        pipeline.ContractIR,
+				UserContracts:     pipeline.UserContracts,
+				EmbeddedScanJSON:  scanJSON,
+				EmbeddedGraphJSON: graphJSON,
 			})
 			if err != nil {
 				return internalError(fmt.Errorf("render HTML report: %w", err))
@@ -103,9 +115,28 @@ Examples:
 					Err:  fmt.Errorf("write HTML report %s: %w", outputPath, err),
 				}
 			}
+			if strings.TrimSpace(scanOutputPath) != "" {
+				if err := os.WriteFile(scanOutputPath, scanJSON, 0o644); err != nil {
+					return &ExitError{
+						Code: 3,
+						Err:  fmt.Errorf("write embedded scan JSON %s: %w", scanOutputPath, err),
+					}
+				}
+			}
+			if strings.TrimSpace(graphOutputPath) != "" {
+				if err := os.WriteFile(graphOutputPath, graphJSON, 0o644); err != nil {
+					return &ExitError{
+						Code: 3,
+						Err:  fmt.Errorf("write embedded GraphIR JSON %s: %w", graphOutputPath, err),
+					}
+				}
+			}
 
 			exitCode := scanExitCode(scanResult)
 			fmt.Fprintf(cmd.OutOrStdout(), "Wrote %s\n", outputPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Embedded scan findings: %d\n", len(scanResult.Findings))
+			fmt.Fprintf(cmd.OutOrStdout(), "Embedded graph findings: %d\n", graph.Summary.Findings)
+			fmt.Fprintf(cmd.OutOrStdout(), "User contracts loaded: %d\n", scanResult.Summary.UserContractsLoaded)
 			fmt.Fprintf(cmd.OutOrStdout(), "exit code: %d\n", exitCode)
 			return scanReturnExit(exitCode)
 		},
@@ -118,17 +149,21 @@ Examples:
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
 	cmd.Flags().String("format", "html", "Output format: html")
 	cmd.Flags().String("out", defaultHTMLReportPath, "Path to write the offline HTML report")
+	cmd.Flags().String("scan-out", "", "Optional path to write the exact embedded scan JSON")
+	cmd.Flags().String("graph-out", "", "Optional path to write the exact embedded GraphIR JSON")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
 	cmd.Flags().String("kicad-cli", defaultKiCadCLI, "KiCad CLI binary name or path for automatic netlist generation")
 	return cmd
 }
 
 type htmlReportInput struct {
-	InputPath     string
-	Scan          report.VerificationReport
-	Graph         graphir.GraphIR
-	ContractIR    *contracts.ContractIR
-	UserContracts []contracts.SystemContract
+	InputPath         string
+	Scan              report.VerificationReport
+	Graph             graphir.GraphIR
+	ContractIR        *contracts.ContractIR
+	UserContracts     []contracts.SystemContract
+	EmbeddedScanJSON  []byte
+	EmbeddedGraphJSON []byte
 }
 
 type htmlReportView struct {
@@ -210,13 +245,21 @@ func renderHTMLReport(input htmlReportInput) ([]byte, error) {
 
 func buildHTMLReportView(input htmlReportInput) (htmlReportView, error) {
 	scanResult := report.CanonicalizeVerificationReport(input.Scan)
-	scanJSON, err := json.MarshalIndent(scanResult, "", "  ")
-	if err != nil {
-		return htmlReportView{}, fmt.Errorf("marshal embedded scan JSON: %w", err)
+	scanJSON := input.EmbeddedScanJSON
+	if len(scanJSON) == 0 {
+		var err error
+		scanJSON, err = json.MarshalIndent(scanResult, "", "  ")
+		if err != nil {
+			return htmlReportView{}, fmt.Errorf("marshal embedded scan JSON: %w", err)
+		}
 	}
-	graphJSON, err := graphir.RenderJSON(input.Graph)
-	if err != nil {
-		return htmlReportView{}, fmt.Errorf("marshal embedded GraphIR JSON: %w", err)
+	graphJSON := input.EmbeddedGraphJSON
+	if len(graphJSON) == 0 {
+		var err error
+		graphJSON, err = graphir.RenderJSON(input.Graph)
+		if err != nil {
+			return htmlReportView{}, fmt.Errorf("marshal embedded GraphIR JSON: %w", err)
+		}
 	}
 
 	violations, findingWarnings, _ := scanFindingSeverityCounts(scanResult.Findings)

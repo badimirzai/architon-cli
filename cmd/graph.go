@@ -41,6 +41,7 @@ Examples:
 			contractsOverride, _ := cmd.Flags().GetString("contracts")
 			outputFormat, _ := cmd.Flags().GetString("format")
 			outputPath, _ := cmd.Flags().GetString("out")
+			failOnFindings, _ := cmd.Flags().GetBool("fail-on-findings")
 			noKiCadCLI, _ := cmd.Flags().GetBool("no-kicad-cli")
 			kicadCLIPath, _ := cmd.Flags().GetString("kicad-cli")
 
@@ -88,6 +89,9 @@ Examples:
 				}
 			}
 			fmt.Fprint(cmd.OutOrStdout(), string(data))
+			if failOnFindings {
+				return scanReturnExit(scanExitCode(pipeline.Report))
+			}
 			return nil
 		},
 	}
@@ -99,6 +103,7 @@ Examples:
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
 	cmd.Flags().String("format", "json", "Output format: json")
 	cmd.Flags().String("out", "", "Path to write GraphIR JSON")
+	cmd.Flags().Bool("fail-on-findings", false, "Exit 1 on warnings and 2 on violations after writing GraphIR")
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
 	cmd.Flags().String("kicad-cli", defaultKiCadCLI, "KiCad CLI binary name or path for automatic netlist generation")
 	return cmd

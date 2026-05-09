@@ -51,6 +51,64 @@ supports the same project input overrides as scan and graph:
 --kicad-cli
 ```
 
+## Contracts
+
+For project directories, `rv report` uses the same default contract discovery as
+`rv scan` and `rv graph`:
+
+```bash
+rv report . --format html --out report.html
+```
+
+If `.architon/contracts.yaml` exists in the project, it is loaded. You can also
+pin the exact contract file explicitly:
+
+```bash
+rv report . --contracts .architon/contracts.yaml --format html --out report.html
+```
+
+When the input is a generated netlist under `.architon`, such as
+`.architon/generated.net`, the project root is inferred as the parent directory
+of `.architon`, so `.architon/contracts.yaml` is still discovered. Standalone
+`.net` files outside a project do not guess a contract file; pass `--contracts`
+when you want user policies applied.
+
+## Companion Artifacts
+
+The HTML embeds the canonical scan JSON and GraphIR JSON used to render the
+page. To write those exact payloads next to the report, use:
+
+```bash
+rv report . \
+  --contracts .architon/contracts.yaml \
+  --format html \
+  --out report.html \
+  --scan-out report-scan.json \
+  --graph-out report-graph.json
+```
+
+`--scan-out` writes the exact embedded scan JSON. `--graph-out` writes the exact
+embedded GraphIR JSON. If either flag is omitted, only the HTML is written.
+
+Avoid comparing an HTML report with stale JSON files produced by a different
+command, different input path, or different flags. Use `--scan-out` and
+`--graph-out` when you need artifacts that are guaranteed to match the HTML.
+
+## CI Example
+
+```bash
+rv report . \
+  --contracts .architon/contracts.yaml \
+  --format html \
+  --out artifacts/report.html \
+  --scan-out artifacts/report-scan.json \
+  --graph-out artifacts/report-graph.json
+```
+
+The command writes artifacts before returning the scan-style exit code, so CI can
+upload `artifacts/report.html`, `artifacts/report-scan.json`, and
+`artifacts/report-graph.json` even when violations fail the job.
+
 ## Contents
 
 The HTML report includes:
@@ -83,6 +141,10 @@ The embedded payloads are available in the document as:
 
 This means CI can upload the report artifact even when violations are present,
 then fail the job with exit code `2`.
+
+After writing the report, stdout includes the embedded scan finding count,
+embedded graph finding count, user contract count, and exit code. This makes
+artifact mismatches visible immediately.
 
 ## Offline Guarantees
 

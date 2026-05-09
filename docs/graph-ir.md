@@ -30,7 +30,11 @@ Top-level object:
     "violations": 0,
     "warnings": 0,
     "infos": 0,
-    "findings": 0
+    "findings": 0,
+    "has_failures": false,
+    "user_contracts_loaded": 0,
+    "built_in_contracts_loaded": 0,
+    "active_user_requirements": 0
   },
   "nodes": [],
   "edges": [],
@@ -43,6 +47,8 @@ Top-level object:
 
 `summary` counts embedded scan findings by severity. `ERROR` increments
 `violations`, `WARN` increments `warnings`, and `INFO` increments `infos`.
+The contract counts and `has_failures` are copied from the same canonical scan
+result used to build the graph.
 
 ### Nodes
 

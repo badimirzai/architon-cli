@@ -26,10 +26,14 @@ type graphCommandOutput struct {
 }
 
 type graphCommandSummary struct {
-	Violations int `json:"violations"`
-	Warnings   int `json:"warnings"`
-	Infos      int `json:"infos"`
-	Findings   int `json:"findings"`
+	Violations             int  `json:"violations"`
+	Warnings               int  `json:"warnings"`
+	Infos                  int  `json:"infos"`
+	Findings               int  `json:"findings"`
+	HasFailures            bool `json:"has_failures"`
+	UserContractsLoaded    int  `json:"user_contracts_loaded"`
+	BuiltInContractsLoaded int  `json:"built_in_contracts_loaded"`
+	ActiveUserRequirements int  `json:"active_user_requirements"`
 }
 
 type graphCommandNode struct {
@@ -354,7 +358,7 @@ func TestGraphCommand_DefaultContractsAndOutFlag(t *testing.T) {
 		t.Fatalf("expected JSON stdout without ANSI escapes, got %q", stdout)
 	}
 	stdoutGraph := parseGraphOutput(t, stdout)
-	if stdoutGraph.Summary.Violations == 0 || len(stdoutGraph.FindingsIndex) == 0 {
+	if stdoutGraph.Summary.Violations == 0 || stdoutGraph.Summary.UserContractsLoaded != 1 || len(stdoutGraph.FindingsIndex) == 0 {
 		t.Fatalf("expected default .architon/contracts.yaml to be loaded, got %+v", stdoutGraph)
 	}
 	fileData, err := os.ReadFile(filepath.Join(cwd, "graph.json"))
@@ -389,6 +393,25 @@ func TestGraphCommand_ContractsFlagOverridesArchitonContractsYAML(t *testing.T) 
 		t.Fatalf("expected graph command to succeed, got %v\n%s", err, stdout)
 	}
 	requireNoGraphViolations(t, parseGraphOutput(t, stdout))
+}
+
+func TestGraphCommand_FailOnFindingsUsesScanExitSemantics(t *testing.T) {
+	cwd := writeGraphPullupFixture(t, nil, true)
+
+	stdout, err := runGraphCommand(t, cwd, ".", "--format", "json")
+	if err != nil {
+		t.Fatalf("expected default graph command to preserve success exit, got %v\n%s", err, stdout)
+	}
+	graph := parseGraphOutput(t, stdout)
+	if graph.Summary.Violations != 2 {
+		t.Fatalf("expected graph fixture violations, got %+v", graph.Summary)
+	}
+
+	failStdout, failErr := runGraphCommand(t, cwd, ".", "--format", "json", "--fail-on-findings")
+	requireExitCode(t, failErr, 2, failStdout)
+	if failStdout != stdout {
+		t.Fatalf("expected fail-on-findings to preserve GraphIR output\nwithout:\n%s\nwith:\n%s", stdout, failStdout)
+	}
 }
 
 func requireGraphNode(t *testing.T, graph graphCommandOutput, id string) graphCommandNode {
