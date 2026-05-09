@@ -148,3 +148,22 @@ func TestCanonicalizeVerificationReport_PopulatesRulesAliasFromFindings(t *testi
 		t.Fatalf("expected rules alias to equal findings, got rules=%+v findings=%+v", result.Rules, result.Findings)
 	}
 }
+
+func TestCanonicalizeVerificationReport_AssignsStableDuplicateFindingIDs(t *testing.T) {
+	result := CanonicalizeVerificationReport(VerificationReport{
+		Findings: []RuleResult{
+			{ID: "pullup_ohms", RuleID: "pullup_ohms", Severity: "ERROR", Message: "bad pullup A"},
+			{ID: "pullup_ohms", RuleID: "pullup_ohms", Severity: "ERROR", Message: "bad pullup B"},
+		},
+	})
+
+	if got, want := result.Findings[0].ID, "pullup_ohms_01"; got != want {
+		t.Fatalf("expected first duplicate finding ID %q, got %q", want, got)
+	}
+	if got, want := result.Findings[1].ID, "pullup_ohms_02"; got != want {
+		t.Fatalf("expected second duplicate finding ID %q, got %q", want, got)
+	}
+	if !reflect.DeepEqual(result.Rules, result.Findings) {
+		t.Fatalf("expected rules alias to equal canonical findings, got rules=%+v findings=%+v", result.Rules, result.Findings)
+	}
+}

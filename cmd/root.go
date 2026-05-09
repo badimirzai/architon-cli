@@ -19,6 +19,7 @@ var rootCmd = &cobra.Command{
 Quick help:
   rv check <file.yaml>       Run analysis
   rv scan <path>             Import KiCad BOM/netlist/schematic and emit DesignIR report JSON
+  rv graph <path>            Emit stable architecture GraphIR JSON
   rv contracts validate      Validate a custom contracts.yaml schema only
   rv parts list              List built-in deterministic contract parts
   rv init                    Initialize Architon metadata or write a starter robot spec
