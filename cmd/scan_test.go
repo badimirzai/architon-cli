@@ -22,6 +22,7 @@ type scanReport struct {
 	Summary       struct {
 		Parts                          int      `json:"parts"`
 		Nets                           int      `json:"nets"`
+		HasFailures                    bool     `json:"has_failures"`
 		ParseErrorsCount               int      `json:"parse_errors_count"`
 		ParseWarnings                  []string `json:"parse_warnings"`
 		ParseErrors                    []string `json:"parse_errors"`
@@ -113,6 +114,7 @@ type scanRuleFinding struct {
 	ContractSource      string   `json:"contract_source"`
 	ContractFile        string   `json:"contract_file"`
 	Requirement         string   `json:"requirement"`
+	WhyThisMatters      string   `json:"why_this_matters"`
 	Provenance          *struct {
 		Source   string `json:"source"`
 		SourceID string `json:"source_id"`
@@ -159,6 +161,7 @@ type scanCIFindingOutput struct {
 	Pin            string `json:"pin"`
 	Requirement    string `json:"requirement"`
 	Fix            string `json:"fix"`
+	WhyThisMatters string `json:"why_this_matters"`
 	Provenance     string `json:"provenance"`
 }
 

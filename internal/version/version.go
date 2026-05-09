@@ -14,7 +14,7 @@ type Info struct {
 
 // Get returns version info derived from Go build metadata when available.
 func Get() Info {
-	info := Info{Version: "v0.6.0-dev"}
+	info := Info{Version: "v0.7.0-dev"}
 	buildInfo, ok := debug.ReadBuildInfo()
 	if ok && buildInfo != nil {
 		moduleVersion := strings.TrimSpace(buildInfo.Main.Version)

@@ -88,15 +88,16 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 	for _, signalNet := range signalNets {
 		pullups := pullupsForSignalNet(design, contractIR, signalNet.Net.Name, req.Scope)
 		if len(pullups) == 0 {
-			finding := findingForRequirement(req, fmt.Sprintf("Net %s has no pull-up resistor in scope", signalNet.Net.Name))
+			invalidPullups := invalidPullupCandidatesForSignalNet(design, contractIR, signalNet.Net.Name, req.Scope)
+			finding := findingForRequirement(req, pullupMissingMessage(signalNet.Net.Name, invalidPullups))
 			finding.Net = signalNet.Net.Name
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupBoundsToFinding(&finding, req)
-			invalidPullups := invalidPullupCandidatesForSignalNet(design, contractIR, signalNet.Net.Name, req.Scope)
 			if len(invalidPullups) > 0 {
 				finding.ComponentRef = invalidPullups[0].Ref
 				finding.PullupResistors = pullupRefs(invalidPullups)
 			}
+			finding.WhyThisMatters = pullupMissingWhyThisMatters(invalidPullups)
 			findings = append(findings, finding)
 			continue
 		}
@@ -105,24 +106,70 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			continue
 		}
 		if req.MinOhms != nil && effective < *req.MinOhms {
-			finding := findingForRequirement(req, fmt.Sprintf("Net %s effective pull-up %.0f ohms is below minimum %.0f ohms", signalNet.Net.Name, effective, *req.MinOhms))
+			finding := findingForRequirement(req, fmt.Sprintf("Observed: effective pull-up on %s is %s. Expected: %s.", signalNet.Net.Name, formatPullupOhms(effective), pullupExpectedRange(req)))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			finding.WhyThisMatters = "Too-low pull-up resistance increases sink current when devices pull the line low. This can exceed device limits and distort bus behavior."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
 			continue
 		}
 		if req.MaxOhms != nil && effective > *req.MaxOhms {
-			finding := findingForRequirement(req, fmt.Sprintf("Net %s effective pull-up %.0f ohms is above maximum %.0f ohms", signalNet.Net.Name, effective, *req.MaxOhms))
+			finding := findingForRequirement(req, fmt.Sprintf("Observed: effective pull-up on %s is %s. Expected: %s.", signalNet.Net.Name, formatPullupOhms(effective), pullupExpectedRange(req)))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			finding.WhyThisMatters = "Too-high pull-up resistance slows rising edges. At higher bus speeds or larger bus capacitance, devices may read invalid logic levels."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
 		}
 	}
 	return findings
+}
+
+func pullupMissingMessage(netName string, invalidPullups []pullupCandidate) string {
+	if len(invalidPullups) > 0 {
+		pullup := invalidPullups[0]
+		return fmt.Sprintf("Observed: %s = %s connects %s to %s. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.", pullup.Ref, formatPullupOhms(pullup.Ohms), netName, pullup.RailNet)
+	}
+	return fmt.Sprintf("Observed: no pull-up resistor found on net %s. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.", netName)
+}
+
+func pullupMissingWhyThisMatters(invalidPullups []pullupCandidate) string {
+	for _, pullup := range invalidPullups {
+		if isGroundNetName(pullup.RailNet) {
+			return "I2C lines are open-drain and must idle high. A resistor to GND holds the bus low, which can prevent communication entirely."
+		}
+	}
+	return "I2C lines are open-drain and must idle high. Without pull-ups, SDA/SCL may never reach a valid HIGH level, so devices may not communicate."
+}
+
+func pullupExpectedRange(req AppliedRequirement) string {
+	if req.MinOhms != nil && req.MaxOhms != nil {
+		return fmt.Sprintf("%s to %s", formatPullupOhms(*req.MinOhms), formatPullupOhms(*req.MaxOhms))
+	}
+	if req.MinOhms != nil {
+		return fmt.Sprintf("at least %s", formatPullupOhms(*req.MinOhms))
+	}
+	if req.MaxOhms != nil {
+		return fmt.Sprintf("at most %s", formatPullupOhms(*req.MaxOhms))
+	}
+	return "a compatible pull-up resistance"
+}
+
+func formatPullupOhms(ohms float64) string {
+	if math.Abs(ohms) >= 1000 && math.Abs(math.Mod(ohms, 100)) < 1e-9 {
+		kOhms := ohms / 1000
+		if math.Abs(kOhms-math.Round(kOhms)) < 1e-9 {
+			return fmt.Sprintf("%.0fk", kOhms)
+		}
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1fk", kOhms), "0"), ".")
+	}
+	if math.Abs(ohms-math.Round(ohms)) < 1e-9 {
+		return fmt.Sprintf("%.0f ohms", ohms)
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f ohms", ohms), "0"), ".")
 }
 
 // evaluateVoltageCompatible checks scoped nets against explicit voltage limits.

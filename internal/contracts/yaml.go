@@ -443,7 +443,7 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 			Type:    ContractPullupOhms,
 			MinOhms: cloneFloat(raw.PullupOhms.Min),
 			MaxOhms: cloneFloat(raw.PullupOhms.Max),
-			Fix:     "Add or resize pull-up resistors so the effective pull-up resistance is within the contract range.",
+			Fix:     "Use pull-ups between 2.2k and 10k to the bus voltage rail, commonly 4.7k for a 3.3V I2C bus.",
 		})
 	}
 	if raw.VoltageCompatible != nil && *raw.VoltageCompatible {

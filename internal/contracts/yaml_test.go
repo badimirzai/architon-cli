@@ -349,7 +349,7 @@ func TestUserYAMLPullupBelowMinTriggersFinding(t *testing.T) {
 	contractIR := userContractIR(t, design, pullupPolicyYAML(2200, 10000))
 
 	finding := requireContractFinding(t, contracts.Evaluate(design, contractIR), contracts.ContractPullupOhms)
-	if !strings.Contains(finding.Message, "below minimum") {
+	if !strings.Contains(finding.Message, "Observed: effective pull-up on I2C_SDA is 1k. Expected: 2.2k to 10k.") {
 		t.Fatalf("expected below-min pullup finding, got %+v", finding)
 	}
 }
@@ -359,7 +359,7 @@ func TestUserYAMLPullupAboveMaxTriggersFinding(t *testing.T) {
 	contractIR := userContractIR(t, design, pullupPolicyYAML(2200, 10000))
 
 	finding := requireContractFinding(t, contracts.Evaluate(design, contractIR), contracts.ContractPullupOhms)
-	if !strings.Contains(finding.Message, "above maximum") {
+	if !strings.Contains(finding.Message, "Observed: effective pull-up on I2C_SDA is 20k. Expected: 2.2k to 10k.") {
 		t.Fatalf("expected above-max pullup finding, got %+v", finding)
 	}
 }
@@ -670,7 +670,7 @@ func TestUserYAMLPullupDetection(t *testing.T) {
 			maxOhms:     10000,
 			resistors:   []pullupFixture{{ref: "R1", value: "1k", netA: "I2C_SDA", netB: "+3V3"}},
 			wantFinding: true,
-			wantMessage: "effective pull-up 1000 ohms is below minimum 2200 ohms",
+			wantMessage: "Observed: effective pull-up on I2C_SDA is 1k. Expected: 2.2k to 10k.",
 		},
 		{
 			name:        "20k above max fails",
@@ -678,7 +678,7 @@ func TestUserYAMLPullupDetection(t *testing.T) {
 			maxOhms:     10000,
 			resistors:   []pullupFixture{{ref: "R1", value: "20k", netA: "I2C_SDA", netB: "+3V3"}},
 			wantFinding: true,
-			wantMessage: "effective pull-up 20000 ohms is above maximum 10000 ohms",
+			wantMessage: "Observed: effective pull-up on I2C_SDA is 20k. Expected: 2.2k to 10k.",
 		},
 		{
 			name:    "two 10k pull-ups compute effective 5k",
@@ -695,7 +695,7 @@ func TestUserYAMLPullupDetection(t *testing.T) {
 			maxOhms:     10000,
 			resistors:   []pullupFixture{{ref: "R1", value: "4.7k", netA: "I2C_SDA", netB: "GND"}},
 			wantFinding: true,
-			wantMessage: "has no pull-up resistor",
+			wantMessage: "Observed: R1 = 4.7k connects I2C_SDA to GND. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.",
 		},
 		{
 			name:        "resistor between SDA and SCL ignored",
@@ -703,14 +703,14 @@ func TestUserYAMLPullupDetection(t *testing.T) {
 			maxOhms:     10000,
 			resistors:   []pullupFixture{{ref: "R1", value: "4.7k", netA: "I2C_SDA", netB: "I2C_SCL"}},
 			wantFinding: true,
-			wantMessage: "has no pull-up resistor",
+			wantMessage: "Observed: R1 = 4.7k connects I2C_SDA to I2C_SCL. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.",
 		},
 		{
 			name:        "no pull-up fails",
 			minOhms:     2200,
 			maxOhms:     10000,
 			wantFinding: true,
-			wantMessage: "has no pull-up resistor",
+			wantMessage: "Observed: no pull-up resistor found on net I2C_SDA. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.",
 		},
 	}
 

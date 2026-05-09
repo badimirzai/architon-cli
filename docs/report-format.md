@@ -118,7 +118,7 @@ On parse failures, the report still includes `report_version`, `design_ir.versio
 
 Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `findings[].inference` provenance.
 
-Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, and `fix`.
+Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `why_this_matters`, and `fix`.
 
 `rules` is a deprecated alias of `findings`.
 

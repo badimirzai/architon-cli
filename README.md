@@ -17,7 +17,19 @@ Run Architon on a real hardware design and detect an integration failure:
 Architon detects integration failures deterministically before hardware is built.
 
 ![Invalid I2C pull-up resistance detected by Architon](assets/pullup-high.png)
-Architon detects invalid I2C pull-up resistance before bring-up.
+Faulty I2C pull-up configuration in a real KiCad schematic.
+
+
+**Offline report summary**
+
+![Architon offline report summary showing failed hardware contract checks](assets/architon-offline-report.png)
+
+**Finding details**
+
+![Architon offline report findings table showing I2C pull-down violations and fix guidance](assets/architon-offline-report2.png)
+
+Offline HTML reports show failed contracts, affected nets, electrical impact, and fix guidance.
+
 
 ---
 
@@ -83,8 +95,9 @@ Try Architon on a real KiCad project:
 
 ```bash
 git clone https://github.com/badimirzai/architon-kicad-demo.git
-cd demos/pull_up_ohms/no_pull_up
-rv scan . --contracts i2c_pullup_policy.yaml
+cd demos/pull_up_ohms/pull_down_fail
+rv init contracts
+rv scan .
 ```
 
 Expected output example:
@@ -94,20 +107,20 @@ ARCHITON SCAN
 Target: .
 Result: FAIL — scan violations detected
 
-Parts: 2
+Parts: 4
 Nets: 56
 Rules: 2
 Violations: 2
 
 User contracts loaded: 1
 Built-in contracts loaded: 12
-Active user requirements: 1
-Part contract coverage: 100.00%
-Parts matched: 2/2
+Active user requirements: 2
+Part contract coverage: 50.00%
+Parts matched: 2/4
 
 Rule findings:
-- ERROR pullup_ohms: Net /I2C_SCL has no pull-up resistor in scope
-- ERROR pullup_ohms: Net /I2C_SDA has no pull-up resistor in scope
+- ERROR pullup_ohms: Observed: R1 = 4.7k connects /I2C_SDA to GND. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.
+- ERROR pullup_ohms: Observed: R2 = 4.7k connects /I2C_SCL to GND. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.
 
 Generated Netlist: .architon/generated.net
 Wrote architon-report.json
@@ -125,6 +138,7 @@ Core commands:
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import KiCad/BOM data and emit DesignIR report
 rv graph <path>            Emit stable GraphIR JSON for Studio/renderers
+rv report <path>           Generate offline HTML reports for review/CI artifacts
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part

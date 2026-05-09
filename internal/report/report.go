@@ -42,6 +42,7 @@ type RuleResult struct {
 	Requirement         string                `json:"requirement,omitempty"`
 	Provenance          *contracts.Provenance `json:"provenance,omitempty"`
 	Fix                 string                `json:"fix,omitempty"`
+	WhyThisMatters      string                `json:"why_this_matters,omitempty"`
 	Inference           *InferenceProvenance  `json:"inference,omitempty"`
 }
 

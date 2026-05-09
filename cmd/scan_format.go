@@ -44,6 +44,7 @@ type scanCIFinding struct {
 	Pin            string `json:"pin"`
 	Requirement    string `json:"requirement"`
 	Fix            string `json:"fix"`
+	WhyThisMatters string `json:"why_this_matters,omitempty"`
 	Provenance     string `json:"provenance"`
 }
 
@@ -116,6 +117,7 @@ func scanBuildCIFinding(finding report.RuleResult) scanCIFinding {
 		Pin:            strings.TrimSpace(finding.Pin),
 		Requirement:    scanFindingRequirement(finding, ruleID),
 		Fix:            strings.TrimSpace(finding.Fix),
+		WhyThisMatters: strings.TrimSpace(finding.WhyThisMatters),
 		Provenance:     scanFindingProvenance(finding),
 	}
 }
