@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/infer"
@@ -174,8 +175,73 @@ func CanonicalizeVerificationReport(result VerificationReport) VerificationRepor
 	if len(result.Findings) == 0 && len(result.Rules) > 0 {
 		result.Findings = append([]RuleResult{}, result.Rules...)
 	}
+	findings := append([]RuleResult{}, result.Findings...)
+	ids := canonicalFindingIDs(findings)
+	for i := range findings {
+		findings[i].ID = ids[i]
+		if strings.TrimSpace(findings[i].RuleID) == "" {
+			findings[i].RuleID = ids[i]
+		}
+	}
+	result.Findings = findings
 	result.Rules = append([]RuleResult{}, result.Findings...)
 	return result
+}
+
+func canonicalFindingIDs(findings []RuleResult) []string {
+	bases := make([]string, len(findings))
+	counts := map[string]int{}
+	for i, finding := range findings {
+		base := firstNonEmpty(finding.ID, finding.RuleID, "finding")
+		base = sanitizeIDPart(base)
+		bases[i] = base
+		counts[base]++
+	}
+	seen := map[string]int{}
+	out := make([]string, len(findings))
+	for i, base := range bases {
+		seen[base]++
+		if counts[base] == 1 {
+			out[i] = base
+			continue
+		}
+		out[i] = fmt.Sprintf("%s_%02d", base, seen[base])
+	}
+	return out
+}
+
+func sanitizeIDPart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "unknown"
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func hasRuleFailures(rules []RuleResult) bool {

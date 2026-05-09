@@ -92,6 +92,11 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding.Net = signalNet.Net.Name
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupBoundsToFinding(&finding, req)
+			invalidPullups := invalidPullupCandidatesForSignalNet(design, contractIR, signalNet.Net.Name, req.Scope)
+			if len(invalidPullups) > 0 {
+				finding.ComponentRef = invalidPullups[0].Ref
+				finding.PullupResistors = pullupRefs(invalidPullups)
+			}
 			findings = append(findings, finding)
 			continue
 		}
@@ -573,6 +578,50 @@ func pullupsForSignalNet(design *ir.DesignIR, contractIR *ContractIR, signalNet 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
 	return out
+}
+
+// invalidPullupCandidatesForSignalNet finds resistor-like parts that touch an
+// I2C signal but do not qualify as pull-ups. This keeps scan provenance on
+// pulldowns and SDA-to-SCL resistors without changing the finding itself.
+func invalidPullupCandidatesForSignalNet(design *ir.DesignIR, contractIR *ContractIR, signalNet string, scope ContractScope) []pullupCandidate {
+	connected := componentConnections(design)
+	parts := partIndex(design)
+	out := make([]pullupCandidate, 0)
+	for ref, nets := range connected {
+		part := parts[ref]
+		if !looksLikeResistor(part) {
+			continue
+		}
+		if len(nets) < 2 || !componentConnectedToNet(nets, signalNet) {
+			continue
+		}
+		ohms := pullupOhms(part)
+		if ohms <= 0 {
+			continue
+		}
+		for _, conn := range nets {
+			if conn.Net == signalNet {
+				continue
+			}
+			if isValidPullupTarget(contractIR, conn.Net, scope) {
+				continue
+			}
+			out = append(out, pullupCandidate{Ref: ref, Ohms: ohms, RailNet: conn.Net, SignalNet: signalNet})
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
+	return out
+}
+
+func isValidPullupTarget(contractIR *ContractIR, netName string, scope ContractScope) bool {
+	if isGroundNetName(netName) {
+		return false
+	}
+	if scope.Rail != "" && netName != scope.Rail {
+		return false
+	}
+	return isPositiveSupplyNet(contractIR, netName)
 }
 
 // effectivePullupOhms combines parallel pull-up resistors.

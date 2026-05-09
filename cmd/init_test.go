@@ -90,6 +90,21 @@ func TestInitFreshDirectoryCreatesArchitonProject(t *testing.T) {
 	}
 }
 
+func TestInitContractsCreatesStarterContractsFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	stdout, err := runInitCommand(t, tmpDir, "contracts")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(stdout, "Wrote .architon/contracts.yaml") {
+		t.Fatalf("expected contracts message, got %q", stdout)
+	}
+	if got := readArchitonFile(t, tmpDir, "contracts.yaml"); got != architonContractsYAML {
+		t.Fatalf("unexpected contracts.yaml contents:\n%s", got)
+	}
+}
+
 func TestInitRerunWithoutForceLeavesFilesUnchanged(t *testing.T) {
 	tmpDir := t.TempDir()
 

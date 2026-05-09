@@ -1,6 +1,9 @@
 package version
 
-import "runtime/debug"
+import (
+	"runtime/debug"
+	"strings"
+)
 
 // Info describes the current build version metadata.
 type Info struct {
@@ -11,19 +14,23 @@ type Info struct {
 
 // Get returns version info derived from Go build metadata when available.
 func Get() Info {
-	info := Info{Version: "v0.5.0-dev"}
+	info := Info{Version: "v0.6.0-dev"}
 	buildInfo, ok := debug.ReadBuildInfo()
 	if ok && buildInfo != nil {
-		if buildInfo.Main.Version != "" && buildInfo.Main.Version != "(devel)" {
-			info.Version = buildInfo.Main.Version
-		}
+		moduleVersion := strings.TrimSpace(buildInfo.Main.Version)
+		modified := false
 		for _, setting := range buildInfo.Settings {
 			switch setting.Key {
 			case "vcs.revision":
 				info.GitCommit = setting.Value
 			case "vcs.time":
 				info.BuildDate = setting.Value
+			case "vcs.modified":
+				modified = setting.Value == "true"
 			}
+		}
+		if moduleVersion != "" && moduleVersion != "(devel)" && !modified && !strings.Contains(moduleVersion, "+dirty") {
+			info.Version = moduleVersion
 		}
 	}
 	return info

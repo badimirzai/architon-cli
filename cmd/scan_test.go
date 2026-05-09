@@ -943,6 +943,69 @@ func TestScan_WithoutContractsYAMLStillWorks(t *testing.T) {
 	}
 }
 
+func TestScan_DirectoryAutoLoadsArchitonContractsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "design.net"), graphPullupNetlist(nil))
+	writeScanTestFile(t, filepath.Join(tmpDir, ".architon", "contracts.yaml"), graphPullupContracts())
+
+	stdout, err := runScanCommand(t, tmpDir, ".", "--format", "json", "--out", "scan.json")
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected auto-loaded contract violation exit 2, got err=%v stdout=%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	if scan.Summary.UserContractsLoaded != 1 || scan.Summary.Violations == 0 || len(scan.Findings) == 0 {
+		t.Fatalf("expected .architon/contracts.yaml findings, got %+v", scan)
+	}
+}
+
+func TestScan_ContractsFlagOverridesArchitonContractsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "design.net"), graphPullupNetlist(nil))
+	writeScanTestFile(t, filepath.Join(tmpDir, ".architon", "contracts.yaml"), graphPullupContracts())
+	writeScanTestFile(t, filepath.Join(tmpDir, "custom.yaml"), `contracts:
+  - id: address_policy
+    scope:
+      bus_type: i2c
+    require:
+      no_i2c_address_conflict: true
+    severity: error
+`)
+
+	stdout, err := runScanCommand(t, tmpDir, ".", "--contracts", "custom.yaml", "--format", "json", "--out", "scan.json")
+	if err != nil {
+		t.Fatalf("expected custom contracts override to scan cleanly, got %v\n%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	if scan.Summary.UserContractsLoaded != 1 || scan.Summary.Violations != 0 || len(scan.Findings) != 0 {
+		t.Fatalf("expected custom contracts to override default .architon contract, got %+v", scan)
+	}
+}
+
+func TestScan_DirectoryWithoutArchitonContractsYAMLIgnoresRootContractsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "design.net"), graphPullupNetlist(nil))
+	writeScanTestFile(t, filepath.Join(tmpDir, "contracts.yaml"), graphPullupContracts())
+
+	stdout, err := runScanCommand(t, tmpDir, ".", "--format", "json", "--out", "scan.json")
+	if err != nil {
+		t.Fatalf("expected scan without .architon/contracts.yaml to ignore root contracts.yaml, got %v\n%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	if scan.Summary.UserContractsLoaded != 0 || scan.Summary.Violations != 0 || len(scan.Findings) != 0 {
+		t.Fatalf("expected no auto-loaded root contracts or findings, got %+v", scan)
+	}
+}
+
 func TestScan_UserYAMLContractFindingProvenance(t *testing.T) {
 	tmpDir := t.TempDir()
 	netlistPath := filepath.Join(tmpDir, "i2c.net")

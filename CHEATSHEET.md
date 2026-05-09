@@ -12,6 +12,9 @@ rv check <file.yaml> --output json --out-file report.json
 rv check <file.yaml> --output json --pretty --out-file report.json
                                       Pretty JSON to stdout + compact JSON to file
 rv scan <path>                         Import KiCad BOM CSV, KiCad .net, or project directory
+rv graph <path> --format json          Emit stable architecture GraphIR JSON
+rv graph <path> --format json --out graph.json
+                                      Write GraphIR JSON to file and stdout
 rv scan <bom.csv> --map mapping.yaml   Use explicit header mapping YAML
 rv scan <bom.csv> --out report.json    Write scan report to a specific path
 rv scan <netlist.net> --meta .architon/meta.yaml
@@ -35,6 +38,7 @@ rv version                             Show installed version
 rv --help                              Show all commands and flags
 rv check --help                        Show check command options
 rv scan --help                         Show scan command options
+rv graph --help                        Show graph command options
 ```
 
 ## Output flags (check command)
@@ -66,6 +70,20 @@ rv scan --help                         Show scan command options
 --out <report.json>       write scan report to a specific path
 ```
 
+## Graph flags (graph command)
+
+```text
+--format json             print GraphIR JSON to stdout
+--out <graph.json>        write GraphIR JSON to a specific path and stdout
+--map <file.yaml>         explicit BOM header mapping file
+--bom <file>              override BOM file path for project directory scans
+--netlist <file>          override netlist file path for project directory scans
+--meta <file.yaml>        metadata for sources, regulators, and component limits
+--contracts <file.yaml>   custom deterministic contracts
+--no-kicad-cli            disable automatic schematic netlist generation
+--kicad-cli <path>        override KiCad CLI binary name/path
+```
+
 Exit behavior is documented in `README.md`.
 
 ## Examples
@@ -86,6 +104,7 @@ rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv scan . --contracts i2c_pullup_policy.yaml --verbose
+rv graph . --contracts examples/contracts/i2c_policy.yaml --format json --out graph.json
 rv init
 rv init --template 4wd-problem
 rv check robot.yaml

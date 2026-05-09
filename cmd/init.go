@@ -35,6 +35,18 @@ components:
 
 Edit meta.yaml to define voltage sources and component limits.
 `
+	architonContractsYAML = `contracts:
+  - id: i2c_pullup_policy
+    description: Require I2C pull-ups to be present and within a sane default range.
+    scope:
+      bus_type: i2c
+    require:
+      common_ground: true
+      pullup_ohms:
+        min: 2200
+        max: 10000
+    severity: error
+`
 )
 
 var architonFiles = []architonFileTemplate{
@@ -92,7 +104,25 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().Bool("list", false, "List available templates")
 	cmd.Flags().Bool("force", false, "Overwrite output files if they already exist")
 
+	cmd.AddCommand(newInitContractsCmd())
 	return cmd
+}
+
+func newInitContractsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:           "contracts",
+		Short:         "Create .architon/contracts.yaml with starter policies",
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := initializeArchitonContracts(); err != nil {
+				return fatalError(err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Wrote .architon/contracts.yaml")
+			return nil
+		},
+	}
 }
 
 func runTemplateInit(cmd *cobra.Command, list bool, templateName string) error {
@@ -155,6 +185,26 @@ func initializeArchitonProject(force bool) (initProjectResult, error) {
 	default:
 		return initProjectResult{}, fmt.Errorf("stat %s: %w", targetDir, err)
 	}
+}
+
+func initializeArchitonContracts() error {
+	targetDir := filepath.Clean(architonDirName)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", targetDir, err)
+	}
+	targetPath := filepath.Join(targetDir, "contracts.yaml")
+	if info, err := os.Stat(targetPath); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("%s is a directory", targetPath)
+		}
+		return fmt.Errorf("%s already exists", targetPath)
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", targetPath, err)
+	}
+	if err := os.WriteFile(targetPath, []byte(architonContractsYAML), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", targetPath, err)
+	}
+	return nil
 }
 
 func initializeNewArchitonProject(targetDir string) error {

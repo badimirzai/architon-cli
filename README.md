@@ -124,6 +124,7 @@ Core commands:
 ```text
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import KiCad/BOM data and emit DesignIR report
+rv graph <path>            Emit stable GraphIR JSON for Studio/renderers
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part
@@ -132,9 +133,10 @@ rv version                 Show installed version
 ```
 Detailed CLI examples, scan behavior, import modes, rail inference, and advanced flags are documented in:
 
-- [docs/cli.md](docs/cli.md)
+- [docs/CLI.md](docs/CLI.md)
 - [docs/contracts.md](docs/contracts.md)
 - [docs/ci.md](docs/ci.md)
+- [docs/graph-ir.md](docs/graph-ir.md)
 - [docs/importers.md](docs/importers.md)
 - [docs/rail-inference.md](docs/rail-inference.md)
 - [docs/report-format.md](docs/report-format.md)

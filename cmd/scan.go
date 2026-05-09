@@ -105,218 +105,29 @@ Examples:
 				}
 			}
 
-			resolvedInput, err := resolveScanInputWithOptions(args[0], bomOverride, netlistOverride, scanInputOptions{
-				AutoKiCadNetlist: !noKiCadCLI,
-				KiCadCLIPath:     kicadCLIPath,
+			pipeline, err := runScanPipeline(args[0], scanPipelineOptions{
+				MappingFile:       mappingFile,
+				BOMOverride:       bomOverride,
+				NetlistOverride:   netlistOverride,
+				MetaOverride:      metaOverride,
+				ContractsOverride: contractsOverride,
+				NoKiCadCLI:        noKiCadCLI,
+				KiCadCLIPath:      kicadCLIPath,
+				ShowAutoMetaHint:  outputFormat == "text",
+				HintWriter:        cmd.OutOrStdout(),
 			})
 			if err != nil {
-				return fatalError(err)
+				return err
 			}
 
-			design, err := importResolvedScanInput(resolvedInput, mappingFile)
-			if err != nil {
-				return userError(err)
-			}
-
-			// User contracts are loaded before report construction so invalid
-			// YAML is a tool error, not a partial scan result.
-			userContractsPath, userContracts, err := scanLoadUserContracts(resolvedInput, contractsOverride)
-			if err != nil {
-				return &ExitError{
-					Code: 3,
-					Err:  fmt.Errorf("contracts load failed: %w", err),
-				}
-			}
-
-			designReport := report.NewVerificationReport(design)
-			nameInferRes := infer.InferVoltagesFromNetNames(design)
-
-			// -------------------------
-			// META: auto-discover existing metadata only. Scan never writes
-			// .architon/meta.yaml; rv init owns file creation.
-			// -------------------------
-			metaPath := strings.TrimSpace(metaOverride)
-			metaExplicit := metaPath != ""
-
-			if resolvedInput.Directory {
-				defaultMetaPath := filepath.Join(resolvedInput.ProjectPath, ".architon", "meta.yaml")
-
-				if !metaExplicit {
-					// Auto-discover existing meta.yaml
-					if _, err := os.Stat(defaultMetaPath); err == nil {
-						metaPath = defaultMetaPath
-					} else if os.IsNotExist(err) {
-						metaPath = ""
-					} else {
-						return internalError(fmt.Errorf("stat default meta: %w", err))
-					}
-				} else {
-					// If user explicitly set --meta, respect it as-is
-					metaPath = filepath.Clean(metaPath)
-				}
-			}
-
-			// -------------------------
-			// META: load + decide whether to run rules
-			// -------------------------
-			metaObj := &meta.Meta{}
-			metaLoaded := false
-
-			if metaPath != "" {
-				// meta-based rules require nets
-				if designReport.Summary.Nets == 0 {
-					return &ExitError{
-						Code: 3,
-						Err:  errors.New("--meta requires a netlist (no nets present in DesignIR)"),
-					}
-				}
-
-				parsed, err := meta.Parse(metaPath)
-				if err != nil {
-					return &ExitError{
-						Code: 3,
-						Err:  fmt.Errorf("meta load failed: %w", err),
-					}
-				}
-
-				if metaExplicit {
-					// Explicit override: must be valid, otherwise tool failure
-					if err := meta.ValidateStrict(parsed); err != nil {
-						return &ExitError{
-							Code: 3,
-							Err:  fmt.Errorf("meta invalid: %w", err),
-						}
-					}
-					metaObj = parsed
-					metaLoaded = true
-				} else {
-					// Auto-discovered: use only completed entries, so skeleton placeholders stay informational.
-					prepared := scanPrepareAutoMeta(parsed)
-					if scanMetaHasEntries(prepared) {
-						if err := meta.ValidateStrict(prepared); err != nil {
-							return &ExitError{
-								Code: 3,
-								Err:  fmt.Errorf("meta invalid: %w", err),
-							}
-						}
-						metaObj = prepared
-						metaLoaded = true
-					} else if outputFormat == "text" {
-						fmt.Fprintf(cmd.OutOrStdout(), "Hint: edit .architon/meta.yaml (sources/components) to enable voltage rules\n")
-					}
-				}
-			}
-
-			// -------------------------
-			// VOLTAGE PROPAGATION + RULES
-			// -------------------------
-			initialVoltages := scanInitialVoltages(nameInferRes, metaObj)
-			propRes := propagate.Result{NetVoltages: map[string]propagate.NetVoltage{}}
-			if designReport.Summary.Nets > 0 && len(initialVoltages) > 0 {
-				propRes = propagate.Propagate(*design, *metaObj, initialVoltages)
-			}
-			// Build the report-facing inference after propagation so explicit
-			// metadata and regulator outputs can contribute provenance/confidence.
-			railInferRes := infer.InferVoltages(design, infer.VoltageInferenceOptions{
-				Evidence:  scanVoltageEvidence(propRes.NetVoltages),
-				Conflicts: propRes.Conflicts,
-			})
-
-			netVolts := scanReportNetVoltages(propRes.NetVoltages)
-			inferredNetVolts := scanReportInferredNetVoltages(nameInferRes)
-			unknownVoltageNets := scanReportUnknownVoltageNets(railInferRes)
-			railInferences := scanReportRailInferences(railInferRes)
-			railCoverage := rails.SummarizeRailCoverage(design, railInferRes.Inferences)
-			inferencesByNet := scanInferenceByNet(railInferRes.Inferences)
-			if designReport.Summary.Nets > 0 || len(netVolts) > 0 || len(inferredNetVolts) > 0 || len(unknownVoltageNets) > 0 || len(railInferences) > 0 || len(propRes.Conflicts) > 0 {
-				designReport.Derived = &report.Derived{
-					NetVoltages:         netVolts,
-					InferredNetVoltages: inferredNetVolts,
-					UnknownVoltageNets:  unknownVoltageNets,
-					RailInferences:      railInferences,
-					RailCoverage:        railCoverage,
-					Conflicts:           propRes.Conflicts,
-				}
-			}
-
-			if len(propRes.Conflicts) > 0 {
-				// Conflicts are violations (severity error => exit 2)
-				for _, c := range propRes.Conflicts {
-					result := report.RuleResult{
-						ID:       "RULE_VOLTAGE_CONFLICT",
-						RuleID:   "RULE_VOLTAGE_CONFLICT",
-						Severity: "ERROR",
-						Message:  c,
-						Source:   "voltage-propagation",
-						Provenance: &contracts.Provenance{
-							Source:   "voltage-propagation",
-							SourceID: "RULE_VOLTAGE_CONFLICT",
-							Detail:   "deterministic voltage propagation conflict",
-						},
-						Fix: "Resolve the conflicting voltage evidence for this net.",
-					}
-					if inference, ok := inferencesByNet[scanConflictNetName(c)]; ok {
-						result.Inference = scanReportInferenceProvenance(inference)
-					}
-					designReport.Rules = append(designReport.Rules, result)
-				}
-			}
-
-			// Contract enrichment is the boundary between imported design facts
-			// and rule-ready electrical intent. Rules below do not read meta.yaml,
-			// propagation structs, KiCad parser data, or file paths.
-			contractSources := []contracts.ContractSource{}
-			if metaLoaded {
-				contractSources = append(contractSources, enrichment.NewMetaYAMLSource(metaObj))
-			}
-			contractSources = append(contractSources,
-				contracts.FieldContractSource{},
-				contracts.NewBuiltinPartsSource(),
-			)
-			// Project contracts are appended as another ContractSource. From this
-			// point on the evaluator does not care whether a requirement came from
-			// built-ins, fields, meta.yaml, or user YAML.
-			if len(userContracts) > 0 {
-				contractSources = append(contractSources, contracts.NewUserYAMLSource(userContractsPath, userContracts))
-			}
-			contractSources = append(contractSources,
-				enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
-			)
-			contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
-			if err != nil {
-				return internalError(err)
-			}
-			coverage := contracts.SummarizeCoverage(design, contractIR)
-			designReport.ContractCoverage = &coverage
-			contractFindings := rules.CheckAll(design, contractIR, rules.DefaultRules())
-			designReport.Rules = append(designReport.Rules, scanReportRuleResults(contractFindings, inferencesByNet)...)
-			designReport.Rules = append(designReport.Rules, scanReportContractResults(contracts.Evaluate(design, contractIR), inferencesByNet)...)
-
-			if len(designReport.Rules) > 0 {
-				// Deterministic rule ordering
-				sort.SliceStable(designReport.Rules, func(i, j int) bool {
-					if designReport.Rules[i].ID == designReport.Rules[j].ID {
-						return designReport.Rules[i].Message < designReport.Rules[j].Message
-					}
-					return designReport.Rules[i].ID < designReport.Rules[j].ID
-				})
-			}
-			normalizeScanReportRules(designReport.Rules)
-			designReport.Findings = append([]report.RuleResult{}, designReport.Rules...)
-			// Update summary (because report.NewVerificationReport() computed these before rules existed)
-			designReport.Summary.Rules = len(designReport.Findings)
-			designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
-			designReport.Summary.PartsMatched = coverage.PartsMatched
-			designReport.Summary.UserContractsLoaded = len(userContracts)
-			designReport.Summary.BuiltInContractsLoaded = len(contracts.BuiltinContracts())
-			designReport.Summary.ActiveUserRequirements = scanActiveUserRequirements(contractIR)
-			designReport.Summary.AvailableContractRules = len(coverage.EnabledContractRules)
-			designReport.Summary.RequirementsEnabled = designReport.Summary.ActiveUserRequirements
-			designReport.Summary.PartContractCoveragePercentage = coverage.CoveragePercentage
-			designReport.Summary.ContractsApplied = coverage.ContractsApplied
-			designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
-			designReport.Summary.UnknownPowerCriticalRefs = coverage.UnknownPowerCriticalRefs
-			designReport.Summary.EnabledContractRules = coverage.EnabledContractRules
+			resolvedInput := pipeline.Input
+			design := pipeline.Design
+			designReport := pipeline.Report
+			nameInferRes := pipeline.NameInferResult
+			railInferRes := pipeline.RailInferResult
+			railInferences := pipeline.RailInferences
+			railCoverage := pipeline.RailCoverage
+			metaLoaded := pipeline.MetaLoaded
 
 			// Write report JSON after derived/rules are attached
 			if err := report.WriteVerificationReport(outputPath, designReport); err != nil {
@@ -439,6 +250,235 @@ Examples:
 	cmd.Flags().Bool("no-kicad-cli", false, "Disable automatic KiCad netlist generation for project directories")
 	cmd.Flags().String("kicad-cli", defaultKiCadCLI, "KiCad CLI binary name or path for automatic netlist generation")
 	return cmd
+}
+
+type scanPipelineOptions struct {
+	MappingFile       string
+	BOMOverride       string
+	NetlistOverride   string
+	MetaOverride      string
+	ContractsOverride string
+	NoKiCadCLI        bool
+	KiCadCLIPath      string
+	ShowAutoMetaHint  bool
+	HintWriter        io.Writer
+}
+
+type scanPipelineResult struct {
+	Input           resolvedScanInput
+	Design          *ir.DesignIR
+	Report          report.VerificationReport
+	ContractIR      *contracts.ContractIR
+	MetaLoaded      bool
+	NameInferResult infer.Result
+	RailInferResult infer.Result
+	RailInferences  []infer.VoltageInference
+	RailCoverage    rails.RailCoverageSummary
+}
+
+// runScanPipeline is the shared deterministic ingestion and rule pipeline used
+// by scan and graph. It deliberately stops before command-specific rendering.
+func runScanPipeline(inputPath string, opts scanPipelineOptions) (scanPipelineResult, error) {
+	resolvedInput, err := resolveScanInputWithOptions(inputPath, opts.BOMOverride, opts.NetlistOverride, scanInputOptions{
+		AutoKiCadNetlist: !opts.NoKiCadCLI,
+		KiCadCLIPath:     opts.KiCadCLIPath,
+	})
+	if err != nil {
+		return scanPipelineResult{}, fatalError(err)
+	}
+
+	design, err := importResolvedScanInput(resolvedInput, opts.MappingFile)
+	if err != nil {
+		return scanPipelineResult{}, userError(err)
+	}
+
+	// User contracts are loaded before report construction so invalid YAML is a
+	// tool error, not a partial scan or graph result.
+	userContractsPath, userContracts, err := scanLoadUserContracts(resolvedInput, opts.ContractsOverride)
+	if err != nil {
+		return scanPipelineResult{}, &ExitError{
+			Code: 3,
+			Err:  fmt.Errorf("contracts load failed: %w", err),
+		}
+	}
+
+	designReport := report.NewVerificationReport(design)
+	nameInferRes := infer.InferVoltagesFromNetNames(design)
+
+	// META: auto-discover existing metadata only. Scan/graph never writes
+	// .architon/meta.yaml; rv init owns file creation.
+	metaPath := strings.TrimSpace(opts.MetaOverride)
+	metaExplicit := metaPath != ""
+
+	if resolvedInput.Directory {
+		defaultMetaPath := filepath.Join(resolvedInput.ProjectPath, ".architon", "meta.yaml")
+
+		if !metaExplicit {
+			if _, err := os.Stat(defaultMetaPath); err == nil {
+				metaPath = defaultMetaPath
+			} else if os.IsNotExist(err) {
+				metaPath = ""
+			} else {
+				return scanPipelineResult{}, internalError(fmt.Errorf("stat default meta: %w", err))
+			}
+		} else {
+			metaPath = filepath.Clean(metaPath)
+		}
+	}
+
+	metaObj := &meta.Meta{}
+	metaLoaded := false
+
+	if metaPath != "" {
+		if designReport.Summary.Nets == 0 {
+			return scanPipelineResult{}, &ExitError{
+				Code: 3,
+				Err:  errors.New("--meta requires a netlist (no nets present in DesignIR)"),
+			}
+		}
+
+		parsed, err := meta.Parse(metaPath)
+		if err != nil {
+			return scanPipelineResult{}, &ExitError{
+				Code: 3,
+				Err:  fmt.Errorf("meta load failed: %w", err),
+			}
+		}
+
+		if metaExplicit {
+			if err := meta.ValidateStrict(parsed); err != nil {
+				return scanPipelineResult{}, &ExitError{
+					Code: 3,
+					Err:  fmt.Errorf("meta invalid: %w", err),
+				}
+			}
+			metaObj = parsed
+			metaLoaded = true
+		} else {
+			prepared := scanPrepareAutoMeta(parsed)
+			if scanMetaHasEntries(prepared) {
+				if err := meta.ValidateStrict(prepared); err != nil {
+					return scanPipelineResult{}, &ExitError{
+						Code: 3,
+						Err:  fmt.Errorf("meta invalid: %w", err),
+					}
+				}
+				metaObj = prepared
+				metaLoaded = true
+			} else if opts.ShowAutoMetaHint && opts.HintWriter != nil {
+				fmt.Fprintf(opts.HintWriter, "Hint: edit .architon/meta.yaml (sources/components) to enable voltage rules\n")
+			}
+		}
+	}
+
+	initialVoltages := scanInitialVoltages(nameInferRes, metaObj)
+	propRes := propagate.Result{NetVoltages: map[string]propagate.NetVoltage{}}
+	if designReport.Summary.Nets > 0 && len(initialVoltages) > 0 {
+		propRes = propagate.Propagate(*design, *metaObj, initialVoltages)
+	}
+	railInferRes := infer.InferVoltages(design, infer.VoltageInferenceOptions{
+		Evidence:  scanVoltageEvidence(propRes.NetVoltages),
+		Conflicts: propRes.Conflicts,
+	})
+
+	netVolts := scanReportNetVoltages(propRes.NetVoltages)
+	inferredNetVolts := scanReportInferredNetVoltages(nameInferRes)
+	unknownVoltageNets := scanReportUnknownVoltageNets(railInferRes)
+	railInferences := scanReportRailInferences(railInferRes)
+	railCoverage := rails.SummarizeRailCoverage(design, railInferRes.Inferences)
+	inferencesByNet := scanInferenceByNet(railInferRes.Inferences)
+	if designReport.Summary.Nets > 0 || len(netVolts) > 0 || len(inferredNetVolts) > 0 || len(unknownVoltageNets) > 0 || len(railInferences) > 0 || len(propRes.Conflicts) > 0 {
+		designReport.Derived = &report.Derived{
+			NetVoltages:         netVolts,
+			InferredNetVoltages: inferredNetVolts,
+			UnknownVoltageNets:  unknownVoltageNets,
+			RailInferences:      railInferences,
+			RailCoverage:        railCoverage,
+			Conflicts:           propRes.Conflicts,
+		}
+	}
+
+	if len(propRes.Conflicts) > 0 {
+		for _, c := range propRes.Conflicts {
+			result := report.RuleResult{
+				ID:       "RULE_VOLTAGE_CONFLICT",
+				RuleID:   "RULE_VOLTAGE_CONFLICT",
+				Severity: "ERROR",
+				Message:  c,
+				Source:   "voltage-propagation",
+				Provenance: &contracts.Provenance{
+					Source:   "voltage-propagation",
+					SourceID: "RULE_VOLTAGE_CONFLICT",
+					Detail:   "deterministic voltage propagation conflict",
+				},
+				Fix: "Resolve the conflicting voltage evidence for this net.",
+			}
+			if inference, ok := inferencesByNet[scanConflictNetName(c)]; ok {
+				result.Inference = scanReportInferenceProvenance(inference)
+			}
+			designReport.Rules = append(designReport.Rules, result)
+		}
+	}
+
+	contractSources := []contracts.ContractSource{}
+	if metaLoaded {
+		contractSources = append(contractSources, enrichment.NewMetaYAMLSource(metaObj))
+	}
+	contractSources = append(contractSources,
+		contracts.FieldContractSource{},
+		contracts.NewBuiltinPartsSource(),
+	)
+	if len(userContracts) > 0 {
+		contractSources = append(contractSources, contracts.NewUserYAMLSource(userContractsPath, userContracts))
+	}
+	contractSources = append(contractSources,
+		enrichment.NewNetVoltageSource("net-voltage-inference", scanContractNetVoltages(propRes.NetVoltages)),
+	)
+	contractIR, err := (enrichment.ContractEnricher{Sources: contractSources}).Enrich(design)
+	if err != nil {
+		return scanPipelineResult{}, internalError(err)
+	}
+	coverage := contracts.SummarizeCoverage(design, contractIR)
+	designReport.ContractCoverage = &coverage
+	contractFindings := rules.CheckAll(design, contractIR, rules.DefaultRules())
+	designReport.Rules = append(designReport.Rules, scanReportRuleResults(contractFindings, inferencesByNet)...)
+	designReport.Rules = append(designReport.Rules, scanReportContractResults(contracts.Evaluate(design, contractIR), inferencesByNet)...)
+
+	if len(designReport.Rules) > 0 {
+		sort.SliceStable(designReport.Rules, func(i, j int) bool {
+			if designReport.Rules[i].ID == designReport.Rules[j].ID {
+				return designReport.Rules[i].Message < designReport.Rules[j].Message
+			}
+			return designReport.Rules[i].ID < designReport.Rules[j].ID
+		})
+	}
+	normalizeScanReportRules(designReport.Rules)
+	designReport.Findings = append([]report.RuleResult{}, designReport.Rules...)
+	designReport.Summary.Rules = len(designReport.Findings)
+	designReport.Summary.HasFailures = len(design.ParseErrors) > 0 || scanRuleViolationCount(designReport) > 0
+	designReport.Summary.PartsMatched = coverage.PartsMatched
+	designReport.Summary.UserContractsLoaded = len(userContracts)
+	designReport.Summary.BuiltInContractsLoaded = len(contracts.BuiltinContracts())
+	designReport.Summary.ActiveUserRequirements = scanActiveUserRequirements(contractIR)
+	designReport.Summary.AvailableContractRules = len(coverage.EnabledContractRules)
+	designReport.Summary.RequirementsEnabled = designReport.Summary.ActiveUserRequirements
+	designReport.Summary.PartContractCoveragePercentage = coverage.CoveragePercentage
+	designReport.Summary.ContractsApplied = coverage.ContractsApplied
+	designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
+	designReport.Summary.UnknownPowerCriticalRefs = coverage.UnknownPowerCriticalRefs
+	designReport.Summary.EnabledContractRules = coverage.EnabledContractRules
+
+	return scanPipelineResult{
+		Input:           resolvedInput,
+		Design:          design,
+		Report:          designReport,
+		ContractIR:      contractIR,
+		MetaLoaded:      metaLoaded,
+		NameInferResult: nameInferRes,
+		RailInferResult: railInferRes,
+		RailInferences:  railInferences,
+		RailCoverage:    railCoverage,
+	}, nil
 }
 
 // importResolvedScanInput keeps CLI discovery separate from importer behavior.
