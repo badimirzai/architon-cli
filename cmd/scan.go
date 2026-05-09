@@ -269,6 +269,7 @@ type scanPipelineResult struct {
 	Design          *ir.DesignIR
 	Report          report.VerificationReport
 	ContractIR      *contracts.ContractIR
+	UserContracts   []contracts.SystemContract
 	MetaLoaded      bool
 	NameInferResult infer.Result
 	RailInferResult infer.Result
@@ -473,6 +474,7 @@ func runScanPipeline(inputPath string, opts scanPipelineOptions) (scanPipelineRe
 		Design:          design,
 		Report:          designReport,
 		ContractIR:      contractIR,
+		UserContracts:   append([]contracts.SystemContract{}, userContracts...),
 		MetaLoaded:      metaLoaded,
 		NameInferResult: nameInferRes,
 		RailInferResult: railInferRes,
