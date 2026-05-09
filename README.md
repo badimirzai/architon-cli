@@ -95,7 +95,7 @@ Try Architon on a real KiCad project:
 
 ```bash
 git clone https://github.com/badimirzai/architon-kicad-demo.git
-cd demos/pull_up_ohms/no_pull_up
+cd demos/pull_up_ohms/pull_down_fail
 rv init contracts
 rv scan .
 ```
@@ -138,12 +138,12 @@ Core commands:
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import KiCad/BOM data and emit DesignIR report
 rv graph <path>            Emit stable GraphIR JSON for Studio/renderers
+rv report <path>           Generate offline HTML reports for review/CI artifacts
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part
 rv init                    Create starter specs and metadata
 rv version                 Show installed version
-rv report <path>           Generate offline HTML reports for review/CI artifacts
 ```
 Detailed CLI examples, scan behavior, import modes, rail inference, and advanced flags are documented in:
 
