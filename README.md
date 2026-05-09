@@ -17,7 +17,14 @@ Run Architon on a real hardware design and detect an integration failure:
 Architon detects integration failures deterministically before hardware is built.
 
 ![Invalid I2C pull-up resistance detected by Architon](assets/pullup-high.png)
-Architon detects invalid I2C pull-up resistance before bring-up.
+Faulty I2C pull-up configuration in a real KiCad schematic.
+
+
+![Report offline](assets/architon-offline-report.png)
+![Report offline](assets/architon-offline-report2.png)
+
+
+Architon detects the integration failure deterministically before hardware bring-up.
 
 ---
 
