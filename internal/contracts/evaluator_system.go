@@ -97,6 +97,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 				finding.ComponentRef = invalidPullups[0].Ref
 				finding.PullupResistors = pullupRefs(invalidPullups)
 			}
+			finding.WhyThisMatters = pullupMissingWhyThisMatters(invalidPullups)
 			findings = append(findings, finding)
 			continue
 		}
@@ -108,6 +109,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding := findingForRequirement(req, fmt.Sprintf("Observed: effective pull-up on %s is %s. Expected: %s.", signalNet.Net.Name, formatPullupOhms(effective), pullupExpectedRange(req)))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			finding.WhyThisMatters = "Too-low pull-up resistance increases sink current when devices pull the line low. This can exceed device limits and distort bus behavior."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
@@ -117,6 +119,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding := findingForRequirement(req, fmt.Sprintf("Observed: effective pull-up on %s is %s. Expected: %s.", signalNet.Net.Name, formatPullupOhms(effective), pullupExpectedRange(req)))
 			finding.Net = signalNet.Net.Name
 			finding.ComponentRef = pullups[0].Ref
+			finding.WhyThisMatters = "Too-high pull-up resistance slows rising edges. At higher bus speeds or larger bus capacitance, devices may read invalid logic levels."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
 			findings = append(findings, finding)
@@ -131,6 +134,15 @@ func pullupMissingMessage(netName string, invalidPullups []pullupCandidate) stri
 		return fmt.Sprintf("Observed: %s = %s connects %s to %s. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.", pullup.Ref, formatPullupOhms(pullup.Ohms), netName, pullup.RailNet)
 	}
 	return fmt.Sprintf("Observed: no pull-up resistor found on net %s. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.", netName)
+}
+
+func pullupMissingWhyThisMatters(invalidPullups []pullupCandidate) string {
+	for _, pullup := range invalidPullups {
+		if isGroundNetName(pullup.RailNet) {
+			return "I2C lines are open-drain and must idle high. A resistor to GND holds the bus low, which can prevent communication entirely."
+		}
+	}
+	return "I2C lines are open-drain and must idle high. Without pull-ups, SDA/SCL may never reach a valid HIGH level, so devices may not communicate."
 }
 
 func pullupExpectedRange(req AppliedRequirement) string {

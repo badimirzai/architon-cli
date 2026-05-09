@@ -128,6 +128,123 @@ func TestReportCommand_RejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestReportCommand_HeaderUsesDirectoryBaseNameForDotInput(t *testing.T) {
+	cwd := t.TempDir()
+	writeScanTestFile(t, filepath.Join(cwd, "design.net"), graphPullupNetlist([]graphResistor{
+		{Ref: "R1", Value: "4.7k", A: "/I2C_SDA", B: "/+3V3"},
+		{Ref: "R2", Value: "4.7k", A: "/I2C_SCL", B: "/+3V3"},
+	}))
+	writeScanTestFile(t, filepath.Join(cwd, ".architon", "contracts.yaml"), graphPullupContracts())
+
+	stdout, err := runReportCommand(t, cwd, ".", "--format", "html", "--out", "report.html")
+	if err != nil {
+		t.Fatalf("expected clean report command, got %v\n%s", err, stdout)
+	}
+	html := readTestFileString(t, filepath.Join(cwd, "report.html"))
+	want := `<div class="subhead">` + filepath.Base(cwd) + `</div>`
+	if !strings.Contains(html, want) {
+		t.Fatalf("expected report header subhead %q, got\n%s", want, html)
+	}
+	if strings.Contains(html, `<div class="subhead">.</div>`) {
+		t.Fatalf("expected report header not to show dot input")
+	}
+}
+
+func TestReportCommand_HeaderUsesProjectBaseNameForGeneratedNetlist(t *testing.T) {
+	cwd := t.TempDir()
+	writeScanTestFile(t, filepath.Join(cwd, ".architon", "generated.net"), graphPullupNetlist([]graphResistor{
+		{Ref: "R1", Value: "4.7k", A: "/I2C_SDA", B: "/+3V3"},
+		{Ref: "R2", Value: "4.7k", A: "/I2C_SCL", B: "/+3V3"},
+	}))
+	writeScanTestFile(t, filepath.Join(cwd, ".architon", "contracts.yaml"), graphPullupContracts())
+
+	stdout, err := runReportCommand(t, cwd, ".architon/generated.net", "--format", "html", "--out", "report.html")
+	if err != nil {
+		t.Fatalf("expected clean report command, got %v\n%s", err, stdout)
+	}
+	html := readTestFileString(t, filepath.Join(cwd, "report.html"))
+	want := `<div class="subhead">` + filepath.Base(cwd) + `</div>`
+	if !strings.Contains(html, want) {
+		t.Fatalf("expected generated netlist header subhead %q, got\n%s", want, html)
+	}
+}
+
+func TestReportCommand_PullupFindingsIncludeWhyThisMatters(t *testing.T) {
+	tests := []struct {
+		name        string
+		resistors   []graphResistor
+		wantMessage string
+		wantWhy     string
+	}{
+		{
+			name:        "missing",
+			wantMessage: "Observed: no pull-up resistor found on net /I2C_SDA.",
+			wantWhy:     "I2C lines are open-drain and must idle high. Without pull-ups, SDA/SCL may never reach a valid HIGH level, so devices may not communicate.",
+		},
+		{
+			name: "pull-down",
+			resistors: []graphResistor{
+				{Ref: "R1", Value: "4.7k", A: "/I2C_SDA", B: "GND"},
+				{Ref: "R2", Value: "4.7k", A: "/I2C_SCL", B: "GND"},
+			},
+			wantMessage: "Observed: R1 = 4.7k connects /I2C_SDA to GND.",
+			wantWhy:     "I2C lines are open-drain and must idle high. A resistor to GND holds the bus low, which can prevent communication entirely.",
+		},
+		{
+			name: "too strong",
+			resistors: []graphResistor{
+				{Ref: "R1", Value: "1k", A: "/I2C_SDA", B: "/+3V3"},
+				{Ref: "R2", Value: "1k", A: "/I2C_SCL", B: "/+3V3"},
+			},
+			wantMessage: "Observed: effective pull-up on /I2C_SDA is 1k.",
+			wantWhy:     "Too-low pull-up resistance increases sink current when devices pull the line low. This can exceed device limits and distort bus behavior.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cwd := writeGraphPullupFixture(t, tt.resistors, true)
+			stdout, err := runReportCommand(t, cwd, ".", "--format", "html", "--out", "report.html")
+			requireExitCode(t, err, 2, stdout)
+			html := readTestFileString(t, filepath.Join(cwd, "report.html"))
+			if !strings.Contains(html, "Why it matters") {
+				t.Fatalf("expected HTML findings table to include Why it matters column")
+			}
+			if !strings.Contains(html, tt.wantWhy) {
+				t.Fatalf("expected HTML to render why_this_matters %q\n%s", tt.wantWhy, html)
+			}
+			var scan scanReport
+			if err := json.Unmarshal([]byte(extractEmbeddedJSON(t, html, "architon-scan-json")), &scan); err != nil {
+				t.Fatalf("embedded scan JSON invalid: %v", err)
+			}
+			finding := requireScanFindingForNet(t, scan, "/I2C_SDA")
+			if !strings.Contains(finding.Message, tt.wantMessage) {
+				t.Fatalf("expected message containing %q, got %+v", tt.wantMessage, finding)
+			}
+			if finding.WhyThisMatters != tt.wantWhy {
+				t.Fatalf("expected why_this_matters %q, got %+v", tt.wantWhy, finding)
+			}
+			graph := parseGraphOutput(t, extractEmbeddedJSON(t, html, "architon-graph-json"))
+			graphFinding := requireGraphFindingForNet(t, graph, "/I2C_SDA")
+			if graphFinding.WhyThisMatters != tt.wantWhy {
+				t.Fatalf("expected GraphIR why_this_matters %q, got %+v", tt.wantWhy, graphFinding)
+			}
+		})
+	}
+}
+
+func TestGraphCommand_RailSourceDoesNotUsePassiveOrLoadFallback(t *testing.T) {
+	cwd := writeGraphPullupFixture(t, nil, true)
+
+	stdout, err := runGraphCommand(t, cwd, ".", "--format", "json")
+	if err != nil {
+		t.Fatalf("expected graph command to succeed, got %v\n%s", err, stdout)
+	}
+	rail := requireGraphRail(t, parseGraphOutput(t, stdout), "/+3V3")
+	if rail.SourceRef != "" {
+		t.Fatalf("expected inferred /+3V3 source_ref to stay blank without a real source, got %+v", rail)
+	}
+}
+
 func TestReportCommand_ProjectDirectoryArtifactsMatchEmbeddedJSON(t *testing.T) {
 	cwd := writeGraphPullupFixture(t, nil, true)
 
@@ -344,6 +461,28 @@ func readTestFileString(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func requireScanFindingForNet(t *testing.T, scan scanReport, net string) scanRuleFinding {
+	t.Helper()
+	for _, finding := range scan.Findings {
+		if finding.Net == net {
+			return finding
+		}
+	}
+	t.Fatalf("missing scan finding for net %s in %+v", net, scan.Findings)
+	return scanRuleFinding{}
+}
+
+func requireGraphFindingForNet(t *testing.T, graph graphCommandOutput, net string) graphCommandFinding {
+	t.Helper()
+	for _, finding := range graph.Findings {
+		if finding.Net == net {
+			return finding
+		}
+	}
+	t.Fatalf("missing graph finding for net %s in %+v", net, graph.Findings)
+	return graphCommandFinding{}
 }
 
 func extractEmbeddedJSON(t *testing.T, html string, id string) string {

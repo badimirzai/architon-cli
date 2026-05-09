@@ -32,6 +32,7 @@ type Finding struct {
 	Requirement         string             `json:"requirement,omitempty"`
 	Provenance          Provenance         `json:"provenance,omitempty"`
 	Fix                 string             `json:"fix,omitempty"`
+	WhyThisMatters      string             `json:"why_this_matters,omitempty"`
 }
 
 // EnabledRuleIDs returns the deterministic contract evaluator rule set.

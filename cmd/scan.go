@@ -1380,6 +1380,7 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 			ContractSource:      string(finding.ContractSource),
 			ContractFile:        finding.ContractFile,
 			Requirement:         finding.Requirement,
+			WhyThisMatters:      finding.WhyThisMatters,
 			Fix:                 finding.Fix,
 		}
 		if finding.Provenance.Source != "" {

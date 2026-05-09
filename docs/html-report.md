@@ -115,7 +115,7 @@ The HTML report includes:
 
 - Header with project path, PASS/WARN/FAIL status, rv version, and report version
 - Summary cards for violations, warnings, loaded contracts, contract coverage, and rail coverage
-- Findings table with severity, contract ID, source, component, net, message, and fix
+- Findings table with severity, contract ID, source, component, net, message, why it matters, and fix
 - Contracts table with loaded contracts, source, severity, and requirement types
 - Components table with component reference, value, type, contract coverage, and finding count
 - Rails table with rail name, voltage, source, consumers, and finding count

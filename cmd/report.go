@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -193,14 +194,15 @@ type htmlSummary struct {
 }
 
 type htmlFinding struct {
-	Severity   string
-	Class      string
-	ContractID string
-	Source     string
-	Component  string
-	Net        string
-	Message    string
-	Fix        string
+	Severity       string
+	Class          string
+	ContractID     string
+	Source         string
+	Component      string
+	Net            string
+	Message        string
+	WhyThisMatters string
+	Fix            string
 }
 
 type htmlContract struct {
@@ -270,10 +272,11 @@ func buildHTMLReportView(input htmlReportInput) (htmlReportView, error) {
 	if inputPath == "" {
 		inputPath = scanResult.Summary.InputFile
 	}
+	displayPath := htmlReportDisplayInputPath(inputPath)
 
 	return htmlReportView{
 		Title:         "Architon Offline HTML Report",
-		InputPath:     inputPath,
+		InputPath:     displayPath,
 		Status:        status,
 		StatusClass:   statusClass,
 		RVVersion:     version.Get().Version,
@@ -324,17 +327,59 @@ func htmlFindings(scanResult report.VerificationReport) []htmlFinding {
 	for _, finding := range scanResult.Findings {
 		ciFinding := scanBuildCIFinding(finding)
 		out = append(out, htmlFinding{
-			Severity:   ciFinding.Severity,
-			Class:      "severity-" + strings.ToLower(ciFinding.Severity),
-			ContractID: ciFinding.ContractID,
-			Source:     ciFinding.ContractSource,
-			Component:  ciFinding.ComponentRef,
-			Net:        ciFinding.Net,
-			Message:    ciFinding.Message,
-			Fix:        ciFinding.Fix,
+			Severity:       ciFinding.Severity,
+			Class:          "severity-" + strings.ToLower(ciFinding.Severity),
+			ContractID:     ciFinding.ContractID,
+			Source:         ciFinding.ContractSource,
+			Component:      ciFinding.ComponentRef,
+			Net:            ciFinding.Net,
+			Message:        ciFinding.Message,
+			WhyThisMatters: htmlOptionalText(ciFinding.WhyThisMatters),
+			Fix:            ciFinding.Fix,
 		})
 	}
 	return out
+}
+
+func htmlOptionalText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func htmlReportDisplayInputPath(inputPath string) string {
+	inputPath = strings.TrimSpace(inputPath)
+	if inputPath == "" {
+		return ""
+	}
+	clean := filepath.Clean(inputPath)
+	if clean == "." {
+		if wd, err := os.Getwd(); err == nil {
+			if base := filepath.Base(wd); base != "." && base != string(filepath.Separator) {
+				return base
+			}
+		}
+		return clean
+	}
+	if info, err := os.Stat(clean); err == nil && info.IsDir() {
+		return filepath.Base(clean)
+	}
+	if strings.EqualFold(filepath.Base(clean), "generated.net") && filepath.Base(filepath.Dir(clean)) == ".architon" {
+		projectRoot := filepath.Dir(filepath.Dir(clean))
+		if projectRoot == "." || projectRoot == "" {
+			if wd, err := os.Getwd(); err == nil {
+				return filepath.Base(wd)
+			}
+		} else {
+			projectBase := filepath.Base(projectRoot)
+			if projectBase != string(filepath.Separator) && projectBase != "" {
+				return projectBase
+			}
+		}
+	}
+	return inputPath
 }
 
 func htmlContracts(contractIR *contracts.ContractIR, userContracts []contracts.SystemContract) []htmlContract {
@@ -598,7 +643,7 @@ const htmlReportTemplate = `<!doctype html>
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
-      min-width: 760px;
+      min-width: 900px;
     }
     th {
       background: var(--panel-2);
@@ -695,7 +740,7 @@ const htmlReportTemplate = `<!doctype html>
         <table>
           <thead>
             <tr>
-              <th>Severity</th><th>Contract ID</th><th>Source</th><th>Component</th><th>Net</th><th>Message</th><th>Fix</th>
+              <th>Severity</th><th>Contract ID</th><th>Source</th><th>Component</th><th>Net</th><th>Message</th><th>Why it matters</th><th>Fix</th>
             </tr>
           </thead>
           <tbody>
@@ -707,6 +752,7 @@ const htmlReportTemplate = `<!doctype html>
               <td>{{.Component}}</td>
               <td>{{.Net}}</td>
               <td>{{.Message}}</td>
+              <td>{{.WhyThisMatters}}</td>
               <td>{{.Fix}}</td>
             </tr>
             {{end}}

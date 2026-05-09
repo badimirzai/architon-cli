@@ -142,8 +142,10 @@ voltage propagation.
 ```
 
 `voltage_v` is emitted for explicit, propagated, or inferred rails. `source_ref`
-is the best deterministic source component when one is known, otherwise an empty
-string.
+is set only when a plausible power-producing source is known, such as a
+regulator, power source, or contract-backed power output. Passive pull-ups,
+loads, and arbitrary first components are not used as rail sources; unknown
+sources are emitted as an empty string.
 
 ### Interfaces
 
@@ -186,12 +188,13 @@ stable IDs assigned for graph linking.
   "contract_id": "i2c_pullups",
   "contract_source": "user_yaml",
   "severity": "ERROR",
-  "message": "Net /I2C_SDA has no pull-up resistor in scope",
+  "message": "Observed: no pull-up resistor found on net /I2C_SDA. Expected: pull-up resistor between 2.2k and 10k to a compatible positive rail.",
   "component_ref": "",
   "net": "/I2C_SDA",
   "pin": "",
   "requirement": "pullup_ohms",
-  "fix": "Add a pull-up resistor from /I2C_SDA to the I2C rail between 2200 and 10000 ohms.",
+  "fix": "Use pull-ups between 2.2k and 10k to the bus voltage rail, commonly 4.7k for a 3.3V I2C bus.",
+  "why_this_matters": "I2C lines are open-drain and must idle high. Without pull-ups, SDA/SCL may never reach a valid HIGH level, so devices may not communicate.",
   "provenance": "source=user_yaml; source_id=i2c_pullups"
 }
 ```

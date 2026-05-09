@@ -114,6 +114,7 @@ type scanRuleFinding struct {
 	ContractSource      string   `json:"contract_source"`
 	ContractFile        string   `json:"contract_file"`
 	Requirement         string   `json:"requirement"`
+	WhyThisMatters      string   `json:"why_this_matters"`
 	Provenance          *struct {
 		Source   string `json:"source"`
 		SourceID string `json:"source_id"`
@@ -160,6 +161,7 @@ type scanCIFindingOutput struct {
 	Pin            string `json:"pin"`
 	Requirement    string `json:"requirement"`
 	Fix            string `json:"fix"`
+	WhyThisMatters string `json:"why_this_matters"`
 	Provenance     string `json:"provenance"`
 }
 

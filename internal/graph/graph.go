@@ -115,6 +115,7 @@ type Finding struct {
 	Pin            string `json:"pin"`
 	Requirement    string `json:"requirement"`
 	Fix            string `json:"fix"`
+	WhyThisMatters string `json:"why_this_matters,omitempty"`
 	Provenance     string `json:"provenance"`
 }
 
@@ -272,6 +273,7 @@ func buildGraphFinding(id string, finding report.RuleResult) Finding {
 		Pin:            strings.TrimSpace(finding.Pin),
 		Requirement:    findingRequirement(finding, ruleID),
 		Fix:            strings.TrimSpace(finding.Fix),
+		WhyThisMatters: strings.TrimSpace(finding.WhyThisMatters),
 		Provenance:     findingProvenance(finding),
 	}
 }
@@ -705,14 +707,6 @@ func (b *builder) sourceRefForRail(net ir.Net) string {
 		if classifyNode(b.partByRef[ref], b.input.ContractIR) == "power_source" {
 			return ref
 		}
-	}
-	for _, ref := range refs {
-		if classifyNode(b.partByRef[ref], b.input.ContractIR) == "connector" {
-			return ref
-		}
-	}
-	if len(refs) > 0 && !infer.IsGroundNetName(net.Name) {
-		return refs[0]
 	}
 	return ""
 }

@@ -102,6 +102,7 @@ type graphCommandFinding struct {
 	Pin            string `json:"pin"`
 	Requirement    string `json:"requirement"`
 	Fix            string `json:"fix"`
+	WhyThisMatters string `json:"why_this_matters"`
 	Provenance     string `json:"provenance"`
 }
 
