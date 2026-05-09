@@ -134,6 +134,7 @@ Detailed CLI examples, scan behavior, import modes, rail inference, and advanced
 
 - [docs/cli.md](docs/cli.md)
 - [docs/contracts.md](docs/contracts.md)
+- [docs/ci.md](docs/ci.md)
 - [docs/importers.md](docs/importers.md)
 - [docs/rail-inference.md](docs/rail-inference.md)
 - [docs/report-format.md](docs/report-format.md)
@@ -189,6 +190,7 @@ No probabilistic models or network calls are used. Validation operates only on t
 Detailed technical documentation is available in `docs/`:
 
 - [docs/architecture.md](docs/architecture.md) — engine architecture and system design
+- [docs/ci.md](docs/ci.md) — GitHub Actions, PR comments, and scan artifacts
 - [docs/contracts.md](docs/contracts.md) — built-in and user system contracts
 - [docs/importers.md](docs/importers.md) — KiCad/BOM/netlist import behavior
 - [docs/rail-inference.md](docs/rail-inference.md) — rail voltage inference and coverage

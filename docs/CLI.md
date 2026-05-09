@@ -15,6 +15,9 @@ rv parts show <mpn>           Show one built-in contract part
 rv init                       Create .architon metadata or write a starter robot spec
 rv version                    Show installed version
 rv check --output json        Emit JSON findings to stdout
+rv scan . --format json       Emit stable scan JSON to stdout
+rv scan . --format markdown   Emit PR-comment-ready Markdown
+rv scan . --format github     Emit GitHub Actions annotations
 rv --help                     Show all commands and flags
 rv check --help               Show check command options
 ```
@@ -36,6 +39,7 @@ rv scan examples/bom/bom.csv
 rv scan examples/bom/bom.csv --map examples/mapping.yaml
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv scan . --contracts i2c_pullup_policy.yaml --verbose
+rv scan . --format github
 rv parts list
 rv parts show ESP32-WROOM-32
 ```
@@ -46,6 +50,6 @@ Contracts come from built-in component data, project metadata, schematic/BOM fie
 
 Use `--verbose` or `--rails` to inspect rail inference, confidence, and voltage coverage. See [docs/rail-inference.md](docs/rail-inference.md).
 
-Architon writes deterministic JSON reports for CI and tooling. Default scan output is `architon-report.json`. See [docs/report-format.md](docs/report-format.md).
+Architon writes deterministic JSON reports for CI and tooling. Default scan output is `architon-report.json`. See [docs/report-format.md](docs/report-format.md) and [docs/ci.md](docs/ci.md).
 
 YAML architecture specs and part lookup behavior are documented in [docs/spec.md](docs/spec.md).

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -62,9 +61,11 @@ func init() {
 // newScanCmd builds the rv scan command and wires all scan flags.
 func newScanCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "scan <path>",
-		Args:  cobra.ExactArgs(1),
-		Short: "Scan an electronics BOM and generate a deterministic verification report",
+		Use:           "scan <path>",
+		Args:          cobra.ExactArgs(1),
+		Short:         "Scan an electronics BOM and generate a deterministic verification report",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		Long: `Scan an electronics BOM and generate a deterministic verification report.
 
 Current supported input:
@@ -97,10 +98,10 @@ Examples:
 			if outputFormat == "" {
 				outputFormat = "text"
 			}
-			if outputFormat != "text" && outputFormat != "json" {
+			if outputFormat != "text" && outputFormat != "json" && outputFormat != "markdown" && outputFormat != "github" {
 				return &ExitError{
 					Code: 3,
-					Err:  fmt.Errorf("unsupported output format %q (allowed: text, json)", outputFormat),
+					Err:  fmt.Errorf("unsupported output format %q (allowed: text, json, markdown, github)", outputFormat),
 				}
 			}
 
@@ -200,7 +201,7 @@ Examples:
 						}
 						metaObj = prepared
 						metaLoaded = true
-					} else {
+					} else if outputFormat == "text" {
 						fmt.Fprintf(cmd.OutOrStdout(), "Hint: edit .architon/meta.yaml (sources/components) to enable voltage rules\n")
 					}
 				}
@@ -329,25 +330,20 @@ Examples:
 			// 3 tool execution failure
 			// -------------------------
 			exitCode := scanExitCode(designReport)
-			if outputFormat == "json" {
-				jsonReport := report.CanonicalizeVerificationReport(designReport)
-				data, err := json.MarshalIndent(jsonReport, "", "  ")
+			switch outputFormat {
+			case "json":
+				data, err := scanRenderCIJSON(designReport, args[0])
 				if err != nil {
-					return internalError(fmt.Errorf("marshal scan report JSON: %w", err))
+					return internalError(fmt.Errorf("marshal scan CI JSON: %w", err))
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), string(data))
-				switch exitCode {
-				case 0:
-					return nil
-				case 1:
-					return &ExitError{Code: 1, Err: errors.New("scan completed with warnings")}
-				case 2:
-					return &ExitError{Code: 2, Err: errors.New("scan violations detected")}
-				case 3:
-					return &ExitError{Code: 3, Err: errors.New("scan failed")}
-				default:
-					return &ExitError{Code: 3, Err: fmt.Errorf("scan failed with unexpected exit code %d", exitCode)}
-				}
+				return scanReturnExit(exitCode)
+			case "markdown":
+				fmt.Fprint(cmd.OutOrStdout(), scanRenderMarkdown(designReport, args[0]))
+				return scanReturnExit(exitCode)
+			case "github":
+				fmt.Fprint(cmd.OutOrStdout(), scanRenderGitHub(designReport, args[0]))
+				return scanReturnExit(exitCode)
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "ARCHITON SCAN\n")
@@ -436,7 +432,7 @@ Examples:
 	cmd.Flags().String("netlist", "", "Override netlist file path when scanning a project directory")
 	cmd.Flags().String("meta", "", "Override meta file path (default: .architon/meta.yaml if present)")
 	cmd.Flags().String("contracts", "", "Override contracts file path (default: .architon/contracts.yaml if present)")
-	cmd.Flags().String("format", "text", "Output format: text or json")
+	cmd.Flags().String("format", "text", "Output format: text, json, markdown, or github")
 	cmd.Flags().Bool("verbose", false, "Show detailed scan diagnostics")
 	cmd.Flags().Bool("explain-rails", false, "Print rail voltage inference provenance and confidence")
 	cmd.Flags().Bool("rails", false, "Alias for --explain-rails")
