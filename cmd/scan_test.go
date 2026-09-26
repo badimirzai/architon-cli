@@ -1506,3 +1506,38 @@ func TestScanExitCode(t *testing.T) {
 		})
 	}
 }
+
+func TestScanReportContractResults_CopiesEvidence(t *testing.T) {
+	max := 3.6
+	got := scanReportContractResults([]contractspkg.Finding{{
+		RuleID:       "supply_abs_max",
+		Severity:     "error",
+		Message:      "U1 pin 3 on net /+5V sees 5.00V above absolute maximum 3.60V",
+		ComponentRef: "U1",
+		Net:          "/+5V",
+		Pin:          "3",
+		Expected:     &contractspkg.Evidence{Max: &max, Unit: "V"},
+		Observed:     &contractspkg.Evidence{Text: "5", Unit: "V"},
+	}}, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected one finding, got %+v", got)
+	}
+	if got[0].Expected == nil || got[0].Expected.Max == nil || *got[0].Expected.Max != 3.6 || got[0].Expected.Unit != "V" {
+		t.Fatalf("expected evidence was not copied, got %+v", got[0].Expected)
+	}
+	if got[0].Observed == nil || got[0].Observed.Text != "5" || got[0].Observed.Unit != "V" {
+		t.Fatalf("observed evidence was not copied, got %+v", got[0].Observed)
+	}
+	if got[0].Message != "U1 pin 3 on net /+5V sees 5.00V above absolute maximum 3.60V" {
+		t.Fatalf("message changed, got %q", got[0].Message)
+	}
+
+	without := scanReportContractResults([]contractspkg.Finding{{
+		RuleID:   "supply_abs_max",
+		Severity: "error",
+		Message:  "same message",
+	}}, nil)
+	if without[0].Expected != nil || without[0].Observed != nil {
+		t.Fatalf("expected empty evidence to stay nil, got %+v", without[0])
+	}
+}

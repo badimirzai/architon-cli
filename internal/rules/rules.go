@@ -18,14 +18,16 @@ const (
 
 // Finding is the rule-engine result type before it is adapted into report JSON.
 type Finding struct {
-	RuleID   string `json:"rule_id"`
-	Severity string `json:"severity"`
-	Net      string `json:"net,omitempty"`
-	Message  string `json:"message"`
-	Provider string `json:"provider,omitempty"`
-	Consumer string `json:"consumer,omitempty"`
-	Ref      string `json:"ref,omitempty"`
-	Pin      string `json:"pin,omitempty"`
+	RuleID   string              `json:"rule_id"`
+	Severity string              `json:"severity"`
+	Net      string              `json:"net,omitempty"`
+	Message  string              `json:"message"`
+	Provider string              `json:"provider,omitempty"`
+	Consumer string              `json:"consumer,omitempty"`
+	Ref      string              `json:"ref,omitempty"`
+	Pin      string              `json:"pin,omitempty"`
+	Expected *contracts.Evidence `json:"expected,omitempty"`
+	Observed *contracts.Evidence `json:"observed,omitempty"`
 }
 
 // Rule is the only interface rule implementations need. It deliberately exposes

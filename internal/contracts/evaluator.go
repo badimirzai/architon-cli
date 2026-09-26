@@ -10,6 +10,16 @@ import (
 	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
+// Evidence is an optional expected or observed value on a finding.
+// Text carries tokens such as pin names. Min, Max, and Unit carry numeric comparisons.
+// Current rules leave these empty. Later rules set them without changing message text.
+type Evidence struct {
+	Text string   `json:"text,omitempty"`
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	Unit string   `json:"unit,omitempty"`
+}
+
 // Finding is a contract-evaluator finding before it is adapted into report JSON.
 type Finding struct {
 	RuleID              string             `json:"rule_id"`
@@ -18,6 +28,8 @@ type Finding struct {
 	ComponentRef        string             `json:"component_ref,omitempty"`
 	Net                 string             `json:"net,omitempty"`
 	Pin                 string             `json:"pin,omitempty"`
+	Expected            *Evidence          `json:"expected,omitempty"`
+	Observed            *Evidence          `json:"observed,omitempty"`
 	BusID               string             `json:"bus_id,omitempty"`
 	BusType             string             `json:"bus_type,omitempty"`
 	BusNets             *I2CBusNets        `json:"bus_nets,omitempty"`

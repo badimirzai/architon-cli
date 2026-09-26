@@ -28,6 +28,8 @@ type RuleResult struct {
 	Ref                 string                `json:"ref,omitempty"`
 	ComponentRef        string                `json:"component_ref,omitempty"`
 	Pin                 string                `json:"pin,omitempty"`
+	Expected            *contracts.Evidence   `json:"expected,omitempty"`
+	Observed            *contracts.Evidence   `json:"observed,omitempty"`
 	BusID               string                `json:"bus_id,omitempty"`
 	BusType             string                `json:"bus_type,omitempty"`
 	BusNets             *contracts.I2CBusNets `json:"bus_nets,omitempty"`

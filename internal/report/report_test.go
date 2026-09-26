@@ -1,10 +1,13 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/ir"
 )
 
@@ -165,5 +168,39 @@ func TestCanonicalizeVerificationReport_AssignsStableDuplicateFindingIDs(t *test
 	}
 	if !reflect.DeepEqual(result.Rules, result.Findings) {
 		t.Fatalf("expected rules alias to equal canonical findings, got rules=%+v findings=%+v", result.Rules, result.Findings)
+	}
+}
+
+func TestRuleResult_EvidenceJSON(t *testing.T) {
+	max := 3.6
+	withEvidence, err := json.Marshal(RuleResult{
+		ID:       "supply_abs_max",
+		RuleID:   "supply_abs_max",
+		Severity: "ERROR",
+		Message:  "U1 pin 3 on net /+5V sees 5.00V above absolute maximum 3.60V",
+		Expected: &contracts.Evidence{Max: &max, Unit: "V"},
+		Observed: &contracts.Evidence{Text: "5", Unit: "V"},
+	})
+	if err != nil {
+		t.Fatalf("marshal finding with evidence: %v", err)
+	}
+	if !strings.Contains(string(withEvidence), `"expected":{"max":3.6,"unit":"V"}`) {
+		t.Fatalf("expected evidence object missing, got %s", withEvidence)
+	}
+	if !strings.Contains(string(withEvidence), `"observed":{"text":"5","unit":"V"}`) {
+		t.Fatalf("observed evidence object missing, got %s", withEvidence)
+	}
+
+	withoutEvidence, err := json.Marshal(RuleResult{
+		ID:       "supply_abs_max",
+		RuleID:   "supply_abs_max",
+		Severity: "ERROR",
+		Message:  "U1 pin 3 on net /+5V sees 5.00V above absolute maximum 3.60V",
+	})
+	if err != nil {
+		t.Fatalf("marshal finding without evidence: %v", err)
+	}
+	if strings.Contains(string(withoutEvidence), `"expected"`) || strings.Contains(string(withoutEvidence), `"observed"`) {
+		t.Fatalf("expected evidence keys to be omitted, got %s", withoutEvidence)
 	}
 }
