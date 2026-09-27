@@ -118,7 +118,11 @@ On parse failures, the report still includes `report_version`, `design_ir.versio
 
 Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, `derived.rail_coverage`, and optional `findings[].inference` provenance.
 
-Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `why_this_matters`, and `fix`.
+Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `why_this_matters`, `fix`, `expected`, and `observed`.
+
+`expected` and `observed` are optional. They are omitted when a rule does not set them. Interface findings set `text`. A numeric comparison may instead set `min`, `max`, and `unit`.
+
+`rv scan --format json` includes the same `expected` and `observed` objects. Interface rule IDs are `interface_component_missing`, `interface_net_missing`, and `interface_not_connected`.
 
 `rules` is a deprecated alias of `findings`.
 

@@ -116,12 +116,17 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `gpio_abs_max` (`ERROR`): GPIO-like pin is on a net above its absolute maximum voltage
 - `motor_driver_vm_range` (`ERROR`): motor-driver VM pin is outside the supported motor-supply voltage range
 - `regulator_output_current` (`ERROR`): known downstream load current exceeds a regulator output-current contract
+- `interface_component_missing` (`ERROR`): a `connected` contract names a component ref that is not in the design
+- `interface_net_missing` (`ERROR`): a `connected` contract names a net that is not in the design
+- `interface_not_connected` (`ERROR`): a participant has no pin on a net named by a `connected` contract
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
 Contract source precedence is deterministic: explicit `.architon/meta.yaml`, then schematic/BOM contract fields, then the curated built-in contract source, then explicit custom contracts from `.architon/contracts.yaml` or `--contracts`, then inferred net names. Built-ins are intentionally small and local; there is no network lookup, datasheet scraping, or generic parts database.
 
 Custom contracts are deterministic explicit YAML. `rv contracts validate` validates schema only; use `rv scan --contracts <path>` to enforce a contract file against a design.
+
+`connected` checks that every listed component has a pin on every listed net. Roles are `master` or `slave` labels. The rule does not infer a peripheral from net names and does not check electrical properties of the bus. Findings include `expected` and `observed`.
 
 `pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work.
 
