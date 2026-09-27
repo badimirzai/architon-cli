@@ -1310,3 +1310,128 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// evaluateConnected checks that every named participant has a pin on every named net.
+// Roles are contract labels. The check does not look up MCU peripherals.
+func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
+	if design == nil {
+		return nil
+	}
+	contractID := strings.TrimSpace(req.ContractID)
+	if contractID == "" {
+		contractID = strings.TrimSpace(req.Scope.BusID)
+	}
+	parts := partIndex(design)
+	participants := append([]InterfaceParticipant(nil), req.Participants...)
+	sort.Slice(participants, func(i, j int) bool { return participants[i].Ref < participants[j].Ref })
+	nets := append([]string(nil), req.Nets...)
+	sort.Strings(nets)
+
+	findings := make([]Finding, 0)
+	// Missing components are reported first and skipped in the pin check below.
+	missingRefs := map[string]struct{}{}
+	for _, participant := range participants {
+		if _, ok := parts[participant.Ref]; ok {
+			continue
+		}
+		missingRefs[participant.Ref] = struct{}{}
+		findings = append(findings, connectedFinding(
+			req,
+			RuleInterfaceComponentMissing,
+			participant.Ref,
+			"",
+			fmt.Sprintf("Contract %s requires component %s (%s). Observed: component %s is missing.", contractID, participant.Ref, participant.Role, participant.Ref),
+			"Add the missing component to the schematic.",
+			evidenceText("component "+participant.Ref),
+			evidenceText("missing"),
+		))
+	}
+
+	// A leading slash is ignored, so SPI_SCK matches /SPI_SCK.
+	missingNets := map[string]struct{}{}
+	resolved := map[string]ir.Net{}
+	for _, netName := range nets {
+		net, ok := findExplicitScopedNet(design, netName)
+		if !ok {
+			missingNets[netName] = struct{}{}
+			findings = append(findings, connectedFinding(
+				req,
+				RuleInterfaceNetMissing,
+				"",
+				netName,
+				fmt.Sprintf("Contract %s requires net %s. Observed: net %s is missing.", contractID, netName, netName),
+				"Add the missing net or correct the interface contract net name.",
+				evidenceText("net "+netName),
+				evidenceText("missing"),
+			))
+			continue
+		}
+		resolved[netName] = net
+	}
+
+	// Only check pins when both the component and the net are present.
+	for _, participant := range participants {
+		if _, missing := missingRefs[participant.Ref]; missing {
+			continue
+		}
+		for _, netName := range nets {
+			if _, missing := missingNets[netName]; missing {
+				continue
+			}
+			net := resolved[netName]
+			if partTouchesNet(net, participant.Ref) {
+				continue
+			}
+			observedNet := net.Name
+			if strings.TrimSpace(observedNet) == "" {
+				observedNet = netName
+			}
+			findings = append(findings, connectedFinding(
+				req,
+				RuleInterfaceNotConnected,
+				participant.Ref,
+				observedNet,
+				fmt.Sprintf("Contract %s requires %s (%s) on net %s. Observed: %s has no pin on %s.", contractID, participant.Ref, participant.Role, observedNet, participant.Ref, observedNet),
+				fmt.Sprintf("Connect %s to %s.", participant.Ref, observedNet),
+				evidenceText(participant.Ref+" connected to "+observedNet),
+				evidenceText(participant.Ref+" has no pin on "+observedNet),
+			))
+		}
+	}
+	return findings
+}
+
+// connectedFinding copies contract provenance onto one interface finding.
+// ruleID is the specific failure, not the YAML key "connected".
+func connectedFinding(req AppliedRequirement, ruleID string, ref string, net string, message string, fix string, expected *Evidence, observed *Evidence) Finding {
+	finding := findingForRequirement(req, message)
+	finding.RuleID = ruleID
+	finding.Requirement = ruleID
+	finding.ComponentRef = ref
+	finding.Net = net
+	finding.BusID = strings.TrimSpace(req.Scope.BusID)
+	finding.BusType = strings.TrimSpace(req.Scope.BusType)
+	finding.Fix = fix
+	finding.Expected = expected
+	finding.Observed = observed
+	return finding
+}
+
+// partTouchesNet reports whether ref has any pin on net. Pin numbers are not compared.
+func partTouchesNet(net ir.Net, ref string) bool {
+	for _, pin := range net.Pins {
+		if pin.Ref == ref {
+			return true
+		}
+	}
+	return false
+}
+
+// evidenceText builds a text-only expected or observed value. Empty text stays unset.
+func evidenceText(text string) *Evidence {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	return &Evidence{Text: text}
+}

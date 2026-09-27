@@ -46,6 +46,9 @@ type scanCIFinding struct {
 	Fix            string `json:"fix"`
 	WhyThisMatters string `json:"why_this_matters,omitempty"`
 	Provenance     string `json:"provenance"`
+	// Expected and Observed are copied from the scan finding. Nil stays omitted.
+	Expected *contracts.Evidence `json:"expected,omitempty"`
+	Observed *contracts.Evidence `json:"observed,omitempty"`
 }
 
 func scanRenderCIJSON(result report.VerificationReport, inputPath string) ([]byte, error) {
@@ -119,6 +122,8 @@ func scanBuildCIFinding(finding report.RuleResult) scanCIFinding {
 		Fix:            strings.TrimSpace(finding.Fix),
 		WhyThisMatters: strings.TrimSpace(finding.WhyThisMatters),
 		Provenance:     scanFindingProvenance(finding),
+		Expected:       finding.Expected,
+		Observed:       finding.Observed,
 	}
 }
 

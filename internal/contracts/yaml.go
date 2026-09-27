@@ -50,6 +50,17 @@ type requirementYAML struct {
 	VoltageCompatible    *bool              `yaml:"voltage_compatible"`
 	CurrentBudget        *currentBudgetYAML `yaml:"current_budget"`
 	NoI2CAddressConflict *bool              `yaml:"no_i2c_address_conflict"`
+	Connected            *connectedYAML     `yaml:"connected"`
+}
+
+type connectedYAML struct {
+	Nets         []string          `yaml:"nets"`
+	Participants []participantYAML `yaml:"participants"`
+}
+
+type participantYAML struct {
+	Ref  string `yaml:"ref"`
+	Role string `yaml:"role"`
 }
 
 type pullupOhmsYAML struct {
@@ -217,9 +228,14 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 	for _, key := range sortedMappingKeys(entries) {
 		value := entries[key]
 		switch key {
-		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict":
+		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict", "connected":
 		default:
 			return contractValidationError(label, "unknown requirement key %q", key)
+		}
+		if key == "connected" {
+			if err := validateConnectedYAMLNode(label, value); err != nil {
+				return err
+			}
 		}
 		if key == "pullup_ohms" {
 			if value.Kind != yaml.MappingNode {
@@ -253,6 +269,98 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 	return nil
 }
 
+// validateConnectedYAMLNode checks require.connected shape before typed decoding.
+// Allowed keys are nets and participants. Each participant needs ref and role.
+func validateConnectedYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "connected must be an object")
+	}
+	entries, err := mappingFromNode(node, label+".require.connected")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(entries) {
+		switch key {
+		case "nets", "participants":
+		default:
+			return contractValidationError(label, "unknown connected key %q", key)
+		}
+	}
+	netsNode := entries["nets"]
+	if netsNode == nil || netsNode.Kind != yaml.SequenceNode {
+		return contractValidationError(label, "connected.nets must be a list")
+	}
+	for i, item := range netsNode.Content {
+		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" || strings.TrimSpace(item.Value) == "" {
+			return contractValidationError(label, "connected.nets[%d] must be a non-empty string", i)
+		}
+	}
+	participantsNode := entries["participants"]
+	if participantsNode == nil || participantsNode.Kind != yaml.SequenceNode {
+		return contractValidationError(label, "connected.participants must be a list")
+	}
+	for i, item := range participantsNode.Content {
+		if item.Kind != yaml.MappingNode {
+			return contractValidationError(label, "connected.participants[%d] must be an object", i)
+		}
+		fields, err := mappingFromNode(item, fmt.Sprintf("%s.require.connected.participants[%d]", label, i))
+		if err != nil {
+			return err
+		}
+		for _, key := range sortedMappingKeys(fields) {
+			switch key {
+			case "ref", "role":
+			default:
+				return contractValidationError(label, "unknown connected.participants key %q", key)
+			}
+		}
+		for _, key := range []string{"ref", "role"} {
+			value := fields[key]
+			if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+				return contractValidationError(label, "connected.participants.%s must be a non-empty string", key)
+			}
+		}
+	}
+	return nil
+}
+
+// connectedRequirementOnly reports whether this contract is just an interface check.
+// I2C requirements still require scope.bus_type i2c. A connected-only contract may use spi, uart, or can.
+func connectedRequirementOnly(req requirementYAML) bool {
+	if req.Connected == nil {
+		return false
+	}
+	if req.CommonGround != nil && *req.CommonGround {
+		return false
+	}
+	if req.PullupOhms != nil || req.CurrentBudget != nil {
+		return false
+	}
+	if req.VoltageCompatible != nil && *req.VoltageCompatible {
+		return false
+	}
+	if req.NoI2CAddressConflict != nil && *req.NoI2CAddressConflict {
+		return false
+	}
+	return true
+}
+
+// validInterfaceBusType accepts a short bus label such as spi, i2c, uart, or can.
+func validInterfaceBusType(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '_' || r == '-'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // validateContractsYAML checks required fields and duplicate contract IDs.
 func validateContractsYAML(file contractsYAMLFile) error {
 	if file.Contracts == nil {
@@ -280,7 +388,7 @@ func validateContractsYAML(file contractsYAMLFile) error {
 		if _, ok := normalizeYAMLSeverity(contract.Severity); !ok {
 			return contractValidationError(label, "severity must be one of error, warn, info")
 		}
-		if err := validateScopeYAML(label, contract.Scope); err != nil {
+		if err := validateScopeYAML(label, contract.Scope, contract.Require); err != nil {
 			return err
 		}
 		if err := validateRequirementYAML(label, contract.Require); err != nil {
@@ -291,7 +399,7 @@ func validateContractsYAML(file contractsYAMLFile) error {
 }
 
 // validateScopeYAML rejects whitespace-only or padded scope values.
-func validateScopeYAML(label string, scope scopeYAML) error {
+func validateScopeYAML(label string, scope scopeYAML, req requirementYAML) error {
 	selectors := 0
 	for _, field := range []struct {
 		name  string
@@ -314,7 +422,21 @@ func validateScopeYAML(label string, scope scopeYAML) error {
 		}
 	}
 	if scope.BusType != "" && !strings.EqualFold(scope.BusType, "i2c") {
-		return contractValidationError(label, "scope.bus_type must be i2c")
+		// Non-i2c bus types are interface labels. Electrical I2C rules stay i2c-only.
+		if !connectedRequirementOnly(req) {
+			return contractValidationError(label, "scope.bus_type must be i2c")
+		}
+		if !validInterfaceBusType(scope.BusType) {
+			return contractValidationError(label, "scope.bus_type must be a bus name such as spi, i2c, uart, or can")
+		}
+	}
+	if req.Connected != nil {
+		if strings.TrimSpace(scope.BusType) == "" {
+			return contractValidationError(label, "scope.bus_type is required for connected")
+		}
+		if strings.TrimSpace(scope.BusID) == "" {
+			return contractValidationError(label, "scope.bus_id is required for connected")
+		}
 	}
 	if scope.Nets != nil {
 		selectors++
@@ -370,6 +492,47 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 	if req.NoI2CAddressConflict != nil && *req.NoI2CAddressConflict {
 		count++
 	}
+	if req.Connected != nil {
+		count++
+		if len(req.Connected.Nets) == 0 {
+			return contractValidationError(label, "connected.nets must name at least one net")
+		}
+		seenNets := map[string]struct{}{}
+		for _, net := range req.Connected.Nets {
+			if strings.TrimSpace(net) == "" {
+				return contractValidationError(label, "connected.nets entries must be non-empty strings")
+			}
+			if strings.TrimSpace(net) != net {
+				return contractValidationError(label, "connected.nets entries must not have leading or trailing whitespace")
+			}
+			if _, ok := seenNets[net]; ok {
+				return contractValidationError(label, "connected.nets entry %q is duplicated", net)
+			}
+			seenNets[net] = struct{}{}
+		}
+		if len(req.Connected.Participants) == 0 {
+			return contractValidationError(label, "connected.participants must name at least one component")
+		}
+		seenRefs := map[string]struct{}{}
+		for _, participant := range req.Connected.Participants {
+			ref := participant.Ref
+			if strings.TrimSpace(ref) == "" {
+				return contractValidationError(label, "connected.participants.ref must be a non-empty string")
+			}
+			if strings.TrimSpace(ref) != ref {
+				return contractValidationError(label, "connected.participants.ref must not have leading or trailing whitespace")
+			}
+			if _, ok := seenRefs[ref]; ok {
+				return contractValidationError(label, "connected.participants ref %q is duplicated", ref)
+			}
+			seenRefs[ref] = struct{}{}
+			switch strings.ToLower(strings.TrimSpace(participant.Role)) {
+			case "master", "slave":
+			default:
+				return contractValidationError(label, "connected.participants.role must be master or slave")
+			}
+		}
+	}
 	if count == 0 {
 		return contractValidationError(label, "require must set at least one enabled requirement")
 	}
@@ -382,8 +545,12 @@ func normalizeContractsYAML(file contractsYAMLFile, path string) []SystemContrac
 	for _, raw := range file.Contracts {
 		id := strings.TrimSpace(raw.ID)
 		severity, _ := normalizeYAMLSeverity(raw.Severity)
+		busType := strings.TrimSpace(raw.Scope.BusType)
+		if busType != "" && !strings.EqualFold(busType, "i2c") {
+			busType = strings.ToLower(busType)
+		}
 		scope := ContractScope{
-			BusType:       strings.TrimSpace(raw.Scope.BusType),
+			BusType:       busType,
 			BusID:         strings.TrimSpace(raw.Scope.BusID),
 			ComponentType: strings.TrimSpace(raw.Scope.ComponentType),
 			ComponentRef:  strings.TrimSpace(raw.Scope.ComponentRef),
@@ -463,6 +630,26 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 		add(Requirement{
 			Type: ContractNoI2CAddressConflict,
 			Fix:  "Assign unique I2C addresses or isolate devices with a bus multiplexer.",
+		})
+	}
+	if raw.Connected != nil {
+		// Keep role as a label and nets as schematic names. No peripheral lookup happens here.
+		participants := make([]InterfaceParticipant, 0, len(raw.Connected.Participants))
+		for _, participant := range raw.Connected.Participants {
+			participants = append(participants, InterfaceParticipant{
+				Ref:  strings.TrimSpace(participant.Ref),
+				Role: strings.ToLower(strings.TrimSpace(participant.Role)),
+			})
+		}
+		nets := make([]string, 0, len(raw.Connected.Nets))
+		for _, net := range raw.Connected.Nets {
+			nets = append(nets, strings.TrimSpace(net))
+		}
+		add(Requirement{
+			Type:         ContractConnected,
+			Nets:         nets,
+			Participants: participants,
+			Fix:          "Connect every listed component to every net named by the interface contract.",
 		})
 	}
 	sort.Slice(reqs, func(i, j int) bool { return reqs[i].Type < reqs[j].Type })

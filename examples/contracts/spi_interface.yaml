@@ -1,0 +1,15 @@
+contracts:
+  - id: imu_spi
+    description: U1 and U2 must share the IMU SPI nets.
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO, IMU_CS]
+        participants:
+          - ref: U1
+            role: master
+          - ref: U2
+            role: slave
+    severity: error

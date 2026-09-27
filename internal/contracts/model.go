@@ -14,6 +14,17 @@ const (
 	ContractVoltageCompatible      ContractType = "voltage_compatible"
 	ContractCurrentBudget          ContractType = "current_budget"
 	ContractNoI2CAddressConflict   ContractType = "no_i2c_address_conflict"
+	// ContractConnected is the YAML require.connected check. Findings use the
+	// three RuleInterface* IDs below, not this type name.
+	ContractConnected ContractType = "connected"
+)
+
+// Interface findings. A missing part or net is reported alone; not-connected
+// is only emitted once both the component and the net exist.
+const (
+	RuleInterfaceComponentMissing = "interface_component_missing"
+	RuleInterfaceNetMissing       = "interface_net_missing"
+	RuleInterfaceNotConnected     = "interface_not_connected"
 )
 
 // ContractSourceKind is the report-facing provenance enum for contract-backed
@@ -50,6 +61,13 @@ type I2CBusNets struct {
 	SCL string `json:"scl,omitempty"`
 }
 
+// InterfaceParticipant is one component that must sit on every net of a connected interface.
+// Role is a master/slave label stored from the contract. It is not looked up on the MCU.
+type InterfaceParticipant struct {
+	Ref  string `json:"ref"`
+	Role string `json:"role"`
+}
+
 // ContractScope says where a requirement applies after a part is matched.
 type ContractScope struct {
 	ComponentRef  string      `json:"component_ref,omitempty"`
@@ -66,21 +84,25 @@ type ContractScope struct {
 
 // Requirement is the normalized rule input for one electrical constraint.
 type Requirement struct {
-	Type              ContractType       `json:"type"`
-	Scope             ContractScope      `json:"scope"`
-	MinVoltage        *float64           `json:"min_voltage,omitempty"`
-	MaxVoltage        *float64           `json:"max_voltage,omitempty"`
-	MaxCurrent        *float64           `json:"max_current,omitempty"`
-	MinOhms           *float64           `json:"min_ohms,omitempty"`
-	MaxOhms           *float64           `json:"max_ohms,omitempty"`
-	MaxUtilizationPct *float64           `json:"max_utilization_pct,omitempty"`
-	Severity          string             `json:"severity,omitempty"`
-	Message           string             `json:"message,omitempty"`
-	Fix               string             `json:"fix,omitempty"`
-	ContractID        string             `json:"contract_id,omitempty"`
-	ContractSource    ContractSourceKind `json:"contract_source,omitempty"`
-	ContractFile      string             `json:"contract_file,omitempty"`
-	Provenance        Provenance         `json:"provenance,omitempty"`
+	Type              ContractType  `json:"type"`
+	Scope             ContractScope `json:"scope"`
+	MinVoltage        *float64      `json:"min_voltage,omitempty"`
+	MaxVoltage        *float64      `json:"max_voltage,omitempty"`
+	MaxCurrent        *float64      `json:"max_current,omitempty"`
+	MinOhms           *float64      `json:"min_ohms,omitempty"`
+	MaxOhms           *float64      `json:"max_ohms,omitempty"`
+	MaxUtilizationPct *float64      `json:"max_utilization_pct,omitempty"`
+	// Nets and Participants are set only for ContractConnected.
+	// Nets are schematic net names, not peripheral names such as SPI2.
+	Nets           []string               `json:"nets,omitempty"`
+	Participants   []InterfaceParticipant `json:"participants,omitempty"`
+	Severity       string                 `json:"severity,omitempty"`
+	Message        string                 `json:"message,omitempty"`
+	Fix            string                 `json:"fix,omitempty"`
+	ContractID     string                 `json:"contract_id,omitempty"`
+	ContractSource ContractSourceKind     `json:"contract_source,omitempty"`
+	ContractFile   string                 `json:"contract_file,omitempty"`
+	Provenance     Provenance             `json:"provenance,omitempty"`
 }
 
 // AppliedRequirement is a Requirement bound to a concrete DesignIR component.
