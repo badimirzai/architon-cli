@@ -367,6 +367,12 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 			out[i].Requirements[j].MinOhms = cloneFloat(contract.Requirements[j].MinOhms)
 			out[i].Requirements[j].MaxOhms = cloneFloat(contract.Requirements[j].MaxOhms)
 			out[i].Requirements[j].MaxUtilizationPct = cloneFloat(contract.Requirements[j].MaxUtilizationPct)
+			if nets := contract.Requirements[j].Nets; len(nets) > 0 {
+				out[i].Requirements[j].Nets = append([]string(nil), nets...)
+			}
+			if participants := contract.Requirements[j].Participants; len(participants) > 0 {
+				out[i].Requirements[j].Participants = append([]InterfaceParticipant(nil), participants...)
+			}
 		}
 	}
 	return out

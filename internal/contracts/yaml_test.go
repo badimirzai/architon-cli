@@ -970,3 +970,183 @@ func trimFloat(value float64) string {
 func strconvFormatFloat(value float64) string {
 	return strconv.FormatFloat(value, 'f', 3, 64)
 }
+
+func TestConnectedInterfaceContractParses(t *testing.T) {
+	loaded, err := contracts.ParseYAML([]byte(`
+contracts:
+  - id: imu_spi
+    description: U1 and U2 must share the IMU SPI nets.
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO, IMU_CS]
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U2, role: slave }
+    severity: error
+`), "contracts.yaml")
+	if err != nil {
+		t.Fatalf("parse connected contract: %v", err)
+	}
+	if len(loaded) != 1 || len(loaded[0].Requirements) != 1 {
+		t.Fatalf("expected one connected requirement, got %+v", loaded)
+	}
+	req := loaded[0].Requirements[0]
+	if req.Type != contracts.ContractConnected || loaded[0].Scope.BusType != "spi" || loaded[0].Scope.BusID != "imu_spi" {
+		t.Fatalf("unexpected connected requirement: %+v scope=%+v", req, loaded[0].Scope)
+	}
+	if len(req.Nets) != 4 || len(req.Participants) != 2 || req.Participants[0].Role != "master" || req.Participants[1].Role != "slave" {
+		t.Fatalf("unexpected nets or participants: %+v", req)
+	}
+}
+
+func TestConnectedInterfaceContractRejectsBadShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name: "spi bus type on i2c requirement",
+			body: `
+contracts:
+  - id: bad
+    scope: {bus_type: spi, bus_id: imu_spi}
+    require: {no_i2c_address_conflict: true}
+    severity: error
+`,
+			wantErr: "scope.bus_type must be i2c",
+		},
+		{
+			name: "unknown role",
+			body: `
+contracts:
+  - id: bad
+    scope: {bus_type: spi, bus_id: imu_spi}
+    require:
+      connected:
+        nets: [SPI_SCK]
+        participants:
+          - { ref: U1, role: controller }
+    severity: error
+`,
+			wantErr: "role must be master or slave",
+		},
+		{
+			name: "missing nets",
+			body: `
+contracts:
+  - id: bad
+    scope: {bus_type: spi, bus_id: imu_spi}
+    require:
+      connected:
+        nets: []
+        participants:
+          - { ref: U1, role: master }
+    severity: error
+`,
+			wantErr: "connected.nets must name at least one net",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := contracts.ParseYAML([]byte(tt.body), "contracts.yaml")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestConnectedInterfaceEvaluation(t *testing.T) {
+	const contractYAML = `
+contracts:
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI]
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U2, role: slave }
+    severity: error
+`
+	pass := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1"}, {Ref: "U2"}},
+		Nets: []ir.Net{
+			{Name: "/SPI_SCK", Pins: []ir.PinRef{{Ref: "U1", Pin: "1"}, {Ref: "U2", Pin: "1"}}},
+			{Name: "SPI_MOSI", Pins: []ir.PinRef{{Ref: "U1", Pin: "2"}, {Ref: "U2", Pin: "2"}}},
+		},
+	}
+	if findings := contracts.Evaluate(pass, userContractIR(t, pass, contractYAML)); len(findings) != 0 {
+		t.Fatalf("expected connected interface to pass, got %+v", findings)
+	}
+
+	missingPart := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1"}},
+		Nets: []ir.Net{
+			{Name: "SPI_SCK", Pins: []ir.PinRef{{Ref: "U1", Pin: "1"}}},
+			{Name: "SPI_MOSI", Pins: []ir.PinRef{{Ref: "U1", Pin: "2"}}},
+		},
+	}
+	findings := contracts.Evaluate(missingPart, userContractIR(t, missingPart, contractYAML))
+	finding := requireRuleFinding(t, findings, contracts.RuleInterfaceComponentMissing)
+	if finding.ComponentRef != "U2" || finding.Expected == nil || finding.Expected.Text != "component U2" || finding.Observed == nil || finding.Observed.Text != "missing" {
+		t.Fatalf("unexpected missing component finding: %+v", finding)
+	}
+	if hasRuleFinding(findings, contracts.RuleInterfaceNotConnected) {
+		t.Fatalf("missing component should not also be reported as unconnected: %+v", findings)
+	}
+
+	missingNet := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1"}, {Ref: "U2"}},
+		Nets: []ir.Net{
+			{Name: "SPI_SCK", Pins: []ir.PinRef{{Ref: "U1", Pin: "1"}, {Ref: "U2", Pin: "1"}}},
+		},
+	}
+	findings = contracts.Evaluate(missingNet, userContractIR(t, missingNet, contractYAML))
+	finding = requireRuleFinding(t, findings, contracts.RuleInterfaceNetMissing)
+	if finding.Net != "SPI_MOSI" || finding.Observed == nil || finding.Observed.Text != "missing" {
+		t.Fatalf("unexpected missing net finding: %+v", finding)
+	}
+
+	unconnected := &ir.DesignIR{
+		Parts: []ir.Part{{Ref: "U1"}, {Ref: "U2"}},
+		Nets: []ir.Net{
+			{Name: "SPI_SCK", Pins: []ir.PinRef{{Ref: "U1", Pin: "1"}}},
+			{Name: "SPI_MOSI", Pins: []ir.PinRef{{Ref: "U1", Pin: "2"}, {Ref: "U2", Pin: "2"}}},
+		},
+	}
+	findings = contracts.Evaluate(unconnected, userContractIR(t, unconnected, contractYAML))
+	finding = requireRuleFinding(t, findings, contracts.RuleInterfaceNotConnected)
+	if finding.ComponentRef != "U2" || finding.Net != "SPI_SCK" || finding.BusID != "imu_spi" || finding.BusType != "spi" {
+		t.Fatalf("unexpected unconnected finding: %+v", finding)
+	}
+	if finding.Expected == nil || finding.Expected.Text != "U2 connected to SPI_SCK" || finding.Observed == nil || finding.Observed.Text != "U2 has no pin on SPI_SCK" {
+		t.Fatalf("unexpected evidence: %+v %+v", finding.Expected, finding.Observed)
+	}
+}
+
+func requireRuleFinding(t *testing.T, findings []contracts.Finding, ruleID string) contracts.Finding {
+	t.Helper()
+	for _, finding := range findings {
+		if finding.RuleID == ruleID {
+			return finding
+		}
+	}
+	t.Fatalf("expected %s finding, got %+v", ruleID, findings)
+	return contracts.Finding{}
+}
+
+func hasRuleFinding(findings []contracts.Finding, ruleID string) bool {
+	for _, finding := range findings {
+		if finding.RuleID == ruleID {
+			return true
+		}
+	}
+	return false
+}

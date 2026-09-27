@@ -1507,6 +1507,38 @@ func TestScanExitCode(t *testing.T) {
 	}
 }
 
+func TestScanBuildCIFinding_CopiesEvidence(t *testing.T) {
+	got := scanBuildCIFinding(reportpkg.RuleResult{
+		ID:       "interface_not_connected",
+		RuleID:   "interface_not_connected",
+		Severity: "ERROR",
+		Message:  "Contract imu_spi requires U2 (slave) on net SPI_SCK. Observed: U2 has no pin on SPI_SCK.",
+		Expected: &contractspkg.Evidence{Text: "U2 connected to SPI_SCK"},
+		Observed: &contractspkg.Evidence{Text: "U2 has no pin on SPI_SCK"},
+	})
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal CI finding: %v", err)
+	}
+	if !strings.Contains(string(data), `"expected":{"text":"U2 connected to SPI_SCK"}`) || !strings.Contains(string(data), `"observed":{"text":"U2 has no pin on SPI_SCK"}`) {
+		t.Fatalf("CI JSON dropped evidence, got %s", data)
+	}
+
+	without := scanBuildCIFinding(reportpkg.RuleResult{
+		ID:       "supply_abs_max",
+		RuleID:   "supply_abs_max",
+		Severity: "ERROR",
+		Message:  "over voltage",
+	})
+	data, err = json.Marshal(without)
+	if err != nil {
+		t.Fatalf("marshal finding without evidence: %v", err)
+	}
+	if strings.Contains(string(data), `"expected"`) || strings.Contains(string(data), `"observed"`) {
+		t.Fatalf("expected evidence keys to be omitted, got %s", data)
+	}
+}
+
 func TestScanReportContractResults_CopiesEvidence(t *testing.T) {
 	max := 3.6
 	got := scanReportContractResults([]contractspkg.Finding{{

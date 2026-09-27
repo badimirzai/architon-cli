@@ -72,6 +72,44 @@ Custom contracts are explicit YAML policies. They can enforce project or organiz
 
 Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
 
+## Interface contracts
+
+An interface contract states that named components must share named nets. It checks structure only. It does not look up MCU peripherals such as SPI2, and it does not check voltage, clock polarity, or pull-ups.
+
+`scope.bus_id` is the interface name. `scope.bus_type` is a label such as `spi`, `i2c`, `uart`, or `can`. `require.connected.nets` lists the nets that define the connection. Each participant has a `ref` and a role of `master` or `slave`. The role is recorded on the contract. The check uses the ref.
+
+A participant passes when that component exists and has at least one pin on every named net. Net names match with or without a leading `/`.
+
+```yaml
+contracts:
+  - id: imu_spi
+    description: U1 and U2 must share the IMU SPI nets.
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO, IMU_CS]
+        participants:
+          - ref: U1
+            role: master
+          - ref: U2
+            role: slave
+    severity: error
+```
+
+See [examples/contracts/spi_interface.yaml](../examples/contracts/spi_interface.yaml).
+
+Failures use these rule IDs:
+
+- `interface_component_missing`: a participant ref is not in the design
+- `interface_net_missing`: a named net is not in the design
+- `interface_not_connected`: a participant has no pin on a named net
+
+Each failure includes `expected` and `observed`. A design with no `connected` contract is unchanged.
+
+Other custom requirements, such as `pullup_ohms` and `no_i2c_address_conflict`, still require `scope.bus_type: i2c`.
+
 Validate contract schema only:
 
 ```bash

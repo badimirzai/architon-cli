@@ -11,8 +11,8 @@ import (
 )
 
 // Evidence is an optional expected or observed value on a finding.
-// Text carries tokens such as pin names. Min, Max, and Unit carry numeric comparisons.
-// Current rules leave these empty. Later rules set them without changing message text.
+// Text carries tokens such as pin names or "missing". Min, Max, and Unit carry numeric comparisons.
+// Rules that do not set it leave the field nil so JSON omits it.
 type Evidence struct {
 	Text string   `json:"text,omitempty"`
 	Min  *float64 `json:"min,omitempty"`
@@ -60,6 +60,9 @@ func EnabledRuleIDs() []string {
 		string(ContractVoltageCompatible),
 		string(ContractCurrentBudget),
 		string(ContractNoI2CAddressConflict),
+		RuleInterfaceComponentMissing,
+		RuleInterfaceNetMissing,
+		RuleInterfaceNotConnected,
 	}
 }
 
@@ -109,6 +112,10 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 			continue
 		case ContractNoI2CAddressConflict:
 			findings = append(findings, evaluateNoI2CAddressConflict(design, req)...)
+			continue
+		case ContractConnected:
+			// Structural interface check: named parts must share named nets.
+			findings = append(findings, evaluateConnected(design, req)...)
 			continue
 		}
 

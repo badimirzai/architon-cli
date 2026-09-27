@@ -125,7 +125,8 @@ rv check robot.yaml
 - `derived.rail_inferences` and `derived.rail_coverage` for netlist-backed voltage inference
 - `findings[].inference` provenance for voltage-based findings when available
 - `rules` is a deprecated alias of `findings`
-- contract findings may include `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, and `fix`
+- contract findings may include `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `fix`, `expected`, and `observed`
+- `require.connected` checks that named components share named nets; see [examples/contracts/spi_interface.yaml](examples/contracts/spi_interface.yaml)
 
 Directory scan detection order:
 
