@@ -1314,7 +1314,8 @@ func firstNonEmpty(values ...string) string {
 // evaluateConnected checks that every named participant has a pin on every named net.
 // Roles are contract labels. The check does not look up MCU peripherals.
 // Order is fixed: missing component, missing net, then no pin on the net.
-// An optional pins map is checked last, and only for participants that are already on the net.
+// An optional pins map is checked after connectivity, and only for participants already on the net.
+// chip_selects is checked last. It does not repeat the shared-net test above.
 func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 	if design == nil {
 		return nil
@@ -1372,6 +1373,8 @@ func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 	}
 
 	// Only check pins when both the component and the net are present.
+	// Saved so the chip-select check does not report the same missing pin again.
+	alreadyUnconnected := map[string]struct{}{}
 	for _, participant := range participants {
 		if _, missing := missingRefs[participant.Ref]; missing {
 			continue
@@ -1388,6 +1391,7 @@ func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 			if strings.TrimSpace(observedNet) == "" {
 				observedNet = netName
 			}
+			alreadyUnconnected[participant.Ref+"\x00"+normalizeNetName(netName)] = struct{}{}
 			findings = append(findings, connectedFinding(
 				req,
 				RuleInterfaceNotConnected,
@@ -1403,6 +1407,7 @@ func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 	// Pin name and pin number checks run after connectivity so a missing part or
 	// net is not also reported as the wrong pin.
 	findings = append(findings, evaluateConnectedPins(req, contractID, participants, nets, missingRefs, missingNets, resolved)...)
+	findings = append(findings, evaluateChipSelects(design, req, contractID, participants, missingRefs, missingNets, alreadyUnconnected)...)
 	return findings
 }
 
@@ -1693,4 +1698,352 @@ func evidenceText(text string) *Evidence {
 		return nil
 	}
 	return &Evidence{Text: text}
+}
+
+// evaluateTerminated counts two-pin parts of the required resistance between two nets.
+// It does not check that other components share those nets, and it does not look up a part database.
+// A missing net is interface_net_missing. The count is reported only when both nets exist.
+func evaluateTerminated(design *ir.DesignIR, req AppliedRequirement) []Finding {
+	if design == nil || req.TerminatorCount == nil || req.ResistanceOhms == nil || len(req.Nets) != 2 {
+		return nil
+	}
+	contractID := strings.TrimSpace(req.ContractID)
+	if contractID == "" {
+		contractID = strings.TrimSpace(req.Scope.BusID)
+	}
+	findings := make([]Finding, 0)
+	resolved := make(map[string]ir.Net, 2)
+	for _, netName := range req.Nets {
+		net, ok := findExplicitScopedNet(design, netName)
+		if !ok {
+			findings = append(findings, connectedFinding(
+				req,
+				RuleInterfaceNetMissing,
+				"",
+				netName,
+				fmt.Sprintf("Contract %s requires net %s. Observed: net %s is missing.", contractID, netName, netName),
+				"Add the missing net or correct the interface contract net name.",
+				evidenceText("net "+netName),
+				evidenceText("missing"),
+			))
+			continue
+		}
+		resolved[netName] = net
+	}
+	// Both nets have to exist before a count means anything.
+	if len(findings) > 0 {
+		return findings
+	}
+
+	target := *req.ResistanceOhms
+	spanned := []ir.Net{resolved[req.Nets[0]], resolved[req.Nets[1]]}
+	parts := partIndex(design)
+	refs := make([]string, 0, len(parts))
+	for ref := range parts {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	// A match is the right ohms and exactly one pin on each of the two nets.
+	matched := 0
+	for _, ref := range refs {
+		if !partMatchesResistance(parts[ref], target) {
+			continue
+		}
+		if !isTerminator(design, ref, spanned) {
+			continue
+		}
+		matched++
+	}
+
+	expected := *req.TerminatorCount
+	if matched == expected {
+		return nil
+	}
+	// Too few and too many are separate findings. The texts are just the two counts.
+	ruleID := RuleTerminationCountLow
+	fix := "Add terminators of the required resistance between the named nets until the count matches the contract."
+	if matched > expected {
+		ruleID = RuleTerminationCountHigh
+		fix = "Remove extra terminators between the named nets until the count matches the contract."
+	}
+	display := []string{
+		connectedDisplayNet(resolved, req.Nets[0]),
+		connectedDisplayNet(resolved, req.Nets[1]),
+	}
+	return []Finding{connectedFinding(
+		req,
+		ruleID,
+		"",
+		"",
+		fmt.Sprintf("Contract %s requires %d terminators of %s ohms between %s. Observed: %d.", contractID, expected, formatOhmsNumber(target), joinSignals(display), matched),
+		fix,
+		evidenceText(strconv.Itoa(expected)),
+		evidenceText(strconv.Itoa(matched)),
+	)}
+}
+
+// isTerminator reports a two-pin part with one pin on each named net.
+// A third pin, or both pins on one net, is not a terminator.
+func isTerminator(design *ir.DesignIR, ref string, nets []ir.Net) bool {
+	if partConnectionCount(design, ref) != 2 {
+		return false
+	}
+	for _, net := range nets {
+		if len(componentPinsOnNet(net, ref)) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+// partConnectionCount is the number of pin attachments for ref across every net.
+func partConnectionCount(design *ir.DesignIR, ref string) int {
+	count := 0
+	if design == nil {
+		return 0
+	}
+	for _, net := range design.Nets {
+		for _, pin := range net.Pins {
+			if pin.Ref == ref {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// partMatchesResistance reports whether the part value or a resistance field equals ohms.
+// Either match is enough. Pull-up aliases and component databases are not consulted.
+func partMatchesResistance(part ir.Part, ohms float64) bool {
+	if value, err := parseResistanceOhms(part.Value); err == nil && sameResistance(value, ohms) {
+		return true
+	}
+	fields := normalizedFields(part.Fields)
+	for _, key := range []string{"resistance", "resistance_ohms"} {
+		raw := strings.TrimSpace(fields[key])
+		if raw == "" {
+			continue
+		}
+		value, err := parseResistanceOhms(raw)
+		if err == nil && sameResistance(value, ohms) {
+			return true
+		}
+	}
+	return false
+}
+
+// sameResistance treats 120 and 120.0 as the same resistance.
+func sameResistance(left, right float64) bool {
+	return math.Abs(left-right) <= 1e-6
+}
+
+// formatOhmsNumber prints a whole number as "120", not "120.000".
+func formatOhmsNumber(ohms float64) string {
+	if math.Abs(ohms-math.Round(ohms)) < 1e-9 {
+		return strconv.FormatInt(int64(math.Round(ohms)), 10)
+	}
+	return strconv.FormatFloat(ohms, 'f', -1, 64)
+}
+
+// evaluateChipSelects checks per-slave chip-select nets on an SPI connected contract.
+// Shared bus nets are already checked by evaluateConnected. This does not repeat that test.
+// A missing chip-select net is interface_net_missing. A slave with no pin on its net is
+// interface_not_connected. Two entries naming one net, or two slaves on one chip-select net,
+// is spi_cs_shared.
+func evaluateChipSelects(design *ir.DesignIR, req AppliedRequirement, contractID string, participants []InterfaceParticipant, missingRefs map[string]struct{}, missingNets map[string]struct{}, alreadyUnconnected map[string]struct{}) []Finding {
+	if design == nil || len(req.ChipSelects) == 0 {
+		return nil
+	}
+	selects := append([]ChipSelect(nil), req.ChipSelects...)
+	sort.Slice(selects, func(i, j int) bool {
+		left := normalizeNetName(selects[i].Net)
+		right := normalizeNetName(selects[j].Net)
+		if left != right {
+			return left < right
+		}
+		return selects[i].Ref < selects[j].Ref
+	})
+
+	findings := make([]Finding, 0)
+	resolved := map[string]ir.Net{}
+	reportedMissing := map[string]struct{}{}
+	// Look up each chip-select net once. A missing net is reported once.
+	for _, sel := range selects {
+		norm := normalizeNetName(sel.Net)
+		if _, ok := resolved[norm]; ok {
+			continue
+		}
+		if _, ok := reportedMissing[norm]; ok {
+			continue
+		}
+		if netAlreadyMissing(missingNets, sel.Net) {
+			reportedMissing[norm] = struct{}{}
+			continue
+		}
+		net, ok := findExplicitScopedNet(design, sel.Net)
+		if !ok {
+			reportedMissing[norm] = struct{}{}
+			findings = append(findings, connectedFinding(
+				req,
+				RuleInterfaceNetMissing,
+				"",
+				sel.Net,
+				fmt.Sprintf("Contract %s requires net %s. Observed: net %s is missing.", contractID, sel.Net, sel.Net),
+				"Add the missing net or correct the interface contract net name.",
+				evidenceText("net "+sel.Net),
+				evidenceText("missing"),
+			))
+			continue
+		}
+		resolved[norm] = net
+	}
+
+	// Each slave needs a pin on its own chip-select net.
+	for _, sel := range selects {
+		norm := normalizeNetName(sel.Net)
+		if _, missing := reportedMissing[norm]; missing {
+			continue
+		}
+		if _, missing := missingRefs[sel.Ref]; missing {
+			continue
+		}
+		if _, already := alreadyUnconnected[sel.Ref+"\x00"+norm]; already {
+			continue
+		}
+		net := resolved[norm]
+		if partTouchesNet(net, sel.Ref) {
+			continue
+		}
+		display := chipSelectDisplayNet(resolved, sel.Net)
+		role := participantRole(participants, sel.Ref)
+		findings = append(findings, connectedFinding(
+			req,
+			RuleInterfaceNotConnected,
+			sel.Ref,
+			display,
+			fmt.Sprintf("Contract %s requires %s (%s) on net %s. Observed: %s has no pin on %s.", contractID, sel.Ref, role, display, sel.Ref, display),
+			fmt.Sprintf("Connect %s to %s.", sel.Ref, display),
+			evidenceText(sel.Ref+" connected to "+display),
+			evidenceText(sel.Ref+" has no pin on "+display),
+		))
+	}
+
+	slaves := map[string]struct{}{}
+	for _, participant := range participants {
+		if participant.Role != "slave" {
+			continue
+		}
+		if _, missing := missingRefs[participant.Ref]; missing {
+			continue
+		}
+		slaves[participant.Ref] = struct{}{}
+	}
+
+	// Group entries that name the same net, ignoring a leading slash.
+	groups := map[string][]ChipSelect{}
+	order := make([]string, 0)
+	for _, sel := range selects {
+		norm := normalizeNetName(sel.Net)
+		if _, ok := groups[norm]; !ok {
+			order = append(order, norm)
+		}
+		groups[norm] = append(groups[norm], sel)
+	}
+	for _, norm := range order {
+		entries := groups[norm]
+		shared := map[string]struct{}{}
+		// The contract itself can name one net for two slaves.
+		if chipSelectRefCount(entries) >= 2 {
+			for _, entry := range entries {
+				shared[entry.Ref] = struct{}{}
+			}
+		}
+		if net, ok := resolved[norm]; ok {
+			// Or two slaves can simply both land on that net.
+			onNet := slaveRefsOnNet(net, slaves)
+			if len(onNet) >= 2 {
+				for _, ref := range onNet {
+					shared[ref] = struct{}{}
+				}
+			}
+		}
+		if len(shared) < 2 {
+			continue
+		}
+		refs := make([]string, 0, len(shared))
+		for ref := range shared {
+			refs = append(refs, ref)
+		}
+		sort.Strings(refs)
+		display := chipSelectDisplayNet(resolved, entries[0].Net)
+		findings = append(findings, connectedFinding(
+			req,
+			RuleSPICSShared,
+			"",
+			display,
+			fmt.Sprintf("Contract %s requires one slave on %s. Observed: %s share %s.", contractID, display, joinSignals(refs), display),
+			"Give each slave its own chip-select net.",
+			evidenceText(display),
+			evidenceText(strings.Join(refs, ", ")),
+		))
+	}
+	return findings
+}
+
+// netAlreadyMissing reports whether the shared-net check already flagged this net.
+func netAlreadyMissing(missing map[string]struct{}, name string) bool {
+	norm := normalizeNetName(name)
+	for key := range missing {
+		if normalizeNetName(key) == norm {
+			return true
+		}
+	}
+	return false
+}
+
+// chipSelectDisplayNet uses the schematic name, so a KiCad /IMU_CS stays /IMU_CS.
+func chipSelectDisplayNet(resolved map[string]ir.Net, contractNet string) string {
+	net, ok := resolved[normalizeNetName(contractNet)]
+	if !ok {
+		return contractNet
+	}
+	if name := strings.TrimSpace(net.Name); name != "" {
+		return name
+	}
+	return contractNet
+}
+
+// participantRole is the master or slave label from the contract.
+func participantRole(participants []InterfaceParticipant, ref string) string {
+	for _, participant := range participants {
+		if participant.Ref == ref {
+			return participant.Role
+		}
+	}
+	return "slave"
+}
+
+// chipSelectRefCount is how many different slaves the contract puts on this net.
+func chipSelectRefCount(entries []ChipSelect) int {
+	seen := map[string]struct{}{}
+	for _, entry := range entries {
+		seen[entry.Ref] = struct{}{}
+	}
+	return len(seen)
+}
+
+// slaveRefsOnNet lists the slaves that have a pin on this net. The master is left out.
+func slaveRefsOnNet(net ir.Net, slaves map[string]struct{}) []string {
+	found := map[string]struct{}{}
+	for _, pin := range net.Pins {
+		if _, ok := slaves[pin.Ref]; ok {
+			found[pin.Ref] = struct{}{}
+		}
+	}
+	refs := make([]string, 0, len(found))
+	for ref := range found {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	return refs
 }

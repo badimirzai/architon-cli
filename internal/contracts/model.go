@@ -17,6 +17,9 @@ const (
 	// ContractConnected is the YAML require.connected check. Findings use the
 	// RuleInterface* IDs below, not this type name.
 	ContractConnected ContractType = "connected"
+	// ContractTerminated counts two-pin parts of a required resistance across
+	// two nets. Findings use the termination rule IDs below, not this type name.
+	ContractTerminated ContractType = "terminated"
 )
 
 // Interface findings. A missing part or net is reported alone; not-connected
@@ -28,6 +31,12 @@ const (
 	RuleInterfaceNotConnected     = "interface_not_connected"
 	RuleInterfacePinMismatch      = "interface_pin_mismatch"
 	RuleInterfacePinConflict      = "interface_pin_conflict"
+	// A terminated bus has fewer two-pin parts of the required resistance than count.
+	RuleTerminationCountLow = "termination_count_low"
+	// A terminated bus has more two-pin parts of the required resistance than count.
+	RuleTerminationCountHigh = "termination_count_high"
+	// Two SPI chip-select entries name one net, or two slaves each have a pin on it.
+	RuleSPICSShared = "spi_cs_shared"
 )
 
 // ContractSourceKind is the report-facing provenance enum for contract-backed
@@ -74,6 +83,13 @@ type InterfaceParticipant struct {
 	Pins map[string]string `json:"pins,omitempty"`
 }
 
+// ChipSelect binds one slave to the net that must be its chip-select.
+// That net is not one of the shared connected.nets. The master may also sit on it.
+type ChipSelect struct {
+	Ref string `json:"ref"`
+	Net string `json:"net"`
+}
+
 // ContractScope says where a requirement applies after a part is matched.
 type ContractScope struct {
 	ComponentRef  string      `json:"component_ref,omitempty"`
@@ -98,17 +114,23 @@ type Requirement struct {
 	MinOhms           *float64      `json:"min_ohms,omitempty"`
 	MaxOhms           *float64      `json:"max_ohms,omitempty"`
 	MaxUtilizationPct *float64      `json:"max_utilization_pct,omitempty"`
-	// Nets and Participants are set only for ContractConnected.
+	// Nets and Participants are set for ContractConnected.
 	// Nets are schematic net names, not peripheral names such as SPI2.
-	Nets           []string               `json:"nets,omitempty"`
-	Participants   []InterfaceParticipant `json:"participants,omitempty"`
-	Severity       string                 `json:"severity,omitempty"`
-	Message        string                 `json:"message,omitempty"`
-	Fix            string                 `json:"fix,omitempty"`
-	ContractID     string                 `json:"contract_id,omitempty"`
-	ContractSource ContractSourceKind     `json:"contract_source,omitempty"`
-	ContractFile   string                 `json:"contract_file,omitempty"`
-	Provenance     Provenance             `json:"provenance,omitempty"`
+	// ChipSelects is set for an SPI connected contract that names per-slave chip-select nets.
+	// ResistanceOhms and TerminatorCount are set for ContractTerminated.
+	// Terminated nets are the two signal nets a terminator must span.
+	Nets            []string               `json:"nets,omitempty"`
+	Participants    []InterfaceParticipant `json:"participants,omitempty"`
+	ChipSelects     []ChipSelect           `json:"chip_selects,omitempty"`
+	ResistanceOhms  *float64               `json:"resistance_ohms,omitempty"`
+	TerminatorCount *int                   `json:"terminator_count,omitempty"`
+	Severity        string                 `json:"severity,omitempty"`
+	Message         string                 `json:"message,omitempty"`
+	Fix             string                 `json:"fix,omitempty"`
+	ContractID      string                 `json:"contract_id,omitempty"`
+	ContractSource  ContractSourceKind     `json:"contract_source,omitempty"`
+	ContractFile    string                 `json:"contract_file,omitempty"`
+	Provenance      Provenance             `json:"provenance,omitempty"`
 }
 
 // AppliedRequirement is a Requirement bound to a concrete DesignIR component.
