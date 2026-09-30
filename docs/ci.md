@@ -91,6 +91,8 @@ rv scan . --format json > architon-ci-report.json
 
 `rv scan` also writes the full deterministic scan report to `architon-report.json` by default. Override that path with `--out` when needed.
 
+JSON findings for a wrong interface pin include `expected` and `observed`. `interface_pin_mismatch` puts the contract pin token in `expected.text` and the netlist pin name, or pin number, in `observed.text`. `interface_pin_conflict` puts the other signal in `expected.text` and that pin in `observed.text`. Markdown and GitHub annotation output print the finding message.
+
 ```bash
 rv scan . --format json --out architon-full-report.json > architon-ci-report.json
 ```

@@ -126,7 +126,7 @@ rv check robot.yaml
 - `findings[].inference` provenance for voltage-based findings when available
 - `rules` is a deprecated alias of `findings`
 - contract findings may include `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `fix`, `expected`, and `observed`
-- `require.connected` checks that named components share named nets; see [examples/contracts/spi_interface.yaml](examples/contracts/spi_interface.yaml)
+- `require.connected` checks that named components share named nets. Optional `participants[].pins` requires the pin name or pin number on each of those nets. A wrong pin is `interface_pin_mismatch`. The same pin on two signals in that contract is `interface_pin_conflict`. See [examples/contracts/spi_interface.yaml](examples/contracts/spi_interface.yaml) and [docs/contracts.md](docs/contracts.md)
 
 Directory scan detection order:
 

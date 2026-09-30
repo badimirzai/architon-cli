@@ -27,7 +27,7 @@ EDA Project (KiCad / Altium / future importers)
 Normalized electrical topology independent of any EDA tool.
 
 ### ContractIR
-Deterministic electrical constraints from built-in parts, metadata, and user policies.
+Deterministic electrical constraints from built-in parts, metadata, and user policies. User `require.connected` contracts can also require the pin name or pin number that lands on each named net. Those checks emit `interface_pin_mismatch` and `interface_pin_conflict`.
 
 ### Rule Engine
 Runs deterministic compatibility and architecture checks and produces stable findings and CI-safe exit codes.
@@ -233,7 +233,7 @@ Example failure snippet:
 - `internal/ir`: stable, input-agnostic `DesignIR` model
 - `internal/importers`: importer adapter interface; KiCad, Altium, and future sources compile to DesignIR
 - `internal/importers/kicad`: deterministic KiCad BOM CSV ingestion, header mapping, and KiCad `.net` S-expression parsing
-- `internal/contracts`: importer-agnostic component, pin, net, and system-contract schema plus the small curated built-in source
+- `internal/contracts`: importer-agnostic component, pin, net, and system-contract schema plus the small curated built-in source. `require.connected` participants may set `pins`, mapping each contract net to a pin name or pin number
 - `internal/enrichment`: pluggable contract assembly for `meta.yaml`, inferred rail voltages, and other deterministic sources
 - `internal/rules`: contract-level rules that consume only DesignIR + ContractIR
 - `cmd/scan.go`: deterministic single-file or project-directory scan input resolution, including optional KiCad CLI netlist export from one root `*.kicad_sch`

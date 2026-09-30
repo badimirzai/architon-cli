@@ -175,6 +175,7 @@ dense.
 
 `pullups` is deterministic topology metadata. GraphIR does not invent pull-up
 findings; it only embeds and links findings produced by the scan pipeline.
+A `require.connected` `pins` map is enforced by that scan. GraphIR does not choose which physical pin should land on a net.
 
 ### Findings
 
@@ -200,6 +201,8 @@ stable IDs assigned for graph linking.
 ```
 
 Severity is one of `ERROR`, `WARN`, or `INFO`.
+
+Interface pin findings use `interface_pin_mismatch` and `interface_pin_conflict`. For a mismatch, `expected.text` is the contract pin token and `observed.text` is the netlist pin name, or the pin number when the name is empty. For a conflict, `expected.text` is the other signal in that contract and `observed.text` is the pin name or pin number bound to both signals. GraphIR copies those fields from the scan finding.
 
 ### Findings Index
 

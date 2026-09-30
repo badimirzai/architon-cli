@@ -4,6 +4,8 @@ Rail voltage inference is deterministic and transparent. Each inference includes
 
 Confidence score indicates the reliability of an inference. Coverage indicates how much of the design can be safely checked by voltage rules. High coverage does not guarantee correctness. Low coverage means some checks may be skipped.
 
+Interface pin checks are separate from rail inference. A `require.connected` `pins` map compares the contract token with the netlist pin name and pin number. It does not use inferred voltages. See [contracts.md](contracts.md).
+
 ## Inspect rail inference
 
 Use `--verbose` to include compact rail inference counts in terminal output:

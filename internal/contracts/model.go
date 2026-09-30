@@ -15,16 +15,19 @@ const (
 	ContractCurrentBudget          ContractType = "current_budget"
 	ContractNoI2CAddressConflict   ContractType = "no_i2c_address_conflict"
 	// ContractConnected is the YAML require.connected check. Findings use the
-	// three RuleInterface* IDs below, not this type name.
+	// RuleInterface* IDs below, not this type name.
 	ContractConnected ContractType = "connected"
 )
 
 // Interface findings. A missing part or net is reported alone; not-connected
-// is only emitted once both the component and the net exist.
+// is only emitted once both the component and the net exist. Optional pin
+// bindings compare a contract token with the netlist pin name or pin number.
 const (
 	RuleInterfaceComponentMissing = "interface_component_missing"
 	RuleInterfaceNetMissing       = "interface_net_missing"
 	RuleInterfaceNotConnected     = "interface_not_connected"
+	RuleInterfacePinMismatch      = "interface_pin_mismatch"
+	RuleInterfacePinConflict      = "interface_pin_conflict"
 )
 
 // ContractSourceKind is the report-facing provenance enum for contract-backed
@@ -63,9 +66,12 @@ type I2CBusNets struct {
 
 // InterfaceParticipant is one component that must sit on every net of a connected interface.
 // Role is a master/slave label stored from the contract. It is not looked up on the MCU.
+// Pins optionally names the pin that must land on each connected net. Keys are net names
+// from the contract. Values are pin names or pin numbers. An empty map checks connectivity only.
 type InterfaceParticipant struct {
-	Ref  string `json:"ref"`
-	Role string `json:"role"`
+	Ref  string            `json:"ref"`
+	Role string            `json:"role"`
+	Pins map[string]string `json:"pins,omitempty"`
 }
 
 // ContractScope says where a requirement applies after a part is matched.

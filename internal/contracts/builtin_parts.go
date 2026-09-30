@@ -371,7 +371,7 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 				out[i].Requirements[j].Nets = append([]string(nil), nets...)
 			}
 			if participants := contract.Requirements[j].Participants; len(participants) > 0 {
-				out[i].Requirements[j].Participants = append([]InterfaceParticipant(nil), participants...)
+				out[i].Requirements[j].Participants = cloneInterfaceParticipants(participants)
 			}
 		}
 	}
@@ -383,6 +383,32 @@ func cloneI2CBusNets(in *I2CBusNets) *I2CBusNets {
 		return nil
 	}
 	return &I2CBusNets{SDA: in.SDA, SCL: in.SCL}
+}
+
+// cloneInterfaceParticipants copies participants and their pins maps.
+// A shallow struct copy would share the pins map between contract snapshots.
+func cloneInterfaceParticipants(in []InterfaceParticipant) []InterfaceParticipant {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]InterfaceParticipant, len(in))
+	for i, participant := range in {
+		out[i] = participant
+		out[i].Pins = cloneStringMap(participant.Pins)
+	}
+	return out
+}
+
+// cloneStringMap copies a pins map. An empty map stays nil so JSON can omit it.
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func cloneStrings(in []string) []string {

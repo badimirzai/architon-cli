@@ -43,6 +43,7 @@ Architon validates system-level compatibility between components, including:
 - Logic voltage compatibility
 - I2C address conflicts
 - Current margin and stall load conditions
+- Interface connectivity, including which physical pin lands on each named net (`require.connected` `pins`)
 
 Architon currently focuses on deterministic verification for embedded and robotics electrical architecture, KiCad import, and CI-safe reporting. See [docs/supported-configurations.md](docs/supported-configurations.md).
 

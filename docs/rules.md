@@ -119,6 +119,8 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `interface_component_missing` (`ERROR`): a `connected` contract names a component ref that is not in the design
 - `interface_net_missing` (`ERROR`): a `connected` contract names a net that is not in the design
 - `interface_not_connected` (`ERROR`): a participant has no pin on a net named by a `connected` contract
+- `interface_pin_mismatch` (`ERROR`): a participant is on the named net, but neither the netlist pin name nor the pin number equals the `pins` token. `expected.text` is the contract token. `observed.text` is the pin name, or the pin number when the pin name is empty
+- `interface_pin_conflict` (`ERROR`): the observed pin name or pin number is bound to a different signal in the same `connected` contract. `expected.text` is the other signal. `observed.text` is that pin name or pin number
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
@@ -126,7 +128,7 @@ Contract source precedence is deterministic: explicit `.architon/meta.yaml`, the
 
 Custom contracts are deterministic explicit YAML. `rv contracts validate` validates schema only; use `rv scan --contracts <path>` to enforce a contract file against a design.
 
-`connected` checks that every listed component has a pin on every listed net. Roles are `master` or `slave` labels. The rule does not infer a peripheral from net names and does not check electrical properties of the bus. Findings include `expected` and `observed`.
+`connected` checks that every listed component has a pin on every listed net. Roles are `master` or `slave` labels. Optional `participants[].pins` requires the pin name or pin number that lands on each named net. The rule does not infer a peripheral from net names, does not consult an MCU pin database, and does not check electrical properties of the bus. Findings include `expected` and `observed`.
 
 `pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work.
 

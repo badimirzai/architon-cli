@@ -51,6 +51,7 @@ If both a BOM and a netlist are found, Architon merges them deterministically in
 - BOM remains the base source of parts and raw `fields`
 - Missing BOM `value` and `footprint` fields are filled from matching netlist parts
 - Net connectivity is taken from the netlist and exported as `design_ir.nets`
+- Each net pin keeps the pin number and, when the netlist has one, the pin name. A `require.connected` `pins` value matches either field. A net named `/SPI_SCK` still matches the contract net `SPI_SCK`
 
 ## Explicit overrides
 

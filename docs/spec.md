@@ -294,6 +294,10 @@ Expected deterministic failures include:
 - Battery peak current over allowed discharge
 - I2C address conflict on the same bus
 
+## Interface pin contracts
+
+Which physical pin lands on a named net is not a field of this spec. Put that requirement in a user contract under `require.connected.participants[].pins`. Keys are net names. Values are the pin name or pin number. See [contracts.md](contracts.md).
+
 ## Parts lookup
 
 You can reference built-in parts from `parts/` and project-local parts from `./rv_parts` with `part:`.

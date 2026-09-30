@@ -1507,6 +1507,27 @@ func TestScanExitCode(t *testing.T) {
 	}
 }
 
+func TestScanBuildCIFinding_PinMismatchEvidence(t *testing.T) {
+	got := scanBuildCIFinding(reportpkg.RuleResult{
+		ID:       "interface_pin_mismatch",
+		RuleID:   "interface_pin_mismatch",
+		Severity: "ERROR",
+		Message:  "Contract imu_spi requires U1 (master) pin PB15 on net SPI_MOSI. Observed: U1 pin PA7.",
+		Expected: &contractspkg.Evidence{Text: "PB15"},
+		Observed: &contractspkg.Evidence{Text: "PA7"},
+	})
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal CI finding: %v", err)
+	}
+	if !strings.Contains(string(data), `"expected":{"text":"PB15"}`) || !strings.Contains(string(data), `"observed":{"text":"PA7"}`) {
+		t.Fatalf("CI JSON dropped pin evidence, got %s", data)
+	}
+	if !strings.Contains(string(data), `"message":"Contract imu_spi requires U1 (master) pin PB15 on net SPI_MOSI. Observed: U1 pin PA7."`) {
+		t.Fatalf("CI JSON dropped the human message, got %s", data)
+	}
+}
+
 func TestScanBuildCIFinding_CopiesEvidence(t *testing.T) {
 	got := scanBuildCIFinding(reportpkg.RuleResult{
 		ID:       "interface_not_connected",
