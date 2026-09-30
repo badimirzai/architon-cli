@@ -59,8 +59,9 @@ type connectedYAML struct {
 }
 
 type participantYAML struct {
-	Ref  string `yaml:"ref"`
-	Role string `yaml:"role"`
+	Ref  string            `yaml:"ref"`
+	Role string            `yaml:"role"`
+	Pins map[string]string `yaml:"pins"`
 }
 
 type pullupOhmsYAML struct {
@@ -271,6 +272,7 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 
 // validateConnectedYAMLNode checks require.connected shape before typed decoding.
 // Allowed keys are nets and participants. Each participant needs ref and role.
+// pins is an optional net-to-pin map. Keys must be net names from connected.nets.
 func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return contractValidationError(label, "connected must be an object")
@@ -309,7 +311,7 @@ func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 		}
 		for _, key := range sortedMappingKeys(fields) {
 			switch key {
-			case "ref", "role":
+			case "ref", "role", "pins":
 			default:
 				return contractValidationError(label, "unknown connected.participants key %q", key)
 			}
@@ -319,6 +321,38 @@ func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 			if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
 				return contractValidationError(label, "connected.participants.%s must be a non-empty string", key)
 			}
+		}
+		if err := validateParticipantPinsYAMLNode(label, fields["pins"]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateParticipantPinsYAMLNode checks the optional pins object before typed decoding.
+// Each value must be a non-empty string, so a pin number is written as "42" rather than a bare integer.
+// Whether each key is one of connected.nets is checked later, once the net list is decoded.
+func validateParticipantPinsYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || (node.Kind == yaml.ScalarNode && node.Tag == "!!null") {
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "connected.participants.pins must be an object")
+	}
+	pins, err := mappingFromNode(node, label+".require.connected.participants.pins")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(pins) {
+		if strings.TrimSpace(key) == "" {
+			return contractValidationError(label, "connected.participants.pins keys must be non-empty net names")
+		}
+		value := pins[key]
+		if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+			return contractValidationError(label, "connected.participants.pins values must be non-empty strings")
+		}
+		if strings.TrimSpace(value.Value) != value.Value {
+			return contractValidationError(label, "connected.participants.pins values must not have leading or trailing whitespace")
 		}
 	}
 	return nil
@@ -531,10 +565,39 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 			default:
 				return contractValidationError(label, "connected.participants.role must be master or slave")
 			}
+			if err := validateParticipantPins(label, participant.Pins, seenNets); err != nil {
+				return err
+			}
 		}
 	}
 	if count == 0 {
 		return contractValidationError(label, "require must set at least one enabled requirement")
+	}
+	return nil
+}
+
+// validateParticipantPins rejects a pins key that is not a name in connected.nets.
+// Repeating the same pin token on two nets is allowed here. Evaluation reports that as interface_pin_conflict.
+func validateParticipantPins(label string, pins map[string]string, nets map[string]struct{}) error {
+	if len(pins) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(pins))
+	for key := range pins {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if key == "" || strings.TrimSpace(key) != key {
+			return contractValidationError(label, "connected.participants.pins keys must be non-empty net names")
+		}
+		value := pins[key]
+		if value == "" || strings.TrimSpace(value) != value {
+			return contractValidationError(label, "connected.participants.pins values must be non-empty strings")
+		}
+		if _, ok := nets[key]; !ok {
+			return contractValidationError(label, "connected.participants.pins key %q is not in connected.nets", key)
+		}
 	}
 	return nil
 }
@@ -633,12 +696,14 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 		})
 	}
 	if raw.Connected != nil {
-		// Keep role as a label and nets as schematic names. No peripheral lookup happens here.
+		// Keep role as a label and nets as schematic names. Pins are copied as written.
+		// No peripheral lookup happens here.
 		participants := make([]InterfaceParticipant, 0, len(raw.Connected.Participants))
 		for _, participant := range raw.Connected.Participants {
 			participants = append(participants, InterfaceParticipant{
 				Ref:  strings.TrimSpace(participant.Ref),
 				Role: strings.ToLower(strings.TrimSpace(participant.Role)),
+				Pins: cloneStringMap(participant.Pins),
 			})
 		}
 		nets := make([]string, 0, len(raw.Connected.Nets))

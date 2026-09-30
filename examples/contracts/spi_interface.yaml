@@ -10,6 +10,10 @@ contracts:
         participants:
           - ref: U1
             role: master
+            pins:
+              SPI_SCK: PB13
+              SPI_MOSI: PB15
+              SPI_MISO: PB14
           - ref: U2
             role: slave
     severity: error

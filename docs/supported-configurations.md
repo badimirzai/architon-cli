@@ -22,6 +22,7 @@ BOM ingestion and normalization with `rv scan`:
 - Deterministic project-folder scan with `rv scan .` and BOM + netlist auto-detection
 - Deterministic BOM + netlist merge into one DesignIR
 - Metadata-backed voltage propagation and overvoltage rule findings for netlist scans
+- Interface connectivity contracts (`require.connected`), including an optional pin name or pin number on each named net (`interface_pin_mismatch`, `interface_pin_conflict`)
 - Deterministic rail voltage inference, confidence reporting, and rail coverage metrics
 - Automatic delimiter detection for comma, semicolon, and tab
 - Deterministic DesignIR JSON generation

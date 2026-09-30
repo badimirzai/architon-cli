@@ -1313,6 +1313,8 @@ func firstNonEmpty(values ...string) string {
 
 // evaluateConnected checks that every named participant has a pin on every named net.
 // Roles are contract labels. The check does not look up MCU peripherals.
+// Order is fixed: missing component, missing net, then no pin on the net.
+// An optional pins map is checked last, and only for participants that are already on the net.
 func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 	if design == nil {
 		return nil
@@ -1398,7 +1400,263 @@ func evaluateConnected(design *ir.DesignIR, req AppliedRequirement) []Finding {
 			))
 		}
 	}
+	// Pin name and pin number checks run after connectivity so a missing part or
+	// net is not also reported as the wrong pin.
+	findings = append(findings, evaluateConnectedPins(req, contractID, participants, nets, missingRefs, missingNets, resolved)...)
 	return findings
+}
+
+// evaluateConnectedPins applies each participant's optional pins map.
+// A participant with no pins map is connectivity-only. A missing component is
+// already reported and is skipped here. The contract token is compared with the
+// netlist pin name and the pin number. Alternate pin functions are not inferred.
+func evaluateConnectedPins(req AppliedRequirement, contractID string, participants []InterfaceParticipant, nets []string, missingRefs map[string]struct{}, missingNets map[string]struct{}, resolved map[string]ir.Net) []Finding {
+	findings := make([]Finding, 0)
+	for _, participant := range participants {
+		if len(participant.Pins) == 0 {
+			continue
+		}
+		if _, missing := missingRefs[participant.Ref]; missing {
+			continue
+		}
+		findings = append(findings, evaluateParticipantPins(req, contractID, participant, nets, missingNets, resolved)...)
+	}
+	return findings
+}
+
+// evaluateParticipantPins reports pin mismatch and pin conflict for one participant.
+// tokenNets groups the signals that require the same pin token. Nets are already
+// sorted, so that grouping stays stable. A token required by two signals is one
+// physical pin bound twice in this contract. A later pass reports a pin that
+// landed on a net but is the token for a different signal.
+func evaluateParticipantPins(req AppliedRequirement, contractID string, participant InterfaceParticipant, nets []string, missingNets map[string]struct{}, resolved map[string]ir.Net) []Finding {
+	tokenNets := map[string][]string{}
+	for _, netName := range nets {
+		token, ok := participant.Pins[netName]
+		if !ok || strings.TrimSpace(token) == "" {
+			continue
+		}
+		tokenNets[token] = append(tokenNets[token], netName)
+	}
+
+	findings := make([]Finding, 0)
+	// reportedConflict records a pin token that already produced interface_pin_conflict,
+	// so the same token is not reported again when it is also seen on one of those nets.
+	reportedConflict := map[string]struct{}{}
+	tokens := make([]string, 0, len(tokenNets))
+	for token := range tokenNets {
+		tokens = append(tokens, token)
+	}
+	sort.Strings(tokens)
+	// The same token on two nets is interface_pin_conflict. expected.text is the
+	// first signal. observed.text is the pin token. The finding net is the last signal.
+	for _, token := range tokens {
+		bound := tokenNets[token]
+		if len(bound) < 2 {
+			continue
+		}
+		reportedConflict[token] = struct{}{}
+		findings = append(findings, connectedPinFinding(
+			req,
+			RuleInterfacePinConflict,
+			participant.Ref,
+			connectedDisplayNet(resolved, bound[len(bound)-1]),
+			matchingPinNumber(resolved, participant.Ref, token, bound),
+			fmt.Sprintf("Contract %s binds %s pin %s to %s. Observed: %s is bound to more than one signal.", contractID, participant.Ref, token, joinSignals(bound), token),
+			fmt.Sprintf("Assign %s to only one signal in contract %s.", token, contractID),
+			evidenceText(bound[0]),
+			evidenceText(token),
+		))
+	}
+
+	for _, netName := range nets {
+		token, ok := participant.Pins[netName]
+		if !ok || strings.TrimSpace(token) == "" {
+			continue
+		}
+		if _, missing := missingNets[netName]; missing {
+			continue
+		}
+		net := resolved[netName]
+		pins := componentPinsOnNet(net, participant.Ref)
+		if len(pins) == 0 {
+			continue
+		}
+		displayNet := connectedDisplayNet(resolved, netName)
+		// One matching pin is enough. If none match, the first pin in stable
+		// order supplies observed.text: its name, or its number when the name is empty.
+		if !pinsMatchContractToken(pins, token) {
+			pin := pins[0]
+			observed := pinObservedText(pin)
+			findings = append(findings, connectedPinFinding(
+				req,
+				RuleInterfacePinMismatch,
+				participant.Ref,
+				displayNet,
+				strings.TrimSpace(pin.Pin),
+				fmt.Sprintf("Contract %s requires %s (%s) pin %s on net %s. Observed: %s pin %s.", contractID, participant.Ref, participant.Role, token, displayNet, participant.Ref, observed),
+				fmt.Sprintf("Connect %s pin %s to %s.", participant.Ref, token, displayNet),
+				evidenceText(token),
+				evidenceText(observed),
+			))
+		}
+		// A pin can conflict even when its name matches this net. Its number may
+		// still be the token this contract bound to a different signal.
+		for _, pin := range pins {
+			for _, id := range pinIdentities(pin) {
+				if _, already := reportedConflict[id]; already {
+					continue
+				}
+				others := otherPinSignals(tokenNets, id, netName)
+				if len(others) == 0 {
+					continue
+				}
+				reportedConflict[id] = struct{}{}
+				findings = append(findings, connectedPinFinding(
+					req,
+					RuleInterfacePinConflict,
+					participant.Ref,
+					displayNet,
+					strings.TrimSpace(pin.Pin),
+					fmt.Sprintf("Contract %s binds %s pin %s to %s. Observed: %s on %s.", contractID, participant.Ref, id, joinSignals(others), id, displayNet),
+					fmt.Sprintf("Assign %s to only one signal in contract %s.", id, contractID),
+					evidenceText(others[0]),
+					evidenceText(id),
+				))
+			}
+		}
+	}
+	return findings
+}
+
+// connectedPinFinding copies one interface finding and records the netlist pin number.
+// expected and observed are set by the caller. The message is what human output prints.
+func connectedPinFinding(req AppliedRequirement, ruleID string, ref string, net string, pin string, message string, fix string, expected *Evidence, observed *Evidence) Finding {
+	finding := connectedFinding(req, ruleID, ref, net, message, fix, expected, observed)
+	finding.Pin = strings.TrimSpace(pin)
+	return finding
+}
+
+// connectedDisplayNet returns the net name from the design, including a leading slash.
+// The contract key stays "SPI_SCK" when the schematic net is "/SPI_SCK".
+func connectedDisplayNet(resolved map[string]ir.Net, netName string) string {
+	net, ok := resolved[netName]
+	if !ok {
+		return netName
+	}
+	if name := strings.TrimSpace(net.Name); name != "" {
+		return name
+	}
+	return netName
+}
+
+// componentPinsOnNet returns this component's pins on the net, sorted by pin number.
+// An empty result means the component is not on the net, which is interface_not_connected.
+func componentPinsOnNet(net ir.Net, ref string) []ir.PinRef {
+	matched := make([]ir.PinRef, 0, 1)
+	for _, pin := range net.Pins {
+		if pin.Ref == ref {
+			matched = append(matched, pin)
+		}
+	}
+	return sortedPinRefs(matched)
+}
+
+// pinsMatchContractToken reports whether any of the component's pins on this net
+// equals the contract token by name or by number.
+func pinsMatchContractToken(pins []ir.PinRef, token string) bool {
+	for _, pin := range pins {
+		if pinMatchesContractToken(pin, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// pinMatchesContractToken is an exact match against the netlist pin name or pin number.
+// "PB13" matches Name. "42" matches Pin. Neither field is rewritten or aliased.
+func pinMatchesContractToken(pin ir.PinRef, token string) bool {
+	if token == "" {
+		return false
+	}
+	if strings.TrimSpace(pin.Name) == token {
+		return true
+	}
+	return strings.TrimSpace(pin.Pin) == token
+}
+
+// pinObservedText is the value stored in observed.text for a pin mismatch.
+// The pin name is used when the netlist has one. Otherwise the pin number is used.
+func pinObservedText(pin ir.PinRef) string {
+	if name := strings.TrimSpace(pin.Name); name != "" {
+		return name
+	}
+	return strings.TrimSpace(pin.Pin)
+}
+
+// pinIdentities lists the name and number that can collide with another signal.
+// The same string is returned once when the name and number are identical.
+func pinIdentities(pin ir.PinRef) []string {
+	name := strings.TrimSpace(pin.Name)
+	number := strings.TrimSpace(pin.Pin)
+	out := make([]string, 0, 2)
+	if name != "" {
+		out = append(out, name)
+	}
+	if number != "" && number != name {
+		out = append(out, number)
+	}
+	return out
+}
+
+// otherPinSignals returns the other nets in this contract that require token.
+// An empty result means this pin is not bound to a different signal.
+func otherPinSignals(tokenNets map[string][]string, token string, current string) []string {
+	bound := tokenNets[token]
+	if len(bound) == 0 {
+		return nil
+	}
+	others := make([]string, 0, len(bound))
+	for _, netName := range bound {
+		if netName != current {
+			others = append(others, netName)
+		}
+	}
+	return others
+}
+
+// matchingPinNumber finds the netlist pin number for a token that matched by name or number.
+// The finding's pin field keeps that number. observed.text still carries the contract token.
+func matchingPinNumber(resolved map[string]ir.Net, ref string, token string, netNames []string) string {
+	for _, netName := range netNames {
+		net, ok := resolved[netName]
+		if !ok {
+			continue
+		}
+		for _, pin := range componentPinsOnNet(net, ref) {
+			if !pinMatchesContractToken(pin, token) {
+				continue
+			}
+			if number := strings.TrimSpace(pin.Pin); number != "" {
+				return number
+			}
+		}
+	}
+	return ""
+}
+
+// joinSignals formats the signal names a single pin is bound to, in sorted order.
+func joinSignals(nets []string) string {
+	switch len(nets) {
+	case 0:
+		return ""
+	case 1:
+		return nets[0]
+	case 2:
+		return nets[0] + " and " + nets[1]
+	default:
+		return strings.Join(nets[:len(nets)-1], ", ") + ", and " + nets[len(nets)-1]
+	}
 }
 
 // connectedFinding copies contract provenance onto one interface finding.
@@ -1417,7 +1675,8 @@ func connectedFinding(req AppliedRequirement, ruleID string, ref string, net str
 	return finding
 }
 
-// partTouchesNet reports whether ref has any pin on net. Pin numbers are not compared.
+// partTouchesNet reports whether ref has any pin on net.
+// Which pin it is does not matter here. Pin name and number are checked later.
 func partTouchesNet(net ir.Net, ref string) bool {
 	for _, pin := range net.Pins {
 		if pin.Ref == ref {

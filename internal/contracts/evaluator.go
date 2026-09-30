@@ -63,6 +63,8 @@ func EnabledRuleIDs() []string {
 		RuleInterfaceComponentMissing,
 		RuleInterfaceNetMissing,
 		RuleInterfaceNotConnected,
+		RuleInterfacePinMismatch,
+		RuleInterfacePinConflict,
 	}
 }
 
@@ -115,6 +117,8 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 			continue
 		case ContractConnected:
 			// Structural interface check: named parts must share named nets.
+			// When a participant sets pins, the contract token must match that
+			// component's netlist pin name or pin number on each named net.
 			findings = append(findings, evaluateConnected(design, req)...)
 			continue
 		}

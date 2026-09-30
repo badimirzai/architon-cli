@@ -68,7 +68,7 @@ Contract source precedence is:
 
 ## Custom contracts
 
-Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, and current budgets.
+Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current budgets, and which physical pin lands on each named interface net.
 
 Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
 
@@ -79,6 +79,10 @@ An interface contract states that named components must share named nets. It che
 `scope.bus_id` is the interface name. `scope.bus_type` is a label such as `spi`, `i2c`, `uart`, or `can`. `require.connected.nets` lists the nets that define the connection. Each participant has a `ref` and a role of `master` or `slave`. The role is recorded on the contract. The check uses the ref.
 
 A participant passes when that component exists and has at least one pin on every named net. Net names match with or without a leading `/`.
+
+A participant may set `pins`. Each key is a net name from `connected.nets`, and each value is the pin name or pin number that must land on that net. A key that is not in `connected.nets` is a schema error. Nets left out of `pins` are still checked for connectivity. If `pins` is omitted, the participant is checked for connectivity only.
+
+When `pins` is set, Architon finds that component's pin on the net and compares the contract token to the netlist pin name and the pin number. It does not look up an MCU pin database and it does not infer alternate pin functions.
 
 ```yaml
 contracts:
@@ -93,6 +97,10 @@ contracts:
         participants:
           - ref: U1
             role: master
+            pins:
+              SPI_SCK: PB13
+              SPI_MOSI: PB15
+              SPI_MISO: PB14
           - ref: U2
             role: slave
     severity: error
@@ -105,8 +113,10 @@ Failures use these rule IDs:
 - `interface_component_missing`: a participant ref is not in the design
 - `interface_net_missing`: a named net is not in the design
 - `interface_not_connected`: a participant has no pin on a named net
+- `interface_pin_mismatch`: the component is on the net, but neither the pin name nor the pin number equals the contract token. `expected.text` is the contract token. `observed.text` is the pin name, or the pin number when the pin name is empty
+- `interface_pin_conflict`: the observed pin name or pin number is bound to a different signal in the same contract. `expected.text` is that other signal. `observed.text` is the pin name or pin number. The check uses only this contract
 
-Each failure includes `expected` and `observed`. A design with no `connected` contract is unchanged.
+Each failure includes `expected` and `observed`. Human-readable output prints the finding message. A design with no `connected` contract is unchanged.
 
 Other custom requirements, such as `pullup_ohms` and `no_i2c_address_conflict`, still require `scope.bus_type: i2c`.
 

@@ -122,7 +122,9 @@ Contract findings may include `rule_id`, `severity`, `message`, `component_ref`,
 
 `expected` and `observed` are optional. They are omitted when a rule does not set them. Interface findings set `text`. A numeric comparison may instead set `min`, `max`, and `unit`.
 
-`rv scan --format json` includes the same `expected` and `observed` objects. Interface rule IDs are `interface_component_missing`, `interface_net_missing`, and `interface_not_connected`.
+`rv scan --format json` includes the same `expected` and `observed` objects. Interface rule IDs are `interface_component_missing`, `interface_net_missing`, `interface_not_connected`, `interface_pin_mismatch`, and `interface_pin_conflict`.
+
+`interface_pin_mismatch` sets `expected.text` to the pin token from `require.connected.participants[].pins` and `observed.text` to the netlist pin name, or the pin number when that name is empty. `interface_pin_conflict` sets `expected.text` to the other signal in the same contract and `observed.text` to the pin name or pin number bound to both signals. Human-readable output prints `message`. It does not rebuild the sentence from `expected` and `observed`.
 
 `rules` is a deprecated alias of `findings`.
 

@@ -1049,6 +1049,42 @@ contracts:
 `,
 			wantErr: "connected.nets must name at least one net",
 		},
+		{
+			name: "pin key is not a connected net",
+			body: `
+contracts:
+  - id: bad
+    scope: {bus_type: spi, bus_id: imu_spi}
+    require:
+      connected:
+        nets: [SPI_SCK]
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_MOSI: PB15
+    severity: error
+`,
+			wantErr: `connected.participants.pins key "SPI_MOSI" is not in connected.nets`,
+		},
+		{
+			name: "pin value must be a string",
+			body: `
+contracts:
+  - id: bad
+    scope: {bus_type: spi, bus_id: imu_spi}
+    require:
+      connected:
+        nets: [SPI_SCK]
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_SCK: 42
+    severity: error
+`,
+			wantErr: "connected.participants.pins values must be non-empty strings",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1128,6 +1164,224 @@ contracts:
 	}
 	if finding.Expected == nil || finding.Expected.Text != "U2 connected to SPI_SCK" || finding.Observed == nil || finding.Observed.Text != "U2 has no pin on SPI_SCK" {
 		t.Fatalf("unexpected evidence: %+v %+v", finding.Expected, finding.Observed)
+	}
+}
+
+func TestConnectedPinMap(t *testing.T) {
+	const pinContract = `
+contracts:
+  - id: imu_spi
+    description: U1 SPI pins must land on the IMU nets.
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_SCK: PB13
+              SPI_MOSI: PB15
+              SPI_MISO: PB14
+          - ref: U2
+            role: slave
+    severity: error
+`
+	t.Run("correct pin names pass", func(t *testing.T) {
+		design := stm32SPIDesign("PB15", "43")
+		if findings := contracts.Evaluate(design, userContractIR(t, design, pinContract)); len(findings) != 0 {
+			t.Fatalf("expected pin contract to pass, got %+v", findings)
+		}
+	})
+
+	t.Run("wrong mosi pin is interface_pin_mismatch", func(t *testing.T) {
+		design := stm32SPIDesign("PA7", "32")
+		findings := contracts.Evaluate(design, userContractIR(t, design, pinContract))
+		finding := requireRuleFinding(t, findings, contracts.RuleInterfacePinMismatch)
+		if finding.ComponentRef != "U1" || finding.Net != "SPI_MOSI" || finding.BusID != "imu_spi" || finding.BusType != "spi" {
+			t.Fatalf("unexpected mismatch finding: %+v", finding)
+		}
+		if finding.Expected == nil || finding.Expected.Text != "PB15" || finding.Observed == nil || finding.Observed.Text != "PA7" {
+			t.Fatalf("expected PB15 observed PA7, got %+v %+v", finding.Expected, finding.Observed)
+		}
+		if hasRuleFinding(findings, contracts.RuleInterfacePinConflict) {
+			t.Fatalf("PA7 is not bound to another signal: %+v", findings)
+		}
+		if !strings.Contains(finding.Message, "PB15") || !strings.Contains(finding.Message, "PA7") {
+			t.Fatalf("human message should name both pins, got %q", finding.Message)
+		}
+	})
+
+	t.Run("same pin bound to two signals is interface_pin_conflict", func(t *testing.T) {
+		const conflictContract = `
+contracts:
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_SCK: PB13
+              SPI_MOSI: PB13
+              SPI_MISO: PB14
+          - ref: U2
+            role: slave
+    severity: error
+`
+		design := stm32SPIDesign("PB13", "42")
+		design.Nets[0].Name = "SPI_SCK"
+		findings := contracts.Evaluate(design, userContractIR(t, design, conflictContract))
+		finding := requireRuleFinding(t, findings, contracts.RuleInterfacePinConflict)
+		if finding.ComponentRef != "U1" || finding.Expected == nil || finding.Expected.Text != "SPI_MOSI" || finding.Observed == nil || finding.Observed.Text != "PB13" {
+			t.Fatalf("unexpected conflict evidence: %+v", finding)
+		}
+		if hasRuleFinding(findings, contracts.RuleInterfacePinMismatch) {
+			t.Fatalf("PB13 matches both signals, got %+v", findings)
+		}
+	})
+
+	t.Run("observed pin bound to another signal", func(t *testing.T) {
+		design := stm32SPIDesign("PB13", "43")
+		findings := contracts.Evaluate(design, userContractIR(t, design, pinContract))
+		conflict := requireRuleFinding(t, findings, contracts.RuleInterfacePinConflict)
+		if conflict.Expected == nil || conflict.Expected.Text != "SPI_SCK" || conflict.Observed == nil || conflict.Observed.Text != "PB13" {
+			t.Fatalf("unexpected cross-signal conflict: %+v", conflict)
+		}
+		mismatch := requireRuleFinding(t, findings, contracts.RuleInterfacePinMismatch)
+		if mismatch.Expected == nil || mismatch.Expected.Text != "PB15" || mismatch.Observed == nil || mismatch.Observed.Text != "PB13" {
+			t.Fatalf("unexpected mismatch beside conflict: %+v", mismatch)
+		}
+	})
+
+	t.Run("omitted pins map checks connectivity only", func(t *testing.T) {
+		const connectivityOnly = `
+contracts:
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U2, role: slave }
+    severity: error
+`
+		design := stm32SPIDesign("PA7", "32")
+		if findings := contracts.Evaluate(design, userContractIR(t, design, connectivityOnly)); len(findings) != 0 {
+			t.Fatalf("expected connectivity-only contract to pass, got %+v", findings)
+		}
+	})
+
+	t.Run("kicad slash net still matches", func(t *testing.T) {
+		design := stm32SPIDesign("PB15", "43")
+		design.Nets[0].Pins[0].Name = "PA5"
+		design.Nets[0].Pins[0].Pin = "45"
+		findings := contracts.Evaluate(design, userContractIR(t, design, pinContract))
+		finding := requireRuleFinding(t, findings, contracts.RuleInterfacePinMismatch)
+		if finding.Net != "/SPI_SCK" || finding.Expected == nil || finding.Expected.Text != "PB13" || finding.Observed == nil || finding.Observed.Text != "PA5" {
+			t.Fatalf("slash net should be checked as SPI_SCK, got %+v", finding)
+		}
+		if hasRuleFinding(findings, contracts.RuleInterfaceNetMissing) {
+			t.Fatalf("/SPI_SCK should match SPI_SCK, got %+v", findings)
+		}
+	})
+
+	t.Run("pin number matches when name differs", func(t *testing.T) {
+		const numberContract = `
+contracts:
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_SCK: "42"
+              SPI_MOSI: PB15
+              SPI_MISO: PB14
+    severity: error
+`
+		design := stm32SPIDesign("PB15", "43")
+		if findings := contracts.Evaluate(design, userContractIR(t, design, numberContract)); len(findings) != 0 {
+			t.Fatalf("expected pin number 42 to match, got %+v", findings)
+		}
+	})
+
+	t.Run("empty pin name reports the pin number", func(t *testing.T) {
+		design := stm32SPIDesign("", "32")
+		findings := contracts.Evaluate(design, userContractIR(t, design, pinContract))
+		finding := requireRuleFinding(t, findings, contracts.RuleInterfacePinMismatch)
+		if finding.Expected == nil || finding.Expected.Text != "PB15" || finding.Observed == nil || finding.Observed.Text != "32" {
+			t.Fatalf("expected observed pin number 32, got %+v %+v", finding.Expected, finding.Observed)
+		}
+	})
+
+	t.Run("missing pin on net stays not connected", func(t *testing.T) {
+		design := stm32SPIDesign("PB15", "43")
+		design.Nets[2].Pins = []ir.PinRef{{Ref: "U2", Pin: "3", Name: "MISO"}}
+		findings := contracts.Evaluate(design, userContractIR(t, design, pinContract))
+		finding := requireRuleFinding(t, findings, contracts.RuleInterfaceNotConnected)
+		if finding.ComponentRef != "U1" || finding.Net != "SPI_MISO" {
+			t.Fatalf("unexpected not-connected finding: %+v", finding)
+		}
+		if hasRuleFinding(findings, contracts.RuleInterfacePinMismatch) || hasRuleFinding(findings, contracts.RuleInterfacePinConflict) {
+			t.Fatalf("disconnected ref should not be a pin mismatch, got %+v", findings)
+		}
+	})
+}
+
+func TestEnabledRuleIDsIncludeInterfacePinRules(t *testing.T) {
+	enabled := map[string]struct{}{}
+	for _, id := range contracts.EnabledRuleIDs() {
+		enabled[id] = struct{}{}
+	}
+	for _, id := range []string{
+		contracts.RuleInterfaceComponentMissing,
+		contracts.RuleInterfaceNetMissing,
+		contracts.RuleInterfaceNotConnected,
+		contracts.RuleInterfacePinMismatch,
+		contracts.RuleInterfacePinConflict,
+	} {
+		if _, ok := enabled[id]; !ok {
+			t.Fatalf("enabled rules missing %s", id)
+		}
+	}
+}
+
+// stm32SPIDesign is a small netlist fixture. U1 pin names are STM32-style labels, not a pin database.
+func stm32SPIDesign(mosiName string, mosiPin string) *ir.DesignIR {
+	return &ir.DesignIR{
+		Parts: []ir.Part{
+			{Ref: "U1", Value: "STM32F103C8T6"},
+			{Ref: "U2", Value: "IMU"},
+		},
+		Nets: []ir.Net{
+			{Name: "/SPI_SCK", Pins: []ir.PinRef{
+				{Ref: "U1", Pin: "42", Name: "PB13"},
+				{Ref: "U2", Pin: "1", Name: "SCK"},
+			}},
+			{Name: "SPI_MOSI", Pins: []ir.PinRef{
+				{Ref: "U1", Pin: mosiPin, Name: mosiName},
+				{Ref: "U2", Pin: "2", Name: "MOSI"},
+			}},
+			{Name: "SPI_MISO", Pins: []ir.PinRef{
+				{Ref: "U1", Pin: "44", Name: "PB14"},
+				{Ref: "U2", Pin: "3", Name: "MISO"},
+			}},
+		},
 	}
 }
 
