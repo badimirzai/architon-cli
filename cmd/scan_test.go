@@ -150,19 +150,21 @@ type scanCIOutput struct {
 }
 
 type scanCIFindingOutput struct {
-	ID             string `json:"id"`
-	RuleID         string `json:"rule_id"`
-	ContractID     string `json:"contract_id"`
-	ContractSource string `json:"contract_source"`
-	Severity       string `json:"severity"`
-	Message        string `json:"message"`
-	ComponentRef   string `json:"component_ref"`
-	Net            string `json:"net"`
-	Pin            string `json:"pin"`
-	Requirement    string `json:"requirement"`
-	Fix            string `json:"fix"`
-	WhyThisMatters string `json:"why_this_matters"`
-	Provenance     string `json:"provenance"`
+	ID             string                 `json:"id"`
+	RuleID         string                 `json:"rule_id"`
+	ContractID     string                 `json:"contract_id"`
+	ContractSource string                 `json:"contract_source"`
+	Severity       string                 `json:"severity"`
+	Message        string                 `json:"message"`
+	ComponentRef   string                 `json:"component_ref"`
+	Net            string                 `json:"net"`
+	Pin            string                 `json:"pin"`
+	Requirement    string                 `json:"requirement"`
+	Fix            string                 `json:"fix"`
+	WhyThisMatters string                 `json:"why_this_matters"`
+	Provenance     string                 `json:"provenance"`
+	Expected       *contractspkg.Evidence `json:"expected,omitempty"`
+	Observed       *contractspkg.Evidence `json:"observed,omitempty"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -1593,4 +1595,122 @@ func TestScanReportContractResults_CopiesEvidence(t *testing.T) {
 	if without[0].Expected != nil || without[0].Observed != nil {
 		t.Fatalf("expected empty evidence to stay nil, got %+v", without[0])
 	}
+}
+
+func TestScanFormatJSON_TopologyEvidence(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "design.net"), topologyNetlist())
+	writeScanTestFile(t, filepath.Join(tmpDir, "contracts.yaml"), topologyContracts())
+
+	stdout, err := runScanCommand(t, tmpDir, "design.net", "--contracts", "contracts.yaml", "--format", "json", "--out", "scan.json")
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected topology violations to exit 2, got err=%v stdout=%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+
+	low := requireCIFinding(t, scan, "termination_count_low")
+	if low.Expected == nil || low.Expected.Text != "2" || low.Observed == nil || low.Observed.Text != "1" {
+		t.Fatalf("termination evidence missing from scan JSON, got %+v", low)
+	}
+	shared := requireCIFinding(t, scan, "spi_cs_shared")
+	if shared.Expected == nil || shared.Expected.Text != "IMU_CS" || shared.Observed == nil || shared.Observed.Text != "U2, U3" {
+		t.Fatalf("chip-select evidence missing from scan JSON, got %+v", shared)
+	}
+	for _, finding := range scan.Findings {
+		if finding.RuleID == "interface_not_connected" {
+			t.Fatalf("required parts are on the bus, got %+v", scan.Findings)
+		}
+	}
+}
+
+func requireCIFinding(t *testing.T, scan scanCIOutput, ruleID string) scanCIFindingOutput {
+	t.Helper()
+	for _, finding := range scan.Findings {
+		if finding.RuleID == ruleID {
+			return finding
+		}
+	}
+	t.Fatalf("expected %s in scan JSON, got %+v", ruleID, scan.Findings)
+	return scanCIFindingOutput{}
+}
+
+func topologyContracts() string {
+	return `contracts:
+  - id: can_bus
+    scope:
+      bus_type: can
+      bus_id: vehicle_can
+    require:
+      connected:
+        nets: [CANH, CANL]
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U4, role: slave }
+      terminated:
+        nets: [CANH, CANL]
+        resistance_ohms: 120
+        count: 2
+    severity: error
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        chip_selects:
+          - ref: U2
+            net: IMU_CS
+          - ref: U3
+            net: IMU_CS
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U2, role: slave }
+          - { ref: U3, role: slave }
+    severity: error
+`
+}
+
+func topologyNetlist() string {
+	return `(export
+  (version D)
+  (design
+    (source "topology.kicad_sch"))
+  (components
+    (comp (ref "U1") (value "MCU"))
+    (comp (ref "U2") (value "IMU"))
+    (comp (ref "U3") (value "MAG"))
+    (comp (ref "U4") (value "TRANSCEIVER"))
+    (comp (ref "R1") (value "120")))
+  (libparts)
+  (nets
+    (net (code "1") (name "CANH")
+      (node (ref "U1") (pin "1"))
+      (node (ref "U4") (pin "1"))
+      (node (ref "R1") (pin "1")))
+    (net (code "2") (name "CANL")
+      (node (ref "U1") (pin "2"))
+      (node (ref "U4") (pin "2"))
+      (node (ref "R1") (pin "2")))
+    (net (code "3") (name "SPI_SCK")
+      (node (ref "U1") (pin "3"))
+      (node (ref "U2") (pin "1"))
+      (node (ref "U3") (pin "1")))
+    (net (code "4") (name "SPI_MOSI")
+      (node (ref "U1") (pin "4"))
+      (node (ref "U2") (pin "2"))
+      (node (ref "U3") (pin "2")))
+    (net (code "5") (name "SPI_MISO")
+      (node (ref "U1") (pin "5"))
+      (node (ref "U2") (pin "3"))
+      (node (ref "U3") (pin "3")))
+    (net (code "6") (name "IMU_CS")
+      (node (ref "U1") (pin "6"))
+      (node (ref "U2") (pin "4"))
+      (node (ref "U3") (pin "4")))))
+`
 }
