@@ -367,11 +367,16 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 			out[i].Requirements[j].MinOhms = cloneFloat(contract.Requirements[j].MinOhms)
 			out[i].Requirements[j].MaxOhms = cloneFloat(contract.Requirements[j].MaxOhms)
 			out[i].Requirements[j].MaxUtilizationPct = cloneFloat(contract.Requirements[j].MaxUtilizationPct)
+			out[i].Requirements[j].ResistanceOhms = cloneFloat(contract.Requirements[j].ResistanceOhms)
+			out[i].Requirements[j].TerminatorCount = cloneInt(contract.Requirements[j].TerminatorCount)
 			if nets := contract.Requirements[j].Nets; len(nets) > 0 {
 				out[i].Requirements[j].Nets = append([]string(nil), nets...)
 			}
 			if participants := contract.Requirements[j].Participants; len(participants) > 0 {
 				out[i].Requirements[j].Participants = cloneInterfaceParticipants(participants)
+			}
+			if selects := contract.Requirements[j].ChipSelects; len(selects) > 0 {
+				out[i].Requirements[j].ChipSelects = append([]ChipSelect(nil), selects...)
 			}
 		}
 	}
@@ -425,4 +430,12 @@ func cloneFloat(in *float64) *float64 {
 		return nil
 	}
 	return Float64(*in)
+}
+
+func cloneInt(in *int) *int {
+	if in == nil {
+		return nil
+	}
+	value := *in
+	return &value
 }

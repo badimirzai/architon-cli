@@ -68,7 +68,7 @@ Contract source precedence is:
 
 ## Custom contracts
 
-Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current budgets, and which physical pin lands on each named interface net.
+Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current budgets, which physical pin lands on each named interface net, CAN terminator count, and SPI chip-select exclusivity.
 
 Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
 
@@ -116,7 +116,70 @@ Failures use these rule IDs:
 - `interface_pin_mismatch`: the component is on the net, but neither the pin name nor the pin number equals the contract token. `expected.text` is the contract token. `observed.text` is the pin name, or the pin number when the pin name is empty
 - `interface_pin_conflict`: the observed pin name or pin number is bound to a different signal in the same contract. `expected.text` is that other signal. `observed.text` is the pin name or pin number. The check uses only this contract
 
-Each failure includes `expected` and `observed`. Human-readable output prints the finding message. A design with no `connected` contract is unchanged.
+Each failure includes `expected` and `observed`. Human-readable output prints the finding message. `rv scan --format json` includes the same objects. A design with no `connected` or `terminated` requirement is unchanged.
+
+## CAN termination
+
+`require.terminated` counts terminators between two nets. `connected` still checks whether participants share nets. Termination does not repeat that check. It reads the part value or a `resistance` / `resistance_ohms` field. It does not look up a component database and it does not calculate impedance.
+
+```yaml
+contracts:
+  - id: can_bus
+    scope:
+      bus_type: can
+      bus_id: vehicle_can
+    require:
+      terminated:
+        nets: [CANH, CANL]
+        resistance_ohms: 120
+        count: 2
+    severity: error
+```
+
+See [examples/contracts/can_termination.yaml](../examples/contracts/can_termination.yaml).
+
+A terminator is a two-pin part with one pin on each named net. The value or resistance field is parsed as ohms. `120`, `120R`, and `120 ohm` match `resistance_ohms: 120`. A part with any other pin, or a part on only one of the nets, is not counted.
+
+`count` is how many of those parts the contract requires.
+
+- `termination_count_low`: fewer parts match. `expected.text` is the required count. `observed.text` is the actual count
+- `termination_count_high`: more parts match. The evidence fields are the same
+- `interface_net_missing`: a named net is not in the design. This is the same rule used by `connected`. When both requirements name that net, the missing net is reported once
+
+The count is reported only when both nets exist. A bus can fail the count while every required component is still on the nets.
+
+## SPI chip-selects
+
+`connected.chip_selects` names the chip-select net for each slave. The shared bus stays in `connected.nets`. Chip-select nets are separate, so this check does not repeat the shared-net test. `scope.bus_type` must be `spi`. Each `ref` must be a slave in `participants`.
+
+```yaml
+contracts:
+  - id: imu_spi
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        chip_selects:
+          - ref: U2
+            net: IMU_CS
+          - ref: U3
+            net: MAG_CS
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U2, role: slave }
+          - { ref: U3, role: slave }
+    severity: error
+```
+
+See [examples/contracts/spi_chip_select.yaml](../examples/contracts/spi_chip_select.yaml).
+
+- `interface_not_connected`: the chip-select net exists and that slave has no pin on it. `expected.text` is `<ref> connected to <net>`. `observed.text` is `<ref> has no pin on <net>`
+- `interface_net_missing`: the chip-select net is not in the design
+- `spi_cs_shared`: two chip-select entries name the same net, or two slave refs each have a pin on the same chip-select net. `expected.text` is that net. `observed.text` is the slave refs that share it, in ref order. The master may sit on the net
+
+Two entries may name the same net in YAML. That is `spi_cs_shared` when the design is checked, including when every slave is still on the shared SPI nets. Clock polarity, SPI mode, and pull-ups are left unchecked.
 
 Other custom requirements, such as `pullup_ohms` and `no_i2c_address_conflict`, still require `scope.bus_type: i2c`.
 

@@ -65,6 +65,9 @@ func EnabledRuleIDs() []string {
 		RuleInterfaceNotConnected,
 		RuleInterfacePinMismatch,
 		RuleInterfacePinConflict,
+		RuleTerminationCountLow,
+		RuleTerminationCountHigh,
+		RuleSPICSShared,
 	}
 }
 
@@ -119,7 +122,11 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 			// Structural interface check: named parts must share named nets.
 			// When a participant sets pins, the contract token must match that
 			// component's netlist pin name or pin number on each named net.
+			// Chip-select entries are checked there too, without repeating the shared-net test.
 			findings = append(findings, evaluateConnected(design, req)...)
+			continue
+		case ContractTerminated:
+			findings = append(findings, evaluateTerminated(design, req)...)
 			continue
 		}
 
@@ -236,8 +243,29 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 	}
 
 	normalizeContractFindings(findings)
+	// connected and terminated can both name the same missing net. Keep one finding.
+	findings = dedupeInterfaceNetMissing(findings)
 	sortContractFindings(findings)
 	return findings
+}
+
+// dedupeInterfaceNetMissing keeps the first missing-net finding for each contract and net.
+func dedupeInterfaceNetMissing(findings []Finding) []Finding {
+	seen := map[string]struct{}{}
+	out := make([]Finding, 0, len(findings))
+	for _, finding := range findings {
+		if finding.RuleID != RuleInterfaceNetMissing {
+			out = append(out, finding)
+			continue
+		}
+		key := strings.TrimSpace(finding.ContractID) + "\x00" + normalizeNetName(finding.Net)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, finding)
+	}
+	return out
 }
 
 type connectedPin struct {

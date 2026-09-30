@@ -1,0 +1,11 @@
+contracts:
+  - id: can_bus
+    scope:
+      bus_type: can
+      bus_id: vehicle_can
+    require:
+      terminated:
+        nets: [CANH, CANL]
+        resistance_ohms: 120
+        count: 2
+    severity: error

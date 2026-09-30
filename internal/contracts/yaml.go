@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/badimirzai/architon-cli/internal/ir"
@@ -51,11 +53,24 @@ type requirementYAML struct {
 	CurrentBudget        *currentBudgetYAML `yaml:"current_budget"`
 	NoI2CAddressConflict *bool              `yaml:"no_i2c_address_conflict"`
 	Connected            *connectedYAML     `yaml:"connected"`
+	Terminated           *terminatedYAML    `yaml:"terminated"`
 }
 
 type connectedYAML struct {
 	Nets         []string          `yaml:"nets"`
 	Participants []participantYAML `yaml:"participants"`
+	ChipSelects  []chipSelectYAML  `yaml:"chip_selects"`
+}
+
+type chipSelectYAML struct {
+	Ref string `yaml:"ref"`
+	Net string `yaml:"net"`
+}
+
+type terminatedYAML struct {
+	Nets           []string `yaml:"nets"`
+	ResistanceOhms *float64 `yaml:"resistance_ohms"`
+	Count          *int     `yaml:"count"`
 }
 
 type participantYAML struct {
@@ -229,12 +244,17 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 	for _, key := range sortedMappingKeys(entries) {
 		value := entries[key]
 		switch key {
-		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict", "connected":
+		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict", "connected", "terminated":
 		default:
 			return contractValidationError(label, "unknown requirement key %q", key)
 		}
 		if key == "connected" {
 			if err := validateConnectedYAMLNode(label, value); err != nil {
+				return err
+			}
+		}
+		if key == "terminated" {
+			if err := validateTerminatedYAMLNode(label, value); err != nil {
 				return err
 			}
 		}
@@ -271,8 +291,9 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 }
 
 // validateConnectedYAMLNode checks require.connected shape before typed decoding.
-// Allowed keys are nets and participants. Each participant needs ref and role.
+// Allowed keys are nets, participants, and chip_selects. Each participant needs ref and role.
 // pins is an optional net-to-pin map. Keys must be net names from connected.nets.
+// chip_selects is optional. Each entry names one slave and its chip-select net.
 func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return contractValidationError(label, "connected must be an object")
@@ -283,7 +304,7 @@ func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 	}
 	for _, key := range sortedMappingKeys(entries) {
 		switch key {
-		case "nets", "participants":
+		case "nets", "participants", "chip_selects":
 		default:
 			return contractValidationError(label, "unknown connected key %q", key)
 		}
@@ -326,6 +347,101 @@ func validateConnectedYAMLNode(label string, node *yaml.Node) error {
 			return err
 		}
 	}
+	if err := validateChipSelectsYAMLNode(label, entries["chip_selects"]); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateChipSelectsYAMLNode checks the optional chip_selects list.
+// Each entry is a slave ref and the net that must be that slave's chip-select.
+// The same net on two entries is left for evaluation, which reports spi_cs_shared.
+func validateChipSelectsYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || (node.Kind == yaml.ScalarNode && node.Tag == "!!null") {
+		return nil
+	}
+	if node.Kind != yaml.SequenceNode {
+		return contractValidationError(label, "connected.chip_selects must be a list")
+	}
+	for i, item := range node.Content {
+		if item.Kind != yaml.MappingNode {
+			return contractValidationError(label, "connected.chip_selects[%d] must be an object", i)
+		}
+		fields, err := mappingFromNode(item, fmt.Sprintf("%s.require.connected.chip_selects[%d]", label, i))
+		if err != nil {
+			return err
+		}
+		for _, key := range sortedMappingKeys(fields) {
+			switch key {
+			case "ref", "net":
+			default:
+				return contractValidationError(label, "unknown connected.chip_selects key %q", key)
+			}
+		}
+		for _, key := range []string{"ref", "net"} {
+			value := fields[key]
+			if value == nil || value.Kind != yaml.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "" {
+				return contractValidationError(label, "connected.chip_selects.%s must be a non-empty string", key)
+			}
+			if strings.TrimSpace(value.Value) != value.Value {
+				return contractValidationError(label, "connected.chip_selects.%s must not have leading or trailing whitespace", key)
+			}
+		}
+	}
+	return nil
+}
+
+// validateTerminatedYAMLNode checks require.terminated before typed decoding.
+// A terminator spans exactly two nets, so the net list length is fixed here.
+func validateTerminatedYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "terminated must be an object")
+	}
+	entries, err := mappingFromNode(node, label+".require.terminated")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(entries) {
+		switch key {
+		case "nets", "resistance_ohms", "count":
+		default:
+			return contractValidationError(label, "unknown terminated key %q", key)
+		}
+	}
+	netsNode := entries["nets"]
+	if netsNode == nil || netsNode.Kind != yaml.SequenceNode {
+		return contractValidationError(label, "terminated.nets must be a list")
+	}
+	if len(netsNode.Content) != 2 {
+		return contractValidationError(label, "terminated.nets must name exactly two nets")
+	}
+	for i, item := range netsNode.Content {
+		if item.Kind != yaml.ScalarNode || item.Tag != "!!str" || strings.TrimSpace(item.Value) == "" {
+			return contractValidationError(label, "terminated.nets[%d] must be a non-empty string", i)
+		}
+	}
+	ohmsNode := entries["resistance_ohms"]
+	if ohmsNode == nil {
+		return contractValidationError(label, "terminated.resistance_ohms is required")
+	}
+	ohms, ok := yamlScalarFloat(ohmsNode)
+	if !ok || math.IsNaN(ohms) || math.IsInf(ohms, 0) {
+		return contractValidationError(label, "terminated.resistance_ohms must be a number")
+	}
+	if ohms <= 0 {
+		return contractValidationError(label, "terminated.resistance_ohms must be > 0")
+	}
+	countNode := entries["count"]
+	if countNode == nil {
+		return contractValidationError(label, "terminated.count is required")
+	}
+	count, ok := yamlScalarInt(countNode)
+	if !ok {
+		return contractValidationError(label, "terminated.count must be an integer")
+	}
+	if count <= 0 {
+		return contractValidationError(label, "terminated.count must be > 0")
+	}
 	return nil
 }
 
@@ -358,10 +474,10 @@ func validateParticipantPinsYAMLNode(label string, node *yaml.Node) error {
 	return nil
 }
 
-// connectedRequirementOnly reports whether this contract is just an interface check.
-// I2C requirements still require scope.bus_type i2c. A connected-only contract may use spi, uart, or can.
+// connectedRequirementOnly reports whether this contract is an interface topology check.
+// I2C requirements still require scope.bus_type i2c. connected and terminated may use spi, uart, or can.
 func connectedRequirementOnly(req requirementYAML) bool {
-	if req.Connected == nil {
+	if req.Connected == nil && req.Terminated == nil {
 		return false
 	}
 	if req.CommonGround != nil && *req.CommonGround {
@@ -464,13 +580,20 @@ func validateScopeYAML(label string, scope scopeYAML, req requirementYAML) error
 			return contractValidationError(label, "scope.bus_type must be a bus name such as spi, i2c, uart, or can")
 		}
 	}
-	if req.Connected != nil {
+	if req.Connected != nil || req.Terminated != nil {
+		kind := "connected"
+		if req.Connected == nil {
+			kind = "terminated"
+		}
 		if strings.TrimSpace(scope.BusType) == "" {
-			return contractValidationError(label, "scope.bus_type is required for connected")
+			return contractValidationError(label, "scope.bus_type is required for %s", kind)
 		}
 		if strings.TrimSpace(scope.BusID) == "" {
-			return contractValidationError(label, "scope.bus_id is required for connected")
+			return contractValidationError(label, "scope.bus_id is required for %s", kind)
 		}
+	}
+	if req.Connected != nil && len(req.Connected.ChipSelects) > 0 && !strings.EqualFold(strings.TrimSpace(scope.BusType), "spi") {
+		return contractValidationError(label, "connected.chip_selects requires scope.bus_type spi")
 	}
 	if scope.Nets != nil {
 		selectors++
@@ -548,6 +671,7 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 			return contractValidationError(label, "connected.participants must name at least one component")
 		}
 		seenRefs := map[string]struct{}{}
+		slaveRefs := map[string]struct{}{}
 		for _, participant := range req.Connected.Participants {
 			ref := participant.Ref
 			if strings.TrimSpace(ref) == "" {
@@ -561,7 +685,9 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 			}
 			seenRefs[ref] = struct{}{}
 			switch strings.ToLower(strings.TrimSpace(participant.Role)) {
-			case "master", "slave":
+			case "master":
+			case "slave":
+				slaveRefs[ref] = struct{}{}
 			default:
 				return contractValidationError(label, "connected.participants.role must be master or slave")
 			}
@@ -569,9 +695,77 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 				return err
 			}
 		}
+		if err := validateChipSelectRefs(label, req.Connected.ChipSelects, slaveRefs); err != nil {
+			return err
+		}
+	}
+	if req.Terminated != nil {
+		count++
+		if err := validateTerminatedYAML(label, req.Terminated); err != nil {
+			return err
+		}
 	}
 	if count == 0 {
 		return contractValidationError(label, "require must set at least one enabled requirement")
+	}
+	return nil
+}
+
+// validateChipSelectRefs checks that each chip-select ref is one slave participant.
+// Duplicate nets are valid YAML. Evaluation reports those as spi_cs_shared.
+func validateChipSelectRefs(label string, selects []chipSelectYAML, slaveRefs map[string]struct{}) error {
+	seenRefs := map[string]struct{}{}
+	for _, sel := range selects {
+		ref := sel.Ref
+		net := sel.Net
+		if strings.TrimSpace(ref) == "" || strings.TrimSpace(ref) != ref {
+			return contractValidationError(label, "connected.chip_selects.ref must be a non-empty string")
+		}
+		if strings.TrimSpace(net) == "" || strings.TrimSpace(net) != net {
+			return contractValidationError(label, "connected.chip_selects.net must be a non-empty string")
+		}
+		if _, ok := seenRefs[ref]; ok {
+			return contractValidationError(label, "connected.chip_selects ref %q is duplicated", ref)
+		}
+		seenRefs[ref] = struct{}{}
+		if _, ok := slaveRefs[ref]; !ok {
+			return contractValidationError(label, "connected.chip_selects ref %q must be a slave participant", ref)
+		}
+	}
+	return nil
+}
+
+// validateTerminatedYAML checks the two net names and the numeric bounds after decoding.
+func validateTerminatedYAML(label string, raw *terminatedYAML) error {
+	if raw == nil {
+		return contractValidationError(label, "terminated must be an object")
+	}
+	if len(raw.Nets) != 2 {
+		return contractValidationError(label, "terminated.nets must name exactly two nets")
+	}
+	seenNets := map[string]struct{}{}
+	for _, net := range raw.Nets {
+		if strings.TrimSpace(net) == "" {
+			return contractValidationError(label, "terminated.nets entries must be non-empty strings")
+		}
+		if strings.TrimSpace(net) != net {
+			return contractValidationError(label, "terminated.nets entries must not have leading or trailing whitespace")
+		}
+		if _, ok := seenNets[net]; ok {
+			return contractValidationError(label, "terminated.nets entry %q is duplicated", net)
+		}
+		// CANH and /CANH are the same net.
+		if _, ok := seenNets[normalizeNetName(net)]; ok {
+			return contractValidationError(label, "terminated.nets entry %q is duplicated", net)
+		}
+		seenNets[net] = struct{}{}
+		seenNets[normalizeNetName(net)] = struct{}{}
+	}
+	if raw.ResistanceOhms == nil || *raw.ResistanceOhms <= 0 || math.IsNaN(*raw.ResistanceOhms) || math.IsInf(*raw.ResistanceOhms, 0) {
+		return contractValidationError(label, "terminated.resistance_ohms must be > 0")
+	}
+	if raw.Count == nil || *raw.Count <= 0 {
+		return contractValidationError(label, "terminated.count must be > 0")
 	}
 	return nil
 }
@@ -697,7 +891,7 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 	}
 	if raw.Connected != nil {
 		// Keep role as a label and nets as schematic names. Pins are copied as written.
-		// No peripheral lookup happens here.
+		// No peripheral lookup happens here. Chip-select nets stay off the shared net list.
 		participants := make([]InterfaceParticipant, 0, len(raw.Connected.Participants))
 		for _, participant := range raw.Connected.Participants {
 			participants = append(participants, InterfaceParticipant{
@@ -710,11 +904,35 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 		for _, net := range raw.Connected.Nets {
 			nets = append(nets, strings.TrimSpace(net))
 		}
+		var chipSelects []ChipSelect
+		if len(raw.Connected.ChipSelects) > 0 {
+			chipSelects = make([]ChipSelect, 0, len(raw.Connected.ChipSelects))
+			for _, sel := range raw.Connected.ChipSelects {
+				chipSelects = append(chipSelects, ChipSelect{
+					Ref: strings.TrimSpace(sel.Ref),
+					Net: strings.TrimSpace(sel.Net),
+				})
+			}
+		}
 		add(Requirement{
 			Type:         ContractConnected,
 			Nets:         nets,
 			Participants: participants,
+			ChipSelects:  chipSelects,
 			Fix:          "Connect every listed component to every net named by the interface contract.",
+		})
+	}
+	if raw.Terminated != nil {
+		nets := make([]string, 0, len(raw.Terminated.Nets))
+		for _, net := range raw.Terminated.Nets {
+			nets = append(nets, strings.TrimSpace(net))
+		}
+		add(Requirement{
+			Type:            ContractTerminated,
+			Nets:            nets,
+			ResistanceOhms:  cloneFloat(raw.Terminated.ResistanceOhms),
+			TerminatorCount: cloneInt(raw.Terminated.Count),
+			Fix:             "Place the required number of two-pin terminators between the named nets.",
 		})
 	}
 	sort.Slice(reqs, func(i, j int) bool { return reqs[i].Type < reqs[j].Type })
@@ -784,6 +1002,35 @@ func contractValidationLabel(index int, id string) string {
 
 func contractValidationError(label string, format string, args ...any) error {
 	return fmt.Errorf("Invalid contract %s: %s", label, fmt.Sprintf(format, args...))
+}
+
+// yamlScalarFloat accepts a YAML number such as 120 or 120.0. A quoted string is rejected.
+func yamlScalarFloat(node *yaml.Node) (float64, bool) {
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return 0, false
+	}
+	switch node.Tag {
+	case "!!int", "!!float":
+	default:
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(strings.TrimSpace(node.Value), 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+// yamlScalarInt accepts a whole number such as 2. 2.0 is rejected.
+func yamlScalarInt(node *yaml.Node) (int, bool) {
+	if node == nil || node.Kind != yaml.ScalarNode || node.Tag != "!!int" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(node.Value))
+	if err != nil {
+		return 0, false
+	}
+	return value, true
 }
 
 func validContractID(id string) bool {
