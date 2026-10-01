@@ -68,6 +68,8 @@ func EnabledRuleIDs() []string {
 		RuleTerminationCountLow,
 		RuleTerminationCountHigh,
 		RuleSPICSShared,
+		RulePowerBudgetExceeded,
+		RulePowerMarginLow,
 	}
 }
 
@@ -114,6 +116,11 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 			continue
 		case ContractCurrentBudget:
 			findings = append(findings, evaluateCurrentBudget(design, contractIR, partsByRef, req)...)
+			continue
+		case ContractPowerBudget:
+			// Declared source and consumer currents only. This does not read
+			// part fields, datasheets, or which net each ref uses.
+			findings = append(findings, evaluatePowerBudget(design, req)...)
 			continue
 		case ContractNoI2CAddressConflict:
 			findings = append(findings, evaluateNoI2CAddressConflict(design, req)...)

@@ -237,6 +237,104 @@ func evaluateCurrentBudget(design *ir.DesignIR, contractIR *ContractIR, parts ma
 	return findings
 }
 
+// evaluatePowerBudget compares declared consumer current with a declared source limit.
+// Load is the sum of consumer current_a. Remaining margin percent is
+// (max_current_a - load) / max_current_a * 100. Currents come only from the contract.
+// A missing source or consumer ref is interface_component_missing. Nets are not checked.
+func evaluatePowerBudget(design *ir.DesignIR, req AppliedRequirement) []Finding {
+	if design == nil || req.PowerSource == nil || req.MinimumMarginPct == nil || req.PowerSource.MaxCurrentA <= 0 {
+		return nil
+	}
+	contractID := strings.TrimSpace(req.ContractID)
+	if contractID == "" {
+		contractID = strings.TrimSpace(req.Scope.BusID)
+	}
+	parts := partIndex(design)
+	refs := make([]string, 0, 1+len(req.PowerConsumers))
+	refs = append(refs, req.PowerSource.Ref)
+	for _, consumer := range req.PowerConsumers {
+		refs = append(refs, consumer.Ref)
+	}
+	findings := make([]Finding, 0)
+	seen := map[string]struct{}{}
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		if _, ok := parts[ref]; ok {
+			continue
+		}
+		findings = append(findings, connectedFinding(
+			req,
+			RuleInterfaceComponentMissing,
+			ref,
+			"",
+			fmt.Sprintf("Contract %s requires component %s. Observed: component %s is missing.", contractID, ref, ref),
+			"Add the missing component to the schematic.",
+			evidenceText("component "+ref),
+			evidenceText("missing"),
+		))
+	}
+	if len(findings) > 0 {
+		return findings
+	}
+
+	load := 0.0
+	for _, consumer := range req.PowerConsumers {
+		load += consumer.CurrentA
+	}
+	maxA := req.PowerSource.MaxCurrentA
+	lead := powerBudgetLead(contractID, req.Scope.Rail)
+	sourceRef := strings.TrimSpace(req.PowerSource.Ref)
+	if greaterThanCurrent(load, maxA) {
+		return []Finding{connectedFinding(
+			req,
+			RulePowerBudgetExceeded,
+			sourceRef,
+			"",
+			fmt.Sprintf("%s requires source %s at or below %sA. Observed: load is %sA.", lead, sourceRef, formatContractNumber(maxA), formatContractNumber(load)),
+			"Reduce the declared consumer currents or raise the source max current.",
+			evidenceMax(maxA, "A"),
+			evidenceMax(load, "A"),
+		)}
+	}
+	margin := (maxA - load) / maxA * 100
+	// Exactly on the margin passes. A difference within 1e-9 is the same value.
+	if *req.MinimumMarginPct-margin > 1e-9 {
+		return []Finding{connectedFinding(
+			req,
+			RulePowerMarginLow,
+			sourceRef,
+			"",
+			fmt.Sprintf("%s requires at least %s percent remaining margin. Observed: remaining margin is %s percent.", lead, formatContractNumber(*req.MinimumMarginPct), formatContractNumber(margin)),
+			"Reduce the declared consumer currents or lower the minimum remaining margin.",
+			evidenceMin(*req.MinimumMarginPct, "percent"),
+			evidenceMin(margin, "percent"),
+		)}
+	}
+	return nil
+}
+
+// powerBudgetLead names the contract, and the declared rail when the contract set one.
+// The rail is a label. This check does not look up that net.
+func powerBudgetLead(contractID string, rail string) string {
+	rail = strings.TrimSpace(rail)
+	if rail == "" {
+		return "Contract " + contractID
+	}
+	return "Contract " + contractID + " for " + rail
+}
+
+// formatContractNumber prints a contract current or percent for a finding message.
+func formatContractNumber(value float64) string {
+	return strconv.FormatFloat(value, 'g', 6, 64)
+}
+
 // evaluateNoI2CAddressConflict checks duplicate device addresses per I2C bus.
 func evaluateNoI2CAddressConflict(design *ir.DesignIR, req AppliedRequirement) []Finding {
 	buses := scopedI2CBuses(design, req.Scope)
@@ -1698,6 +1796,18 @@ func evidenceText(text string) *Evidence {
 		return nil
 	}
 	return &Evidence{Text: text}
+}
+
+// evidenceMax stores one numeric comparison in max, with a unit. Text stays empty.
+func evidenceMax(value float64, unit string) *Evidence {
+	copied := value
+	return &Evidence{Max: &copied, Unit: unit}
+}
+
+// evidenceMin stores one numeric comparison in min, with a unit. Text stays empty.
+func evidenceMin(value float64, unit string) *Evidence {
+	copied := value
+	return &Evidence{Min: &copied, Unit: unit}
 }
 
 // evaluateTerminated counts two-pin parts of the required resistance between two nets.
