@@ -1627,6 +1627,117 @@ func TestScanFormatJSON_TopologyEvidence(t *testing.T) {
 	}
 }
 
+func TestScanFormatJSON_PowerBudgetEvidence(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(tmpDir, "design.net"), powerBudgetNetlist())
+	writeScanTestFile(t, filepath.Join(tmpDir, "contracts.yaml"), powerBudgetScanContracts())
+
+	stdout, err := runScanCommand(t, tmpDir, "design.net", "--contracts", "contracts.yaml", "--format", "json", "--out", "scan.json")
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected power budget violations to exit 2, got err=%v stdout=%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	if !containsScanRule(scan.Summary.RulesEnabled, "power_budget_exceeded") || !containsScanRule(scan.Summary.RulesEnabled, "power_margin_low") {
+		t.Fatalf("enabled rules missing power budget ids, got %+v", scan.Summary.RulesEnabled)
+	}
+
+	over := requireCIFinding(t, scan, "power_budget_exceeded")
+	if over.ContractID != "rail_over" || over.ComponentRef != "U2" {
+		t.Fatalf("unexpected exceeded finding: %+v", over)
+	}
+	if over.Expected == nil || over.Expected.Max == nil || *over.Expected.Max != 1 || over.Expected.Unit != "A" || over.Expected.Text != "" {
+		t.Fatalf("expected max current evidence, got %+v", over.Expected)
+	}
+	if over.Observed == nil || over.Observed.Max == nil || *over.Observed.Max != 1.25 || over.Observed.Unit != "A" || over.Observed.Text != "" {
+		t.Fatalf("expected load evidence, got %+v", over.Observed)
+	}
+	if !strings.Contains(over.Message, "1.25A") {
+		t.Fatalf("human message should stay on the finding, got %q", over.Message)
+	}
+
+	low := requireCIFinding(t, scan, "power_margin_low")
+	if low.ContractID != "rail_margin" || low.ComponentRef != "U2" {
+		t.Fatalf("unexpected margin finding: %+v", low)
+	}
+	if low.Expected == nil || low.Expected.Min == nil || *low.Expected.Min != 20 || low.Expected.Unit != "percent" || low.Expected.Text != "" {
+		t.Fatalf("expected minimum margin evidence, got %+v", low.Expected)
+	}
+	if low.Observed == nil || low.Observed.Min == nil || *low.Observed.Min != 12.5 || low.Observed.Unit != "percent" || low.Observed.Text != "" {
+		t.Fatalf("expected actual margin evidence, got %+v", low.Observed)
+	}
+	for _, finding := range scan.Findings {
+		if finding.RuleID == "interface_not_connected" || finding.RuleID == "interface_component_missing" {
+			t.Fatalf("parts exist and nets are not checked, got %+v", scan.Findings)
+		}
+	}
+}
+
+func containsScanRule(rules []string, want string) bool {
+	for _, rule := range rules {
+		if rule == want {
+			return true
+		}
+	}
+	return false
+}
+
+func powerBudgetScanContracts() string {
+	return `contracts:
+  - id: rail_over
+    scope:
+      bus_type: power
+      bus_id: "3V3"
+      rail: "+3V3"
+    require:
+      power_budget:
+        source:
+          ref: U2
+          max_current_a: 1.0
+        consumers:
+          - { ref: U3, current_a: 0.5 }
+          - { ref: U4, current_a: 0.75 }
+        minimum_margin_pct: 20
+    severity: error
+  - id: rail_margin
+    scope:
+      bus_type: power
+      bus_id: "3V3"
+      rail: "+3V3"
+    require:
+      power_budget:
+        source:
+          ref: U2
+          max_current_a: 1.0
+        consumers:
+          - { ref: U3, current_a: 0.5 }
+          - { ref: U4, current_a: 0.375 }
+        minimum_margin_pct: 20
+    severity: error
+`
+}
+
+func powerBudgetNetlist() string {
+	return `(export
+  (version D)
+  (design
+    (source "power.kicad_sch"))
+  (components
+    (comp (ref "U2") (value "REG"))
+    (comp (ref "U3") (value "LOAD_A"))
+    (comp (ref "U4") (value "LOAD_B")))
+  (libparts)
+  (nets
+    (net (code "1") (name "GND")
+      (node (ref "U2") (pin "1"))
+      (node (ref "U3") (pin "1"))
+      (node (ref "U4") (pin "1")))))
+`
+}
+
 func requireCIFinding(t *testing.T, scan scanCIOutput, ruleID string) scanCIFindingOutput {
 	t.Helper()
 	for _, finding := range scan.Findings {

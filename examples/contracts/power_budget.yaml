@@ -1,0 +1,16 @@
+contracts:
+  - id: rail_3v3
+    scope:
+      bus_type: power
+      bus_id: "3V3"
+      rail: "+3V3"
+    require:
+      power_budget:
+        source:
+          ref: U2
+          max_current_a: 1.0
+        consumers:
+          - { ref: U3, current_a: 0.3 }
+          - { ref: U4, current_a: 0.4 }
+        minimum_margin_pct: 20
+    severity: error
