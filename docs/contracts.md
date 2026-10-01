@@ -2,6 +2,8 @@
 
 Architon supports built-in component contracts and user-defined system contracts. Both are deterministic and are evaluated against DesignIR plus ContractIR, not against raw KiCad files.
 
+A reproducible `rv scan --format json` loop is in [Scan loop](#scan-loop).
+
 ## Built-in contracts
 
 Built-in contracts represent known electrical characteristics of components.
@@ -227,6 +229,32 @@ rv contracts validate <path>
 Schema validation does not verify a design. Use `rv scan --contracts <path>` to enforce contracts against a project.
 
 `pullup_ohms` is resistance-only in v0.4.0. Capacitance/rise-time validation is future work.
+
+## Scan loop
+
+`examples/agent-loop/` is one small project with two copies. Both use the same contracts: SPI connectivity and pin tokens, SPI chip-selects, CAN connectivity, CAN termination, and a power budget. `fixed/` passes. `broken/` is a valid netlist that fails for two reasons already implemented by those contracts:
+
+- `interface_pin_mismatch` on `U1` pin `4` of `SPI_MOSI`. `expected.text` is `PB15`. `observed.text` is `PA7`.
+- `termination_count_low` on the CAN bus. `expected.text` is `2`. `observed.text` is `1`.
+
+The power budget in both copies stays inside the declared current and margin.
+
+The loop is:
+
+1. Edit the design or the contract.
+2. Run `rv scan . --format json`.
+3. Read `rule_id`, `component_ref`, `net`, `pin`, `expected`, and `observed`.
+4. Edit again.
+5. Run `rv scan . --format json`.
+6. The process exits 0.
+
+`examples/agent-loop/broken` is the project at step 2. That scan exits 2 and returns the two findings above. `design_fixable` is true when editing the schematic or the contract can clear the finding. It is false for parse and tool failures. A parse failure is a finding with `rule_id` `parse_error` and exits 3. A tool failure, such as invalid contract YAML or no importable input, exits 3 before scan JSON findings are written.
+
+Step 4 on this fixture sets `U1`'s `SPI_MOSI` pin function to `PB15` and adds a second 120 ohm resistor between `CANH` and `CANL`. `examples/agent-loop/fixed/` is that design. Scanning it exits 0.
+
+`rv scan` also writes `architon-report.json`. `design_ir.metadata.parsed_at` changes every run, so an agent must compare findings, not the whole file. Compare the `findings` from `rv scan . --format json`.
+
+Rules that already compute a numeric limit and a measured value set `expected` and `observed` from those values. Examples are supply and GPIO voltage, recommended range, motor supply, regulator current, logic level, pull-up resistance, and current-budget utilization. A finding whose rule has no separate value, such as a missing common ground or two devices that share one I2C address, leaves both fields unset.
 
 ## Minimal voltage-rule metadata
 
