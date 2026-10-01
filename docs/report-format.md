@@ -120,7 +120,11 @@ Netlist-backed scan reports may include `derived.net_voltages`, `derived.inferre
 
 Contract findings may include `rule_id`, `severity`, `message`, `component_ref`, `net`, `pin`, `bus_id`, `bus_type`, `bus_nets`, `source`, `provenance`, `why_this_matters`, `fix`, `expected`, and `observed`.
 
-`expected` and `observed` are optional. They are omitted when a rule does not set them. Interface findings set `text`. A numeric comparison may instead set `min`, `max`, and `unit`.
+`expected` and `observed` are optional. They are omitted when a rule does not set them. Interface findings set `text`. A numeric comparison may instead set `min`, `max`, and `unit`. Rules that already have a numeric limit and a measured value set those fields from the values in code. A rule with no separate value leaves both unset.
+
+`rv scan --format json` sets `design_fixable` on every finding. It is true when editing the schematic or the contract can clear the finding. It is false for parse and tool failures. A parse failure is reported as `rule_id` `parse_error`.
+
+`design_ir.metadata.parsed_at` is the time of that run and changes every run. Compare `findings`, not the whole report file.
 
 `rv scan --format json` includes the same `expected` and `observed` objects. Interface rule IDs are `interface_component_missing`, `interface_net_missing`, `interface_not_connected`, `interface_pin_mismatch`, and `interface_pin_conflict`. Topology rule IDs are `termination_count_low`, `termination_count_high`, and `spi_cs_shared`. Power-budget rule IDs are `power_budget_exceeded` and `power_margin_low`.
 

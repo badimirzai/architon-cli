@@ -150,7 +150,7 @@ rv version                 Show installed version
 Detailed CLI examples, scan behavior, import modes, rail inference, and advanced flags are documented in:
 
 - [docs/CLI.md](docs/CLI.md)
-- [docs/contracts.md](docs/contracts.md)
+- [docs/contracts.md](docs/contracts.md) — contracts, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
 - [docs/ci.md](docs/ci.md)
 - [docs/graph-ir.md](docs/graph-ir.md)
 - [docs/importers.md](docs/importers.md)
@@ -209,7 +209,7 @@ Detailed technical documentation is available in `docs/`:
 
 - [docs/architecture.md](docs/architecture.md) — engine architecture and system design
 - [docs/ci.md](docs/ci.md) — GitHub Actions, PR comments, and scan artifacts
-- [docs/contracts.md](docs/contracts.md) — built-in and user system contracts
+- [docs/contracts.md](docs/contracts.md) — built-in and user system contracts, and the [scan loop](docs/contracts.md#scan-loop)
 - [docs/importers.md](docs/importers.md) — KiCad/BOM/netlist import behavior
 - [docs/rail-inference.md](docs/rail-inference.md) — rail voltage inference and coverage
 - [docs/report-format.md](docs/report-format.md) — JSON report schema and compatibility notes

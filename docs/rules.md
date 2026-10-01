@@ -139,7 +139,9 @@ Custom contracts are deterministic explicit YAML. `rv contracts validate` valida
 
 `power_budget` adds the declared `consumers[].current_a` values and compares that load with `source.max_current_a`. Remaining margin percent is `(max_current_a - load) / max_current_a * 100`. Currents come only from the contract. The rule does not read datasheets, built-in parts, or part current fields, and it does not check which net the parts use. A consumer on the wrong rail remains a `connected` contract on that power net. A missing source or consumer ref is `interface_component_missing`. `power_budget` does not replace `current_budget`, `supply_abs_max`, or `voltage_compatible`. `rv scan --format json` keeps numeric `expected` and `observed` for `power_budget_exceeded` and `power_margin_low`.
 
-`pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work.
+`pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work. When the effective resistance is outside the contract range, `expected` carries `min` and `max` in ohms and `observed` carries the effective resistance. A missing pull-up has no separate measured value, so those fields stay unset.
+
+Supply, GPIO, recommended-range, motor-supply, regulator-current, logic-level, and current-budget findings set `expected` and `observed` from the limit and the measured value the rule already computed. `current_budget` uses `unit` `percent`. Voltage findings use `unit` `V`. Regulator current uses `unit` `A`. A finding whose rule has no separate value, such as a consumer with no voltage limits or an I2C net that mixes SDA and SCL, leaves both fields unset. The values are not parsed out of `message`.
 
 ## Determinism contract
 
