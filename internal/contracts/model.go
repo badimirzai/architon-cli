@@ -20,6 +20,10 @@ const (
 	// ContractTerminated counts two-pin parts of a required resistance across
 	// two nets. Findings use the termination rule IDs below, not this type name.
 	ContractTerminated ContractType = "terminated"
+	// ContractPowerBudget compares declared source and consumer currents.
+	// Findings use the power-budget rule IDs below, not this type name.
+	// Currents come from the contract. Part fields and nets are not read.
+	ContractPowerBudget ContractType = "power_budget"
 )
 
 // Interface findings. A missing part or net is reported alone; not-connected
@@ -37,6 +41,10 @@ const (
 	RuleTerminationCountHigh = "termination_count_high"
 	// Two SPI chip-select entries name one net, or two slaves each have a pin on it.
 	RuleSPICSShared = "spi_cs_shared"
+	// Declared consumer current is above the declared source max current.
+	RulePowerBudgetExceeded = "power_budget_exceeded"
+	// Declared load is within the source limit, and remaining margin is below the contract minimum.
+	RulePowerMarginLow = "power_margin_low"
 )
 
 // ContractSourceKind is the report-facing provenance enum for contract-backed
@@ -90,6 +98,20 @@ type ChipSelect struct {
 	Net string `json:"net"`
 }
 
+// PowerSource is the declared current limit for one power_budget contract.
+// MaxCurrentA is the contract value. It is not read from a datasheet or a part field.
+type PowerSource struct {
+	Ref         string  `json:"ref"`
+	MaxCurrentA float64 `json:"max_current_a"`
+}
+
+// PowerConsumer is one declared load on a power_budget contract.
+// CurrentA is the contract value. It is not read from a datasheet or a part field.
+type PowerConsumer struct {
+	Ref      string  `json:"ref"`
+	CurrentA float64 `json:"current_a"`
+}
+
 // ContractScope says where a requirement applies after a part is matched.
 type ContractScope struct {
 	ComponentRef  string      `json:"component_ref,omitempty"`
@@ -119,18 +141,23 @@ type Requirement struct {
 	// ChipSelects is set for an SPI connected contract that names per-slave chip-select nets.
 	// ResistanceOhms and TerminatorCount are set for ContractTerminated.
 	// Terminated nets are the two signal nets a terminator must span.
-	Nets            []string               `json:"nets,omitempty"`
-	Participants    []InterfaceParticipant `json:"participants,omitempty"`
-	ChipSelects     []ChipSelect           `json:"chip_selects,omitempty"`
-	ResistanceOhms  *float64               `json:"resistance_ohms,omitempty"`
-	TerminatorCount *int                   `json:"terminator_count,omitempty"`
-	Severity        string                 `json:"severity,omitempty"`
-	Message         string                 `json:"message,omitempty"`
-	Fix             string                 `json:"fix,omitempty"`
-	ContractID      string                 `json:"contract_id,omitempty"`
-	ContractSource  ContractSourceKind     `json:"contract_source,omitempty"`
-	ContractFile    string                 `json:"contract_file,omitempty"`
-	Provenance      Provenance             `json:"provenance,omitempty"`
+	// PowerSource, PowerConsumers, and MinimumMarginPct are set for ContractPowerBudget.
+	// Those currents are contract values. The check does not read part fields or nets.
+	Nets             []string               `json:"nets,omitempty"`
+	Participants     []InterfaceParticipant `json:"participants,omitempty"`
+	ChipSelects      []ChipSelect           `json:"chip_selects,omitempty"`
+	ResistanceOhms   *float64               `json:"resistance_ohms,omitempty"`
+	TerminatorCount  *int                   `json:"terminator_count,omitempty"`
+	PowerSource      *PowerSource           `json:"power_source,omitempty"`
+	PowerConsumers   []PowerConsumer        `json:"power_consumers,omitempty"`
+	MinimumMarginPct *float64               `json:"minimum_margin_pct,omitempty"`
+	Severity         string                 `json:"severity,omitempty"`
+	Message          string                 `json:"message,omitempty"`
+	Fix              string                 `json:"fix,omitempty"`
+	ContractID       string                 `json:"contract_id,omitempty"`
+	ContractSource   ContractSourceKind     `json:"contract_source,omitempty"`
+	ContractFile     string                 `json:"contract_file,omitempty"`
+	Provenance       Provenance             `json:"provenance,omitempty"`
 }
 
 // AppliedRequirement is a Requirement bound to a concrete DesignIR component.

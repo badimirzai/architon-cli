@@ -51,6 +51,7 @@ type requirementYAML struct {
 	PullupOhms           *pullupOhmsYAML    `yaml:"pullup_ohms"`
 	VoltageCompatible    *bool              `yaml:"voltage_compatible"`
 	CurrentBudget        *currentBudgetYAML `yaml:"current_budget"`
+	PowerBudget          *powerBudgetYAML   `yaml:"power_budget"`
 	NoI2CAddressConflict *bool              `yaml:"no_i2c_address_conflict"`
 	Connected            *connectedYAML     `yaml:"connected"`
 	Terminated           *terminatedYAML    `yaml:"terminated"`
@@ -86,6 +87,22 @@ type pullupOhmsYAML struct {
 
 type currentBudgetYAML struct {
 	MaxUtilizationPct *float64 `yaml:"max_utilization_pct"`
+}
+
+type powerBudgetYAML struct {
+	Source           *powerSourceYAML    `yaml:"source"`
+	Consumers        []powerConsumerYAML `yaml:"consumers"`
+	MinimumMarginPct *float64            `yaml:"minimum_margin_pct"`
+}
+
+type powerSourceYAML struct {
+	Ref         string   `yaml:"ref"`
+	MaxCurrentA *float64 `yaml:"max_current_a"`
+}
+
+type powerConsumerYAML struct {
+	Ref      string   `yaml:"ref"`
+	CurrentA *float64 `yaml:"current_a"`
 }
 
 // LoadYAMLFile parses and validates a v1 project contracts file.
@@ -244,7 +261,7 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 	for _, key := range sortedMappingKeys(entries) {
 		value := entries[key]
 		switch key {
-		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "no_i2c_address_conflict", "connected", "terminated":
+		case "common_ground", "pullup_ohms", "voltage_compatible", "current_budget", "power_budget", "no_i2c_address_conflict", "connected", "terminated":
 		default:
 			return contractValidationError(label, "unknown requirement key %q", key)
 		}
@@ -284,6 +301,11 @@ func validateRequirementYAMLNode(label string, node *yaml.Node) error {
 				if nested != "max_utilization_pct" {
 					return contractValidationError(label, "unknown current_budget key %q", nested)
 				}
+			}
+		}
+		if key == "power_budget" {
+			if err := validatePowerBudgetYAMLNode(label, value); err != nil {
+				return err
 			}
 		}
 	}
@@ -474,12 +496,155 @@ func validateParticipantPinsYAMLNode(label string, node *yaml.Node) error {
 	return nil
 }
 
-// connectedRequirementOnly reports whether this contract is an interface topology check.
-// I2C requirements still require scope.bus_type i2c. connected and terminated may use spi, uart, or can.
-func connectedRequirementOnly(req requirementYAML) bool {
-	if req.Connected == nil && req.Terminated == nil {
-		return false
+// validatePowerBudgetYAMLNode checks require.power_budget before typed decoding.
+// Currents are numbers in the contract. Part fields and datasheet keys are rejected.
+func validatePowerBudgetYAMLNode(label string, node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return contractValidationError(label, "power_budget must be an object")
 	}
+	entries, err := mappingFromNode(node, label+".require.power_budget")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(entries) {
+		switch key {
+		case "source", "consumers", "minimum_margin_pct":
+		default:
+			return contractValidationError(label, "unknown power_budget key %q", key)
+		}
+	}
+	sourceNode := entries["source"]
+	if sourceNode == nil || sourceNode.Kind != yaml.MappingNode {
+		return contractValidationError(label, "power_budget.source must be an object")
+	}
+	source, err := mappingFromNode(sourceNode, label+".require.power_budget.source")
+	if err != nil {
+		return err
+	}
+	for _, key := range sortedMappingKeys(source) {
+		switch key {
+		case "ref", "max_current_a":
+		default:
+			return contractValidationError(label, "unknown power_budget.source key %q", key)
+		}
+	}
+	refNode := source["ref"]
+	if refNode == nil || refNode.Kind != yaml.ScalarNode || refNode.Tag != "!!str" || strings.TrimSpace(refNode.Value) == "" {
+		return contractValidationError(label, "power_budget.source.ref must be a non-empty string")
+	}
+	if strings.TrimSpace(refNode.Value) != refNode.Value {
+		return contractValidationError(label, "power_budget.source.ref must not have leading or trailing whitespace")
+	}
+	maxNode := source["max_current_a"]
+	if maxNode == nil {
+		return contractValidationError(label, "power_budget.source.max_current_a is required")
+	}
+	maxA, ok := yamlScalarFloat(maxNode)
+	if !ok || math.IsNaN(maxA) || math.IsInf(maxA, 0) {
+		return contractValidationError(label, "power_budget.source.max_current_a must be a number")
+	}
+	if maxA <= 0 {
+		return contractValidationError(label, "power_budget.source.max_current_a must be > 0")
+	}
+
+	consumersNode := entries["consumers"]
+	if consumersNode == nil || consumersNode.Kind != yaml.SequenceNode {
+		return contractValidationError(label, "power_budget.consumers must be a list")
+	}
+	if len(consumersNode.Content) == 0 {
+		return contractValidationError(label, "power_budget.consumers must name at least one component")
+	}
+	seenRefs := map[string]struct{}{}
+	for i, item := range consumersNode.Content {
+		if item.Kind != yaml.MappingNode {
+			return contractValidationError(label, "power_budget.consumers[%d] must be an object", i)
+		}
+		fields, err := mappingFromNode(item, fmt.Sprintf("%s.require.power_budget.consumers[%d]", label, i))
+		if err != nil {
+			return err
+		}
+		for _, key := range sortedMappingKeys(fields) {
+			switch key {
+			case "ref", "current_a":
+			default:
+				return contractValidationError(label, "unknown power_budget.consumers key %q", key)
+			}
+		}
+		consumerRef := fields["ref"]
+		if consumerRef == nil || consumerRef.Kind != yaml.ScalarNode || consumerRef.Tag != "!!str" || strings.TrimSpace(consumerRef.Value) == "" {
+			return contractValidationError(label, "power_budget.consumers.ref must be a non-empty string")
+		}
+		if strings.TrimSpace(consumerRef.Value) != consumerRef.Value {
+			return contractValidationError(label, "power_budget.consumers.ref must not have leading or trailing whitespace")
+		}
+		if _, ok := seenRefs[consumerRef.Value]; ok {
+			return contractValidationError(label, "power_budget.consumers ref %q is duplicated", consumerRef.Value)
+		}
+		seenRefs[consumerRef.Value] = struct{}{}
+		currentNode := fields["current_a"]
+		if currentNode == nil {
+			return contractValidationError(label, "power_budget.consumers.current_a is required")
+		}
+		current, ok := yamlScalarFloat(currentNode)
+		if !ok || math.IsNaN(current) || math.IsInf(current, 0) {
+			return contractValidationError(label, "power_budget.consumers.current_a must be a number")
+		}
+		if current < 0 {
+			return contractValidationError(label, "power_budget.consumers.current_a must be >= 0")
+		}
+	}
+
+	marginNode := entries["minimum_margin_pct"]
+	if marginNode == nil {
+		return contractValidationError(label, "power_budget.minimum_margin_pct is required")
+	}
+	margin, ok := yamlScalarFloat(marginNode)
+	if !ok || math.IsNaN(margin) || math.IsInf(margin, 0) {
+		return contractValidationError(label, "power_budget.minimum_margin_pct must be a number")
+	}
+	if margin < 0 || margin > 100 {
+		return contractValidationError(label, "power_budget.minimum_margin_pct must be >= 0 and <= 100")
+	}
+	return nil
+}
+
+// validatePowerBudgetYAML repeats the numeric bounds after typed decoding.
+func validatePowerBudgetYAML(label string, raw *powerBudgetYAML) error {
+	if raw == nil || raw.Source == nil {
+		return contractValidationError(label, "power_budget.source must be an object")
+	}
+	if strings.TrimSpace(raw.Source.Ref) == "" || strings.TrimSpace(raw.Source.Ref) != raw.Source.Ref {
+		return contractValidationError(label, "power_budget.source.ref must be a non-empty string")
+	}
+	if raw.Source.MaxCurrentA == nil || *raw.Source.MaxCurrentA <= 0 || math.IsNaN(*raw.Source.MaxCurrentA) || math.IsInf(*raw.Source.MaxCurrentA, 0) {
+		return contractValidationError(label, "power_budget.source.max_current_a must be > 0")
+	}
+	if len(raw.Consumers) == 0 {
+		return contractValidationError(label, "power_budget.consumers must name at least one component")
+	}
+	seenRefs := map[string]struct{}{}
+	for _, consumer := range raw.Consumers {
+		if strings.TrimSpace(consumer.Ref) == "" || strings.TrimSpace(consumer.Ref) != consumer.Ref {
+			return contractValidationError(label, "power_budget.consumers.ref must be a non-empty string")
+		}
+		if _, ok := seenRefs[consumer.Ref]; ok {
+			return contractValidationError(label, "power_budget.consumers ref %q is duplicated", consumer.Ref)
+		}
+		seenRefs[consumer.Ref] = struct{}{}
+		if consumer.CurrentA == nil || *consumer.CurrentA < 0 || math.IsNaN(*consumer.CurrentA) || math.IsInf(*consumer.CurrentA, 0) {
+			return contractValidationError(label, "power_budget.consumers.current_a must be >= 0")
+		}
+	}
+	if raw.MinimumMarginPct == nil || *raw.MinimumMarginPct < 0 || *raw.MinimumMarginPct > 100 || math.IsNaN(*raw.MinimumMarginPct) || math.IsInf(*raw.MinimumMarginPct, 0) {
+		return contractValidationError(label, "power_budget.minimum_margin_pct must be >= 0 and <= 100")
+	}
+	return nil
+}
+
+// allowsLabeledBusType reports whether a non-i2c scope.bus_type is valid.
+// I2C electrical rules stay i2c-only. connected, terminated, and power_budget
+// may use a short bus label such as spi, can, or power.
+func allowsLabeledBusType(req requirementYAML) bool {
 	if req.CommonGround != nil && *req.CommonGround {
 		return false
 	}
@@ -492,10 +657,10 @@ func connectedRequirementOnly(req requirementYAML) bool {
 	if req.NoI2CAddressConflict != nil && *req.NoI2CAddressConflict {
 		return false
 	}
-	return true
+	return req.Connected != nil || req.Terminated != nil || req.PowerBudget != nil
 }
 
-// validInterfaceBusType accepts a short bus label such as spi, i2c, uart, or can.
+// validInterfaceBusType accepts a short bus label such as spi, i2c, uart, can, or power.
 func validInterfaceBusType(value string) bool {
 	if value == "" {
 		return false
@@ -573,11 +738,11 @@ func validateScopeYAML(label string, scope scopeYAML, req requirementYAML) error
 	}
 	if scope.BusType != "" && !strings.EqualFold(scope.BusType, "i2c") {
 		// Non-i2c bus types are interface labels. Electrical I2C rules stay i2c-only.
-		if !connectedRequirementOnly(req) {
+		if !allowsLabeledBusType(req) {
 			return contractValidationError(label, "scope.bus_type must be i2c")
 		}
 		if !validInterfaceBusType(scope.BusType) {
-			return contractValidationError(label, "scope.bus_type must be a bus name such as spi, i2c, uart, or can")
+			return contractValidationError(label, "scope.bus_type must be a bus name such as spi, i2c, uart, can, or power")
 		}
 	}
 	if req.Connected != nil || req.Terminated != nil {
@@ -644,6 +809,12 @@ func validateRequirementYAML(label string, req requirementYAML) error {
 		}
 		if *req.CurrentBudget.MaxUtilizationPct <= 0 || *req.CurrentBudget.MaxUtilizationPct > 100 {
 			return contractValidationError(label, "current_budget.max_utilization_pct must be > 0 and <= 100")
+		}
+	}
+	if req.PowerBudget != nil {
+		count++
+		if err := validatePowerBudgetYAML(label, req.PowerBudget); err != nil {
+			return err
 		}
 	}
 	if req.NoI2CAddressConflict != nil && *req.NoI2CAddressConflict {
@@ -881,6 +1052,33 @@ func normalizeRequirementsYAML(id string, scope ContractScope, severity string, 
 			Type:              ContractCurrentBudget,
 			MaxUtilizationPct: cloneFloat(raw.CurrentBudget.MaxUtilizationPct),
 			Fix:               "Reduce rail load or choose a supply with a larger current rating.",
+		})
+	}
+	if raw.PowerBudget != nil && raw.PowerBudget.Source != nil {
+		consumers := make([]PowerConsumer, 0, len(raw.PowerBudget.Consumers))
+		for _, consumer := range raw.PowerBudget.Consumers {
+			current := 0.0
+			if consumer.CurrentA != nil {
+				current = *consumer.CurrentA
+			}
+			consumers = append(consumers, PowerConsumer{
+				Ref:      strings.TrimSpace(consumer.Ref),
+				CurrentA: current,
+			})
+		}
+		maxA := 0.0
+		if raw.PowerBudget.Source.MaxCurrentA != nil {
+			maxA = *raw.PowerBudget.Source.MaxCurrentA
+		}
+		add(Requirement{
+			Type: ContractPowerBudget,
+			PowerSource: &PowerSource{
+				Ref:         strings.TrimSpace(raw.PowerBudget.Source.Ref),
+				MaxCurrentA: maxA,
+			},
+			PowerConsumers:   consumers,
+			MinimumMarginPct: cloneFloat(raw.PowerBudget.MinimumMarginPct),
+			Fix:              "Reduce the declared consumer currents or raise the source max current.",
 		})
 	}
 	if raw.NoI2CAddressConflict != nil && *raw.NoI2CAddressConflict {
