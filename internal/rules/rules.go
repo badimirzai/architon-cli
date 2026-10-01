@@ -122,6 +122,7 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 					continue
 				}
 				if consumer.contract.VoltageMax != nil && greaterThan(*provider.voltage, *consumer.contract.VoltageMax) {
+					expected, observed := numericEvidence(true, *consumer.contract.VoltageMax, *provider.voltage, "V")
 					findings = append(findings, Finding{
 						RuleID:   r.ID(),
 						Severity: "ERROR",
@@ -137,9 +138,12 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 						Consumer: consumer.label,
 						Ref:      consumer.ref,
 						Pin:      consumer.pin,
+						Expected: expected,
+						Observed: observed,
 					})
 				}
 				if consumer.contract.VoltageMin != nil && lessThan(*provider.voltage, *consumer.contract.VoltageMin) {
+					expected, observed := numericEvidence(false, *consumer.contract.VoltageMin, *provider.voltage, "V")
 					findings = append(findings, Finding{
 						RuleID:   r.ID(),
 						Severity: "ERROR",
@@ -155,6 +159,8 @@ func (r SupplyContractRule) Check(design *ir.DesignIR, contractIR *contracts.Con
 						Consumer: consumer.label,
 						Ref:      consumer.ref,
 						Pin:      consumer.pin,
+						Expected: expected,
+						Observed: observed,
 					})
 				}
 			}
@@ -205,6 +211,7 @@ func (r LogicLevelContractRule) Check(design *ir.DesignIR, contractIR *contracts
 				if !greaterThan(*outputVoltage, *input.contract.VoltageMax) {
 					continue
 				}
+				expected, observed := numericEvidence(true, *input.contract.VoltageMax, *outputVoltage, "V")
 				findings = append(findings, Finding{
 					RuleID:   r.ID(),
 					Severity: "ERROR",
@@ -221,6 +228,8 @@ func (r LogicLevelContractRule) Check(design *ir.DesignIR, contractIR *contracts
 					Consumer: input.label,
 					Ref:      input.ref,
 					Pin:      input.pin,
+					Expected: expected,
+					Observed: observed,
 				})
 			}
 		}
@@ -438,6 +447,16 @@ func isOutputDirection(direction contracts.Direction) bool {
 // isInputDirection treats bidirectional pins as possible receivers.
 func isInputDirection(direction contracts.Direction) bool {
 	return direction == contracts.DirectionInput || direction == contracts.DirectionBidirectional
+}
+
+// numericEvidence pairs a limit with the measured value. above uses max. below uses min.
+func numericEvidence(above bool, limit float64, actual float64, unit string) (*contracts.Evidence, *contracts.Evidence) {
+	limitCopy := limit
+	actualCopy := actual
+	if above {
+		return &contracts.Evidence{Max: &limitCopy, Unit: unit}, &contracts.Evidence{Max: &actualCopy, Unit: unit}
+	}
+	return &contracts.Evidence{Min: &limitCopy, Unit: unit}, &contracts.Evidence{Min: &actualCopy, Unit: unit}
 }
 
 // greaterThan and lessThan avoid floating-point noise around exact voltages.

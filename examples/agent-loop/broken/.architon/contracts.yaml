@@ -1,0 +1,58 @@
+contracts:
+  - id: imu_spi
+    description: The MCU, IMU, and magnetometer share SPI, with one chip-select per slave.
+    scope:
+      bus_type: spi
+      bus_id: imu_spi
+    require:
+      connected:
+        nets: [SPI_SCK, SPI_MOSI, SPI_MISO]
+        chip_selects:
+          - ref: U2
+            net: IMU_CS
+          - ref: U3
+            net: MAG_CS
+        participants:
+          - ref: U1
+            role: master
+            pins:
+              SPI_SCK: PB13
+              SPI_MOSI: PB15
+              SPI_MISO: PB14
+          - ref: U2
+            role: slave
+          - ref: U3
+            role: slave
+    severity: error
+  - id: vehicle_can
+    description: The MCU and transceiver share CAN, with two 120 ohm terminators.
+    scope:
+      bus_type: can
+      bus_id: vehicle_can
+    require:
+      connected:
+        nets: [CANH, CANL]
+        participants:
+          - { ref: U1, role: master }
+          - { ref: U4, role: slave }
+      terminated:
+        nets: [CANH, CANL]
+        resistance_ohms: 120
+        count: 2
+    severity: error
+  - id: rail_3v3
+    description: Declared 3V3 load stays inside the regulator current and margin.
+    scope:
+      bus_type: power
+      bus_id: "3V3"
+      rail: "+3V3"
+    require:
+      power_budget:
+        source:
+          ref: U5
+          max_current_a: 1.0
+        consumers:
+          - { ref: U6, current_a: 0.3 }
+          - { ref: U7, current_a: 0.4 }
+        minimum_margin_pct: 20
+    severity: error

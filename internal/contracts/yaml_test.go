@@ -342,6 +342,9 @@ contracts:
 	if finding.ContractFile != "contracts.yaml" || finding.Requirement != string(contracts.ContractPullupOhms) {
 		t.Fatalf("expected contract file and requirement, got %+v", finding)
 	}
+	if finding.Expected != nil || finding.Observed != nil {
+		t.Fatalf("a missing pull-up has no separate measured value, got %+v %+v", finding.Expected, finding.Observed)
+	}
 }
 
 func TestUserYAMLPullupBelowMinTriggersFinding(t *testing.T) {
@@ -352,6 +355,12 @@ func TestUserYAMLPullupBelowMinTriggersFinding(t *testing.T) {
 	if !strings.Contains(finding.Message, "Observed: effective pull-up on I2C_SDA is 1k. Expected: 2.2k to 10k.") {
 		t.Fatalf("expected below-min pullup finding, got %+v", finding)
 	}
+	if finding.Expected == nil || finding.Expected.Min == nil || *finding.Expected.Min != 2200 || finding.Expected.Max == nil || *finding.Expected.Max != 10000 || finding.Expected.Unit != "ohm" {
+		t.Fatalf("expected pull-up range evidence, got %+v", finding.Expected)
+	}
+	if finding.Observed == nil || finding.Observed.Min == nil || *finding.Observed.Min != 1000 || finding.Observed.Unit != "ohm" {
+		t.Fatalf("expected effective 1000 ohm evidence, got %+v", finding.Observed)
+	}
 }
 
 func TestUserYAMLPullupAboveMaxTriggersFinding(t *testing.T) {
@@ -361,6 +370,12 @@ func TestUserYAMLPullupAboveMaxTriggersFinding(t *testing.T) {
 	finding := requireContractFinding(t, contracts.Evaluate(design, contractIR), contracts.ContractPullupOhms)
 	if !strings.Contains(finding.Message, "Observed: effective pull-up on I2C_SDA is 20k. Expected: 2.2k to 10k.") {
 		t.Fatalf("expected above-max pullup finding, got %+v", finding)
+	}
+	if finding.Expected == nil || finding.Expected.Min == nil || *finding.Expected.Min != 2200 || finding.Expected.Max == nil || *finding.Expected.Max != 10000 || finding.Expected.Unit != "ohm" {
+		t.Fatalf("expected pull-up range evidence, got %+v", finding.Expected)
+	}
+	if finding.Observed == nil || finding.Observed.Max == nil || *finding.Observed.Max != 20000 || finding.Observed.Unit != "ohm" {
+		t.Fatalf("expected effective 20000 ohm evidence, got %+v", finding.Observed)
 	}
 }
 
@@ -384,6 +399,9 @@ contracts:
 	if finding.ComponentRef != "U2" {
 		t.Fatalf("expected U2 missing ground finding, got %+v", finding)
 	}
+	if finding.Expected != nil || finding.Observed != nil {
+		t.Fatalf("common ground has no separate value, got %+v %+v", finding.Expected, finding.Observed)
+	}
 }
 
 func TestUserYAMLI2CAddressConflictTriggersFinding(t *testing.T) {
@@ -403,6 +421,9 @@ contracts:
 	finding := requireContractFinding(t, contracts.Evaluate(design, contractIR), contracts.ContractNoI2CAddressConflict)
 	if !strings.Contains(finding.Message, "0x68") {
 		t.Fatalf("expected duplicate address in finding, got %+v", finding)
+	}
+	if finding.Expected != nil || finding.Observed != nil {
+		t.Fatalf("a shared address is not an expected/observed pair, got %+v %+v", finding.Expected, finding.Observed)
 	}
 }
 
@@ -538,6 +559,9 @@ contracts:
 		for _, finding := range findings {
 			if finding.Net == want && strings.Contains(finding.Message, "Contract i2c_pullup_policy references missing net "+want) {
 				found = true
+				if finding.Expected == nil || finding.Expected.Text != "net "+want || finding.Observed == nil || finding.Observed.Text != "missing" {
+					t.Fatalf("missing net evidence for %s: %+v %+v", want, finding.Expected, finding.Observed)
+				}
 			}
 		}
 		if !found {

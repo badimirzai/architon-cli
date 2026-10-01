@@ -124,6 +124,12 @@ func TestRulesRunOnSyntheticDesignWithoutImporterProducesFinding(t *testing.T) {
 	if got[0].RuleID != RuleSupplyContract || got[0].Severity != "ERROR" {
 		t.Fatalf("expected supply contract error from synthetic DesignIR, got %+v", got[0])
 	}
+	if got[0].Expected == nil || got[0].Expected.Max == nil || *got[0].Expected.Max != 3.3 || got[0].Expected.Unit != "V" {
+		t.Fatalf("expected 3.3V max evidence, got %+v", got[0].Expected)
+	}
+	if got[0].Observed == nil || got[0].Observed.Max == nil || *got[0].Observed.Max != 5 || got[0].Observed.Unit != "V" {
+		t.Fatalf("expected observed 5V, got %+v", got[0].Observed)
+	}
 }
 
 func TestSupplyContractMutationChangesOutcome(t *testing.T) {
@@ -188,6 +194,9 @@ func TestSupplyContract_MissingLimitsWarns(t *testing.T) {
 	if got[0].Severity != "WARN" {
 		t.Fatalf("expected WARN for missing limits, got %+v", got[0])
 	}
+	if got[0].Expected != nil || got[0].Observed != nil {
+		t.Fatalf("missing voltage limits have no separate limit value, got %+v %+v", got[0].Expected, got[0].Observed)
+	}
 }
 
 func TestLogicLevelContract_CatchesFiveVoltOutputIntoThreeVoltInput(t *testing.T) {
@@ -215,6 +224,12 @@ func TestLogicLevelContract_CatchesFiveVoltOutputIntoThreeVoltInput(t *testing.T
 	if got[0].RuleID != RuleLogicLevelContract {
 		t.Fatalf("expected %s, got %+v", RuleLogicLevelContract, got[0])
 	}
+	if got[0].Expected == nil || got[0].Expected.Max == nil || *got[0].Expected.Max != 3.3 || got[0].Expected.Unit != "V" {
+		t.Fatalf("expected 3.3V logic limit, got %+v", got[0].Expected)
+	}
+	if got[0].Observed == nil || got[0].Observed.Max == nil || *got[0].Observed.Max != 5 || got[0].Observed.Unit != "V" {
+		t.Fatalf("expected observed 5V logic, got %+v", got[0].Observed)
+	}
 }
 
 func TestBusRoleContract_I2CMixedSDAAndSCL(t *testing.T) {
@@ -239,5 +254,8 @@ func TestBusRoleContract_I2CMixedSDAAndSCL(t *testing.T) {
 	}
 	if got[0].Severity != "ERROR" {
 		t.Fatalf("expected ERROR, got %+v", got[0])
+	}
+	if got[0].Expected != nil || got[0].Observed != nil {
+		t.Fatalf("mixed SDA and SCL has no separate expected value, got %+v %+v", got[0].Expected, got[0].Observed)
 	}
 }
