@@ -38,6 +38,7 @@ Offline HTML reports show failed contracts, affected nets, electrical impact, an
 Architon validates system-level compatibility between components, including:
 
 - Supply voltage compatibility
+- Explicit power budgets whose source and consumer currents are declared in the contract (`require.power_budget`)
 - Driver and motor electrical compatibility
 - Power rail capacity and margin
 - Logic voltage compatibility
