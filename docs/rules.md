@@ -116,7 +116,7 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `gpio_abs_max` (`ERROR`): GPIO-like pin is on a net above its absolute maximum voltage
 - `motor_driver_vm_range` (`ERROR`): motor-driver VM pin is outside the supported motor-supply voltage range
 - `regulator_output_current` (`ERROR`): known downstream load current exceeds a regulator output-current contract
-- `interface_component_missing` (`ERROR`): a `connected` contract names a component ref that is not in the design
+- `interface_component_missing` (`ERROR`): a `connected` or `power_budget` contract names a component ref that is not in the design
 - `interface_net_missing` (`ERROR`): a `connected` or `terminated` contract names a net that is not in the design, including a chip-select net
 - `interface_not_connected` (`ERROR`): a participant has no pin on a net named by a `connected` contract, including its chip-select net
 - `interface_pin_mismatch` (`ERROR`): a participant is on the named net, but neither the netlist pin name nor the pin number equals the `pins` token. `expected.text` is the contract token. `observed.text` is the pin name, or the pin number when the pin name is empty
@@ -124,6 +124,8 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `termination_count_low` (`ERROR`): a `terminated` contract found fewer two-pin parts of the required resistance between the named nets than `count`. `expected.text` is the required count. `observed.text` is the actual count
 - `termination_count_high` (`ERROR`): a `terminated` contract found more of those parts than `count`. `expected.text` is the required count. `observed.text` is the actual count
 - `spi_cs_shared` (`ERROR`): two `connected.chip_selects` entries name the same net, or two slave refs each have a pin on the same chip-select net. `expected.text` is that net. `observed.text` is the slave refs that share it
+- `power_budget_exceeded` (`ERROR`): declared consumer current is greater than `power_budget.source.max_current_a`. `expected.max` is that max current in amps. `observed.max` is the load in amps. `unit` is `A`
+- `power_margin_low` (`ERROR`): declared load is within the source limit and the remaining margin is below `minimum_margin_pct`. `expected.min` is the minimum margin percent. `observed.min` is the actual margin percent. `unit` is `percent`. A margin exactly equal to the minimum passes. A margin just below it fails
 
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
@@ -134,6 +136,8 @@ Custom contracts are deterministic explicit YAML. `rv contracts validate` valida
 `connected` checks that every listed component has a pin on every listed net. Roles are `master` or `slave` labels. Optional `participants[].pins` requires the pin name or pin number that lands on each named net. Optional `chip_selects` requires each slave on its own SPI chip-select net and reports `spi_cs_shared` when those nets are not exclusive. The rule does not infer a peripheral from net names, does not consult an MCU pin database, and does not check clock polarity, SPI mode, or pull-ups. Findings include `expected` and `observed`.
 
 `terminated` counts two-pin parts whose value or `resistance` / `resistance_ohms` field equals `resistance_ohms`, with one pin on each of the two named nets. It does not repeat the `connected` shared-net check, does not look up terminator parts in a component database, and does not calculate impedance. A missing net is `interface_net_missing`. `rv scan --format json` keeps `expected` and `observed` for these findings.
+
+`power_budget` adds the declared `consumers[].current_a` values and compares that load with `source.max_current_a`. Remaining margin percent is `(max_current_a - load) / max_current_a * 100`. Currents come only from the contract. The rule does not read datasheets, built-in parts, or part current fields, and it does not check which net the parts use. A consumer on the wrong rail remains a `connected` contract on that power net. A missing source or consumer ref is `interface_component_missing`. `power_budget` does not replace `current_budget`, `supply_abs_max`, or `voltage_compatible`. `rv scan --format json` keeps numeric `expected` and `observed` for `power_budget_exceeded` and `power_margin_low`.
 
 `pullup_ohms` is resistance-only in v0.4.0. I2C capacitance and rise-time validation require physical bus data and are future work.
 

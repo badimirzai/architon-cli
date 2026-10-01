@@ -68,7 +68,7 @@ Contract source precedence is:
 
 ## Custom contracts
 
-Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current budgets, which physical pin lands on each named interface net, CAN terminator count, and SPI chip-select exclusivity.
+Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current-budget utilization, explicit power budgets, which physical pin lands on each named interface net, CAN terminator count, and SPI chip-select exclusivity.
 
 Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
 
@@ -110,7 +110,7 @@ See [examples/contracts/spi_interface.yaml](../examples/contracts/spi_interface.
 
 Failures use these rule IDs:
 
-- `interface_component_missing`: a participant ref is not in the design
+- `interface_component_missing`: a participant ref, or a `power_budget` source or consumer ref, is not in the design
 - `interface_net_missing`: a named net is not in the design
 - `interface_not_connected`: a participant has no pin on a named net
 - `interface_pin_mismatch`: the component is on the net, but neither the pin name nor the pin number equals the contract token. `expected.text` is the contract token. `observed.text` is the pin name, or the pin number when the pin name is empty
@@ -180,6 +180,41 @@ See [examples/contracts/spi_chip_select.yaml](../examples/contracts/spi_chip_sel
 - `spi_cs_shared`: two chip-select entries name the same net, or two slave refs each have a pin on the same chip-select net. `expected.text` is that net. `observed.text` is the slave refs that share it, in ref order. The master may sit on the net
 
 Two entries may name the same net in YAML. That is `spi_cs_shared` when the design is checked, including when every slave is still on the shared SPI nets. Clock polarity, SPI mode, and pull-ups are left unchecked.
+
+## Power budget
+
+`require.power_budget` compares a declared source current with the sum of declared consumer currents. Every amp value comes from the contract. The check does not read datasheets, built-in parts, schematic fields, or part current fields. It does not replace `current_budget`, `supply_abs_max`, or `voltage_compatible`.
+
+It does not check which net a part uses. A consumer on the wrong rail is a `require.connected` contract on that power net.
+
+```yaml
+contracts:
+  - id: rail_3v3
+    scope:
+      bus_type: power
+      bus_id: "3V3"
+      rail: "+3V3"
+    require:
+      power_budget:
+        source:
+          ref: U2
+          max_current_a: 1.0
+        consumers:
+          - { ref: U3, current_a: 0.3 }
+          - { ref: U4, current_a: 0.4 }
+        minimum_margin_pct: 20
+    severity: error
+```
+
+See [examples/contracts/power_budget.yaml](../examples/contracts/power_budget.yaml).
+
+`scope.bus_type: power` is a label, as are `scope.bus_id` and `scope.rail`. Load is the sum of `consumers[].current_a`. Remaining margin percent is `(max_current_a - load) / max_current_a * 100`.
+
+- `power_budget_exceeded`: load is greater than `source.max_current_a`. `expected.max` is that max current. `observed.max` is the load. `unit` is `A`
+- `power_margin_low`: load is within the source limit and the remaining margin is below `minimum_margin_pct`. `expected.min` is the minimum margin percent. `observed.min` is the actual margin percent. `unit` is `percent`. A margin exactly equal to `minimum_margin_pct` passes. A margin just below it fails
+- `interface_component_missing`: the source ref or a consumer ref is not in the design. This is the same rule used by `connected`. `expected.text` is `component <ref>`. `observed.text` is `missing`. The current comparison is skipped when a named ref is missing
+
+Human-readable output prints the finding message. `rv scan --format json` includes `expected` and `observed`. A design with no `power_budget` requirement is unchanged.
 
 Other custom requirements, such as `pullup_ohms` and `no_i2c_address_conflict`, still require `scope.bus_type: i2c`.
 
