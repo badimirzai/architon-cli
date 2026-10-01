@@ -112,6 +112,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding.WhyThisMatters = "Too-low pull-up resistance increases sink current when devices pull the line low. This can exceed device limits and distort bus behavior."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
+			finding.Expected, finding.Observed = pullupRangeEvidence(req, effective, true)
 			findings = append(findings, finding)
 			continue
 		}
@@ -122,6 +123,7 @@ func evaluatePullupOhms(design *ir.DesignIR, contractIR *ContractIR, req Applied
 			finding.WhyThisMatters = "Too-high pull-up resistance slows rising edges. At higher bus speeds or larger bus capacitance, devices may read invalid logic levels."
 			attachI2CBusToFinding(&finding, signalNet.BusID, signalNet.BusNets)
 			attachPullupDetailsToFinding(&finding, req, effective, pullups)
+			finding.Expected, finding.Observed = pullupRangeEvidence(req, effective, false)
 			findings = append(findings, finding)
 		}
 	}
@@ -193,6 +195,7 @@ func evaluateVoltageCompatible(design *ir.DesignIR, contractIR *ContractIR, req 
 				finding.ComponentRef = pin.Ref
 				finding.Net = net.Name
 				finding.Pin = pin.Pin
+				finding.Expected, finding.Observed = limitEvidence(true, maxV, voltage, "V")
 				findings = append(findings, finding)
 				continue
 			}
@@ -201,6 +204,7 @@ func evaluateVoltageCompatible(design *ir.DesignIR, contractIR *ContractIR, req 
 				finding.ComponentRef = pin.Ref
 				finding.Net = net.Name
 				finding.Pin = pin.Pin
+				finding.Expected, finding.Observed = limitEvidence(false, minV, voltage, "V")
 				findings = append(findings, finding)
 			}
 		}
@@ -232,6 +236,7 @@ func evaluateCurrentBudget(design *ir.DesignIR, contractIR *ContractIR, parts ma
 		}
 		finding := findingForRequirement(req, fmt.Sprintf("Rail %s current budget is %.1f%% utilized (%.2fA load / %.2fA capacity), above maximum %.1f%%", net.Name, utilization, load, capacity, *req.MaxUtilizationPct))
 		finding.Net = net.Name
+		finding.Expected, finding.Observed = limitEvidence(true, *req.MaxUtilizationPct, utilization, "percent")
 		findings = append(findings, finding)
 	}
 	return findings
@@ -371,6 +376,7 @@ func evaluateNoI2CAddressConflict(design *ir.DesignIR, req AppliedRequirement) [
 			}
 			finding := findingForRequirement(req, message)
 			finding.ComponentRef = refs[0]
+			// The devices share one address. There is no separate expected address.
 			attachI2CBusToFinding(&finding, bus.ID, bus.Nets)
 			findings = append(findings, finding)
 		}
@@ -531,6 +537,8 @@ func missingExplicitI2CNetFindings(design *ir.DesignIR, req AppliedRequirement) 
 			finding.ContractID = contractID
 		}
 		finding.Net = netName
+		finding.Expected = evidenceText("net " + netName)
+		finding.Observed = evidenceText("missing")
 		attachI2CBusToFinding(&finding, req.Scope.BusID, req.Scope.Nets)
 		out = append(out, finding)
 	}
@@ -1808,6 +1816,33 @@ func evidenceMax(value float64, unit string) *Evidence {
 func evidenceMin(value float64, unit string) *Evidence {
 	copied := value
 	return &Evidence{Min: &copied, Unit: unit}
+}
+
+// limitEvidence pairs a numeric limit with the value the rule already measured.
+// above stores both numbers in max. below stores both in min.
+func limitEvidence(above bool, limit float64, actual float64, unit string) (*Evidence, *Evidence) {
+	if above {
+		return evidenceMax(limit, unit), evidenceMax(actual, unit)
+	}
+	return evidenceMin(limit, unit), evidenceMin(actual, unit)
+}
+
+// pullupRangeEvidence stores the contract ohm bounds and the effective resistance.
+// tooLow puts the effective value in observed.min. A value above the max uses observed.max.
+func pullupRangeEvidence(req AppliedRequirement, effective float64, tooLow bool) (*Evidence, *Evidence) {
+	expected := &Evidence{Unit: "ohm"}
+	if req.MinOhms != nil {
+		min := *req.MinOhms
+		expected.Min = &min
+	}
+	if req.MaxOhms != nil {
+		max := *req.MaxOhms
+		expected.Max = &max
+	}
+	if tooLow {
+		return expected, evidenceMin(effective, "ohm")
+	}
+	return expected, evidenceMax(effective, "ohm")
 }
 
 // evaluateTerminated counts two-pin parts of the required resistance between two nets.

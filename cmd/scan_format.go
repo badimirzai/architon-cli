@@ -49,10 +49,14 @@ type scanCIFinding struct {
 	// Expected and Observed are copied from the scan finding. Nil stays omitted.
 	Expected *contracts.Evidence `json:"expected,omitempty"`
 	Observed *contracts.Evidence `json:"observed,omitempty"`
+	// DesignFixable is true when a schematic or contract edit can clear the finding.
+	// Parse and tool failures stay false.
+	DesignFixable bool `json:"design_fixable"`
 }
 
 func scanRenderCIJSON(result report.VerificationReport, inputPath string) ([]byte, error) {
 	payload := scanBuildCIReport(result, inputPath)
+	payload.Findings = append(payload.Findings, scanParseFailureFindings(result)...)
 	return json.MarshalIndent(payload, "", "  ")
 }
 
@@ -124,7 +128,51 @@ func scanBuildCIFinding(finding report.RuleResult) scanCIFinding {
 		Provenance:     scanFindingProvenance(finding),
 		Expected:       finding.Expected,
 		Observed:       finding.Observed,
+		DesignFixable:  scanFindingDesignFixable(finding),
 	}
+}
+
+// scanFindingDesignFixable reports whether a schematic or contract edit can clear the finding.
+// Parse and tool failures cannot.
+func scanFindingDesignFixable(finding report.RuleResult) bool {
+	ruleID := strings.TrimSpace(finding.RuleID)
+	if ruleID == "" {
+		ruleID = strings.TrimSpace(finding.ID)
+	}
+	switch ruleID {
+	case "parse_error", "tool_error", "PARSER_ERROR":
+		return false
+	}
+	return true
+}
+
+// scanParseFailureFindings turns import parse errors into JSON findings.
+// They are not contract violations. design_fixable stays false.
+func scanParseFailureFindings(result report.VerificationReport) []scanCIFinding {
+	messages := make([]string, 0, len(result.Summary.ParseErrors))
+	for _, message := range result.Summary.ParseErrors {
+		message = strings.TrimSpace(message)
+		if message != "" {
+			messages = append(messages, message)
+		}
+	}
+	if len(messages) == 0 && result.Summary.ParseErrorsCount > 0 {
+		messages = append(messages, "parse error")
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]scanCIFinding, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, scanCIFinding{
+			ID:            "parse_error",
+			RuleID:        "parse_error",
+			Severity:      "ERROR",
+			Message:       message,
+			DesignFixable: false,
+		})
+	}
+	return out
 }
 
 func scanRenderMarkdown(result report.VerificationReport, inputPath string) string {

@@ -149,12 +149,15 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 					continue
 				}
 				absVoltageViolations[voltageViolationKey(req.ComponentRef, conn.Pin, conn.Net)] = struct{}{}
+				expected, observed := limitEvidence(true, *req.MaxVoltage, voltage, "V")
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
 					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
+					Expected:     expected,
+					Observed:     observed,
 					Source:       req.Source,
 					Provenance:   req.Provenance,
 					Fix:          req.Fix,
@@ -187,12 +190,15 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 				if !ok || req.MaxVoltage == nil || !greaterThanVoltage(voltage, *req.MaxVoltage) {
 					continue
 				}
+				expected, observed := limitEvidence(true, *req.MaxVoltage, voltage, "V")
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
 					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
+					Expected:     expected,
+					Observed:     observed,
 					Source:       req.Source,
 					Provenance:   req.Provenance,
 					Fix:          req.Fix,
@@ -227,12 +233,15 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 				if !ok || !greaterThanCurrent(load, *req.MaxCurrent) {
 					continue
 				}
+				expected, observed := limitEvidence(true, *req.MaxCurrent, load, "A")
 				findings = append(findings, Finding{
 					RuleID:       string(req.Type),
 					Severity:     severityOrDefault(req.Severity, "ERROR"),
 					ComponentRef: req.ComponentRef,
 					Net:          conn.Net,
 					Pin:          conn.Pin,
+					Expected:     expected,
+					Observed:     observed,
 					Source:       req.Source,
 					Provenance:   req.Provenance,
 					Fix:          req.Fix,
@@ -453,12 +462,15 @@ func netVoltage(contractIR *ContractIR, net string) (float64, bool) {
 
 // recommendedVoltageFinding builds a recommended-range voltage finding.
 func recommendedVoltageFinding(req AppliedRequirement, conn connectedPin, voltage float64, direction string, limit float64) Finding {
+	expected, observed := limitEvidence(direction == "above", limit, voltage, "V")
 	return Finding{
 		RuleID:       string(req.Type),
 		Severity:     severityOrDefault(req.Severity, "WARN"),
 		ComponentRef: req.ComponentRef,
 		Net:          conn.Net,
 		Pin:          conn.Pin,
+		Expected:     expected,
+		Observed:     observed,
 		Source:       req.Source,
 		Provenance:   req.Provenance,
 		Fix:          req.Fix,
@@ -476,12 +488,15 @@ func recommendedVoltageFinding(req AppliedRequirement, conn connectedPin, voltag
 
 // motorVMFinding builds a motor-supply voltage finding.
 func motorVMFinding(req AppliedRequirement, conn connectedPin, voltage float64, direction string, limit float64) Finding {
+	expected, observed := limitEvidence(direction == "above", limit, voltage, "V")
 	return Finding{
 		RuleID:       string(req.Type),
 		Severity:     severityOrDefault(req.Severity, "ERROR"),
 		ComponentRef: req.ComponentRef,
 		Net:          conn.Net,
 		Pin:          conn.Pin,
+		Expected:     expected,
+		Observed:     observed,
 		Source:       req.Source,
 		Provenance:   req.Provenance,
 		Fix:          req.Fix,
