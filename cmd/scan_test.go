@@ -105,16 +105,18 @@ type scanRuleFinding struct {
 		SDA string `json:"sda"`
 		SCL string `json:"scl"`
 	} `json:"bus_nets"`
-	EffectivePullupOhms *float64 `json:"effective_pullup_ohms"`
-	MinPullupOhms       *float64 `json:"min_pullup_ohms"`
-	MaxPullupOhms       *float64 `json:"max_pullup_ohms"`
-	PullupResistors     []string `json:"pullup_resistors"`
-	Source              string   `json:"source"`
-	ContractID          string   `json:"contract_id"`
-	ContractSource      string   `json:"contract_source"`
-	ContractFile        string   `json:"contract_file"`
-	Requirement         string   `json:"requirement"`
-	WhyThisMatters      string   `json:"why_this_matters"`
+	EffectivePullupOhms *float64               `json:"effective_pullup_ohms"`
+	MinPullupOhms       *float64               `json:"min_pullup_ohms"`
+	MaxPullupOhms       *float64               `json:"max_pullup_ohms"`
+	PullupResistors     []string               `json:"pullup_resistors"`
+	Source              string                 `json:"source"`
+	ContractID          string                 `json:"contract_id"`
+	ContractSource      string                 `json:"contract_source"`
+	ContractFile        string                 `json:"contract_file"`
+	Requirement         string                 `json:"requirement"`
+	Expected            *contractspkg.Evidence `json:"expected,omitempty"`
+	Observed            *contractspkg.Evidence `json:"observed,omitempty"`
+	WhyThisMatters      string                 `json:"why_this_matters"`
 	Provenance          *struct {
 		Source   string `json:"source"`
 		SourceID string `json:"source_id"`
@@ -165,6 +167,7 @@ type scanCIFindingOutput struct {
 	Provenance     string                 `json:"provenance"`
 	Expected       *contractspkg.Evidence `json:"expected,omitempty"`
 	Observed       *contractspkg.Evidence `json:"observed,omitempty"`
+	DesignFixable  bool                   `json:"design_fixable"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -318,6 +321,12 @@ func TestScan_ESP32BuiltInContractOvervoltage(t *testing.T) {
 	if finding.Provenance == nil || finding.Provenance.Source != "built-in" {
 		t.Fatalf("expected built-in provenance, got %+v", finding)
 	}
+	if finding.Expected == nil || finding.Expected.Max == nil || finding.Expected.Unit != "V" || *finding.Expected.Max < 3.59 || *finding.Expected.Max > 3.61 {
+		t.Fatalf("expected 3.6V absolute maximum, got %+v", finding.Expected)
+	}
+	if finding.Observed == nil || finding.Observed.Max == nil || finding.Observed.Unit != "V" || *finding.Observed.Max < 4.99 || *finding.Observed.Max > 5.01 {
+		t.Fatalf("expected observed 5V, got %+v", finding.Observed)
+	}
 	if finding.Fix == "" {
 		t.Fatalf("expected fix, got %+v", finding)
 	}
@@ -372,6 +381,12 @@ func TestScan_FormatJSONEmitsCIReport(t *testing.T) {
 	}
 	if finding.ComponentRef != "U1" || finding.Net != "/+5V" || finding.Pin != "VDD" {
 		t.Fatalf("expected component/net/pin context, got %+v", finding)
+	}
+	if !finding.DesignFixable || !strings.Contains(stdout, `"design_fixable": true`) {
+		t.Fatalf("expected design_fixable true, got %s", stdout)
+	}
+	if finding.Expected == nil || finding.Expected.Max == nil || finding.Expected.Unit != "V" || finding.Observed == nil || finding.Observed.Max == nil {
+		t.Fatalf("expected voltage evidence, got %+v", finding)
 	}
 }
 
@@ -1525,6 +1540,9 @@ func TestScanBuildCIFinding_PinMismatchEvidence(t *testing.T) {
 	if !strings.Contains(string(data), `"expected":{"text":"PB15"}`) || !strings.Contains(string(data), `"observed":{"text":"PA7"}`) {
 		t.Fatalf("CI JSON dropped pin evidence, got %s", data)
 	}
+	if !got.DesignFixable || !strings.Contains(string(data), `"design_fixable":true`) {
+		t.Fatalf("contract finding should be design_fixable, got %s", data)
+	}
 	if !strings.Contains(string(data), `"message":"Contract imu_spi requires U1 (master) pin PB15 on net SPI_MOSI. Observed: U1 pin PA7."`) {
 		t.Fatalf("CI JSON dropped the human message, got %s", data)
 	}
@@ -1674,6 +1692,97 @@ func TestScanFormatJSON_PowerBudgetEvidence(t *testing.T) {
 			t.Fatalf("parts exist and nets are not checked, got %+v", scan.Findings)
 		}
 	}
+}
+
+func TestScanFormatJSON_AgentLoopFixtures(t *testing.T) {
+	broken := examplePath(t, filepath.Join("agent-loop", "broken"))
+	fixed := examplePath(t, filepath.Join("agent-loop", "fixed"))
+
+	brokenOut := filepath.Join(t.TempDir(), "broken.json")
+	stdout, err := runScanCommand(t, broken, ".", "--format", "json", "--out", brokenOut)
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected broken fixture to exit 2, got err=%v stdout=%s", err, stdout)
+	}
+	var brokenScan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &brokenScan); err != nil {
+		t.Fatalf("broken scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	withEvidence := 0
+	for _, finding := range brokenScan.Findings {
+		if finding.RuleID == "" || finding.Expected == nil || finding.Observed == nil {
+			continue
+		}
+		withEvidence++
+		if !finding.DesignFixable {
+			t.Fatalf("contract finding should be design_fixable, got %+v", finding)
+		}
+	}
+	if !strings.Contains(stdout, `"design_fixable": true`) {
+		t.Fatalf("scan JSON omitted design_fixable, got %s", stdout)
+	}
+	if withEvidence < 2 {
+		t.Fatalf("expected at least two findings with rule_id, expected, and observed, got %+v", brokenScan.Findings)
+	}
+	pin := requireCIFinding(t, brokenScan, "interface_pin_mismatch")
+	if pin.ComponentRef != "U1" || pin.Net != "SPI_MOSI" || pin.Pin != "4" {
+		t.Fatalf("unexpected pin mismatch context: %+v", pin)
+	}
+	if pin.Expected == nil || pin.Expected.Text != "PB15" || pin.Observed == nil || pin.Observed.Text != "PA7" {
+		t.Fatalf("pin mismatch evidence should be readable without the message, got %+v %+v", pin.Expected, pin.Observed)
+	}
+	termination := requireCIFinding(t, brokenScan, "termination_count_low")
+	if termination.Expected == nil || termination.Expected.Text != "2" || termination.Observed == nil || termination.Observed.Text != "1" {
+		t.Fatalf("termination evidence should be readable without the message, got %+v %+v", termination.Expected, termination.Observed)
+	}
+
+	fixedOut := filepath.Join(t.TempDir(), "fixed.json")
+	stdout, err = runScanCommand(t, fixed, ".", "--format", "json", "--out", fixedOut)
+	if err != nil {
+		t.Fatalf("expected fixed fixture to exit 0, got err=%v stdout=%s", err, stdout)
+	}
+	var fixedScan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &fixedScan); err != nil {
+		t.Fatalf("fixed scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	if len(fixedScan.Findings) != 0 || fixedScan.Summary.Violations != 0 || fixedScan.Summary.HasFailures {
+		t.Fatalf("expected a clean scan, got %+v", fixedScan)
+	}
+}
+
+func TestScanFormatJSON_ParseFailureNotDesignFixable(t *testing.T) {
+	tmpDir := t.TempDir()
+	stdout, err := runScanCommand(t, tmpDir, kicadFixturePath(t, "bom_bad_row_missing_comma.csv"), "--format", "json", "--out", filepath.Join(tmpDir, "scan.json"))
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("expected parse failure to exit 3, got err=%v stdout=%s", err, stdout)
+	}
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("parse-failure output is not valid JSON: %v\n%s", err, stdout)
+	}
+	found := false
+	for _, finding := range scan.Findings {
+		if finding.RuleID != "parse_error" {
+			continue
+		}
+		found = true
+		if finding.DesignFixable || !strings.Contains(stdout, `"design_fixable": false`) {
+			t.Fatalf("parse failure must set design_fixable false, got %s", stdout)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a parse_error finding, got %+v", scan.Findings)
+	}
+}
+
+func examplePath(t *testing.T, name string) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("unable to locate test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "examples", name)
 }
 
 func containsScanRule(rules []string, want string) bool {
