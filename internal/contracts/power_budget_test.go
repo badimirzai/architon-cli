@@ -187,6 +187,12 @@ contracts:
 	if !strings.Contains(finding.Message, "90.0%") {
 		t.Fatalf("expected current_budget to keep using part fields, got %+v", finding)
 	}
+	if finding.Expected == nil || finding.Expected.Max == nil || finding.Expected.Unit != "percent" || math.Abs(*finding.Expected.Max-80) > 1e-6 {
+		t.Fatalf("expected 80 percent utilization limit, got %+v", finding.Expected)
+	}
+	if finding.Observed == nil || finding.Observed.Max == nil || finding.Observed.Unit != "percent" || math.Abs(*finding.Observed.Max-90) > 1e-6 {
+		t.Fatalf("expected 90 percent utilization, got %+v", finding.Observed)
+	}
 	if hasRuleFinding(findings, contracts.RulePowerBudgetExceeded) || hasRuleFinding(findings, contracts.RulePowerMarginLow) {
 		t.Fatalf("power_budget must use the declared 0.1A, got %+v", findings)
 	}
