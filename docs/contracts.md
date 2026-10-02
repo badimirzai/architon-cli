@@ -248,6 +248,8 @@ The loop is:
 5. Run `rv scan . --format json`.
 6. The process exits 0.
 
+An agent can run the same scan through the `verify` tool. See [mcp.md](mcp.md).
+
 `examples/agent-loop/broken` is the project at step 2. That scan exits 2 and returns the two findings above. `design_fixable` is true when editing the schematic or the contract can clear the finding. It is false for parse and tool failures. A parse failure is a finding with `rule_id` `parse_error` and exits 3. A tool failure, such as invalid contract YAML or no importable input, exits 3 before scan JSON findings are written.
 
 Step 4 on this fixture sets `U1`'s `SPI_MOSI` pin function to `PB15` and adds a second 120 ohm resistor between `CANH` and `CANL`. `examples/agent-loop/fixed/` is that design. Scanning it exits 0.

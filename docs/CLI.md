@@ -11,6 +11,7 @@ Core commands:
 ```text
 rv check <file.yaml>          Run deterministic analysis
 rv scan <path>                Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
+rv mcp                        Serve one MCP tool, verify, over stdio. See docs/mcp.md
 rv graph <path>               Emit stable architecture GraphIR JSON
 rv report <path>              Generate a static offline HTML report
 rv contracts validate <path>  Validate a custom contracts.yaml schema only
