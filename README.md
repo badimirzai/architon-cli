@@ -1,8 +1,6 @@
 # Architon CLI (rv)
 
-[![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release&sort=semver)](https://github.com/badimirzai/architon-cli/releases/latest) [![Go Reference](https://pkg.go.dev/badge/github.com/badimirzai/architon-cli.svg)](https://pkg.go.dev/github.com/badimirzai/architon-cli) [![Go Version](https://img.shields.io/github/go-mod/go-version/badimirzai/architon-cli)](https://go.dev/dl/) [![License](https://img.shields.io/github/license/badimirzai/architon-cli)](https://github.com/badimirzai/architon-cli/blob/main/LICENSE)
-
-[![Cursor](https://img.shields.io/badge/Cursor-MCP-111111?logo=cursor&logoColor=white)](docs/mcp.md) [![Claude](https://img.shields.io/badge/Claude-MCP-D97757?logo=claude&logoColor=white)](docs/mcp.md)
+[![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release&sort=semver)](https://github.com/badimirzai/architon-cli/releases/latest) [![Go Reference](https://pkg.go.dev/badge/github.com/badimirzai/architon-cli.svg)](https://pkg.go.dev/github.com/badimirzai/architon-cli) [![Go Version](https://img.shields.io/github/go-mod/go-version/badimirzai/architon-cli)](https://go.dev/dl/) [![License](https://img.shields.io/github/license/badimirzai/architon-cli)](https://github.com/badimirzai/architon-cli/blob/main/LICENSE) [![Cursor](https://img.shields.io/badge/Cursor-MCP-111111?logo=cursor&logoColor=white)](docs/mcp.md) [![Claude](https://img.shields.io/badge/Claude-MCP-D97757?logo=claude&logoColor=white)](docs/mcp.md)
 
 Fail fast on hardware integration mistakes before you build the board.
 
