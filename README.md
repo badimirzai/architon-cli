@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml/badge.svg?branch=main)](https://github.com/badimirzai/architon-cli/actions/workflows/ci.yaml) [![Release](https://img.shields.io/github/v/release/badimirzai/architon-cli?label=release&sort=semver)](https://github.com/badimirzai/architon-cli/releases/latest) [![Go Reference](https://pkg.go.dev/badge/github.com/badimirzai/architon-cli.svg)](https://pkg.go.dev/github.com/badimirzai/architon-cli) [![Go Version](https://img.shields.io/github/go-mod/go-version/badimirzai/architon-cli)](https://go.dev/dl/) [![License](https://img.shields.io/github/license/badimirzai/architon-cli)](https://github.com/badimirzai/architon-cli/blob/main/LICENSE)
 
+[![Cursor](https://img.shields.io/badge/Cursor-MCP-111111?logo=cursor&logoColor=white)](docs/mcp.md) [![Claude](https://img.shields.io/badge/Claude-MCP-D97757?logo=claude&logoColor=white)](docs/mcp.md)
+
 Fail fast on hardware integration mistakes before you build the board.
 
 Architon is deterministic hardware architecture verification for robotics and embedded systems. It runs before PCB fabrication and firmware bring-up to catch electrical compatibility, power, logic-level, and integration failures early.
@@ -132,6 +134,35 @@ exit code: 2
 `rv scan` can import BOM CSV files, KiCad `.net` netlists, and KiCad project folders. If no netlist exists, Architon can generate `.architon/generated.net` using KiCad CLI. See [docs/importers.md](docs/importers.md).
 
 ---
+
+## Ask an agent to verify a design
+
+`rv mcp` lets Cursor or Claude call the same check as `rv scan <path> --format json`. The tool is `verify`. It returns `exit_code` and the scan JSON. It does not draw a schematic, edit the board, or route a PCB.
+
+Build the binary, then open this repo in Cursor. `.cursor/mcp.json` points at `${workspaceFolder}/bin/rv`, so the path is not tied to one machine:
+
+```bash
+make build
+```
+
+Enable the `architon` server in Cursor, start a new Agent chat, and ask:
+
+```text
+Use the architon verify tool on the absolute path of examples/agent-loop/broken.
+Do not edit files. Report exit_code and each finding.
+```
+
+That fixture exits 2. `examples/agent-loop/fixed` exits 0.
+
+Claude Code, after `make install`:
+
+```bash
+claude mcp add --transport stdio architon -- rv mcp
+```
+
+Claude Desktop uses its own config and the absolute path from `which rv`. ChatGPT connectors need a remote MCP URL, which this server does not serve. Setup for each client, the tool arguments, and a real KiCad project are in [docs/mcp.md](docs/mcp.md).
+
+---
 ## CLI usage
 
 Core commands:
@@ -145,11 +176,13 @@ rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part
 rv init                    Create starter specs and metadata
+rv mcp                     Serve the verify tool for Cursor and Claude
 rv version                 Show installed version
 ```
 Detailed CLI examples, scan behavior, import modes, rail inference, and advanced flags are documented in:
 
 - [docs/CLI.md](docs/CLI.md)
+- [docs/mcp.md](docs/mcp.md) — local MCP server: what `verify` checks, and Cursor and Claude setup
 - [docs/contracts.md](docs/contracts.md) — contracts, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
 - [docs/ci.md](docs/ci.md)
 - [docs/graph-ir.md](docs/graph-ir.md)
