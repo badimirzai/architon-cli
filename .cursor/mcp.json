@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "architon": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/bin/rv",
+      "args": ["mcp"]
+    }
+  }
+}
