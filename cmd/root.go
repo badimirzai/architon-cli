@@ -25,6 +25,7 @@ Quick help:
   rv parts list              List built-in deterministic contract parts
   rv init                    Initialize Architon metadata or write a starter robot spec
   rv doctor                  Check local rv and KiCad CLI setup
+  rv mcp                     Serve the verify tool over MCP stdio
   rv check --output json     Emit JSON findings
   rv report . --format html  Write a static offline HTML report
   rv version                 Show installed version
