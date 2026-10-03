@@ -3,6 +3,7 @@ package graph
 import (
 	"testing"
 
+	"github.com/badimirzai/architon-cli/internal/contracts"
 	"github.com/badimirzai/architon-cli/internal/ir"
 	"github.com/badimirzai/architon-cli/internal/report"
 )
@@ -90,6 +91,48 @@ func TestBuild_RollsWarningsOntoAffectedGraphElements(t *testing.T) {
 	}
 	if node := requireNodeForID(t, graph, "U2"); node.Warnings != 0 || node.Violations != 0 {
 		t.Fatalf("expected warning not to roll up to unrelated U2, got %+v", node)
+	}
+}
+
+func TestBuild_CopiesFindingEvidence(t *testing.T) {
+	graph := Build(BuildInput{
+		RVVersion: "test",
+		InputPath: "fixture.net",
+		Design:    &ir.DesignIR{Version: ir.SchemaVersion},
+		Report: report.VerificationReport{
+			Findings: []report.RuleResult{
+				{
+					ID:       "interface_pin_mismatch",
+					RuleID:   "interface_pin_mismatch",
+					Severity: "ERROR",
+					Pin:      "4",
+					Expected: &contracts.Evidence{Text: "PB15"},
+					Observed: &contracts.Evidence{Text: "PA7"},
+				},
+				{
+					ID:       "parse_error",
+					RuleID:   "parse_error",
+					Severity: "ERROR",
+					Message:  "bad row",
+				},
+			},
+		},
+	})
+
+	var pin, parse Finding
+	for _, finding := range graph.Findings {
+		switch finding.RuleID {
+		case "interface_pin_mismatch":
+			pin = finding
+		case "parse_error":
+			parse = finding
+		}
+	}
+	if pin.Pin != "4" || pin.Expected == nil || pin.Expected.Text != "PB15" || pin.Observed == nil || pin.Observed.Text != "PA7" || !pin.DesignFixable {
+		t.Fatalf("expected pin evidence to be copied, got %+v", pin)
+	}
+	if parse.DesignFixable || parse.Expected != nil || parse.Observed != nil {
+		t.Fatalf("parse failure must stay non-fixable with no evidence, got %+v", parse)
 	}
 }
 
