@@ -104,19 +104,22 @@ type InterfacePullup struct {
 }
 
 type Finding struct {
-	ID             string `json:"id"`
-	RuleID         string `json:"rule_id"`
-	ContractID     string `json:"contract_id"`
-	ContractSource string `json:"contract_source"`
-	Severity       string `json:"severity"`
-	Message        string `json:"message"`
-	ComponentRef   string `json:"component_ref"`
-	Net            string `json:"net"`
-	Pin            string `json:"pin"`
-	Requirement    string `json:"requirement"`
-	Fix            string `json:"fix"`
-	WhyThisMatters string `json:"why_this_matters,omitempty"`
-	Provenance     string `json:"provenance"`
+	ID             string              `json:"id"`
+	RuleID         string              `json:"rule_id"`
+	ContractID     string              `json:"contract_id"`
+	ContractSource string              `json:"contract_source"`
+	Severity       string              `json:"severity"`
+	Message        string              `json:"message"`
+	ComponentRef   string              `json:"component_ref"`
+	Net            string              `json:"net"`
+	Pin            string              `json:"pin"`
+	Expected       *contracts.Evidence `json:"expected,omitempty"`
+	Observed       *contracts.Evidence `json:"observed,omitempty"`
+	DesignFixable  bool                `json:"design_fixable"`
+	Requirement    string              `json:"requirement"`
+	Fix            string              `json:"fix"`
+	WhyThisMatters string              `json:"why_this_matters,omitempty"`
+	Provenance     string              `json:"provenance"`
 }
 
 type FindingLink struct {
@@ -271,10 +274,24 @@ func buildGraphFinding(id string, finding report.RuleResult) Finding {
 		ComponentRef:   componentRef,
 		Net:            strings.TrimSpace(finding.Net),
 		Pin:            strings.TrimSpace(finding.Pin),
+		Expected:       finding.Expected,
+		Observed:       finding.Observed,
+		DesignFixable:  findingDesignFixable(ruleID),
 		Requirement:    findingRequirement(finding, ruleID),
 		Fix:            strings.TrimSpace(finding.Fix),
 		WhyThisMatters: strings.TrimSpace(finding.WhyThisMatters),
 		Provenance:     findingProvenance(finding),
+	}
+}
+
+// findingDesignFixable matches rv scan --format json: a schematic or contract
+// edit can clear the finding. Parse and tool failures stay false.
+func findingDesignFixable(ruleID string) bool {
+	switch strings.TrimSpace(ruleID) {
+	case "parse_error", "tool_error", "PARSER_ERROR":
+		return false
+	default:
+		return true
 	}
 }
 

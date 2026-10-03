@@ -20,6 +20,7 @@ Quick help:
   rv check <file.yaml>       Run analysis
   rv scan <path>             Import KiCad BOM/netlist/schematic and emit DesignIR report JSON
   rv graph <path>            Emit stable architecture GraphIR JSON
+  rv export <path>           Write Studio report and GraphIR under .architon/studio/
   rv report <path>           Generate a static offline HTML report
   rv contracts validate      Validate a custom contracts.yaml schema only
   rv parts list              List built-in deterministic contract parts
