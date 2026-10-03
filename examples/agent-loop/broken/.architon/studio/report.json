@@ -1,0 +1,529 @@
+{
+  "report_version": "1",
+  "summary": {
+    "source": "kicad_netlist_sexpr",
+    "source_importer": "kicad",
+    "input_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/design.net",
+    "parts": 8,
+    "pins": 22,
+    "rules": 2,
+    "has_failures": true,
+    "parse_errors_count": 0,
+    "parse_warnings_count": 0,
+    "parse_errors": [],
+    "parse_warnings": [],
+    "nets": 8,
+    "parts_matched": 0,
+    "user_contracts_loaded": 3,
+    "built_in_contracts_loaded": 12,
+    "active_user_requirements": 4,
+    "available_contract_rules": 20,
+    "requirements_enabled": 4,
+    "part_contract_coverage_percentage": 0,
+    "contracts_applied": 4,
+    "contract_coverage_percentage": 0,
+    "enabled_contract_rules": [
+      "supply_abs_max",
+      "supply_recommended_range",
+      "gpio_abs_max",
+      "motor_driver_vm_range",
+      "regulator_output_current",
+      "common_ground",
+      "pullup_ohms",
+      "voltage_compatible",
+      "current_budget",
+      "no_i2c_address_conflict",
+      "interface_component_missing",
+      "interface_net_missing",
+      "interface_not_connected",
+      "interface_pin_mismatch",
+      "interface_pin_conflict",
+      "termination_count_low",
+      "termination_count_high",
+      "spi_cs_shared",
+      "power_budget_exceeded",
+      "power_margin_low"
+    ]
+  },
+  "design_ir": {
+    "version": "0",
+    "source": "kicad_netlist_sexpr",
+    "source_info": {
+      "importer": "kicad",
+      "format": "netlist_sexpr",
+      "input": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/design.net",
+      "imported": "2026-10-03T09:00:32Z"
+    },
+    "parts": [
+      {
+        "ref": "R1",
+        "value": "120",
+        "footprint": ""
+      },
+      {
+        "ref": "U1",
+        "value": "MCU",
+        "footprint": ""
+      },
+      {
+        "ref": "U2",
+        "value": "IMU",
+        "footprint": ""
+      },
+      {
+        "ref": "U3",
+        "value": "MAG",
+        "footprint": ""
+      },
+      {
+        "ref": "U4",
+        "value": "CAN",
+        "footprint": ""
+      },
+      {
+        "ref": "U5",
+        "value": "REG",
+        "footprint": ""
+      },
+      {
+        "ref": "U6",
+        "value": "SENSOR",
+        "footprint": ""
+      },
+      {
+        "ref": "U7",
+        "value": "RADIO",
+        "footprint": ""
+      }
+    ],
+    "pins": [
+      {
+        "ref": "R1",
+        "pin": "1"
+      },
+      {
+        "ref": "R1",
+        "pin": "2"
+      },
+      {
+        "ref": "U1",
+        "pin": "1"
+      },
+      {
+        "ref": "U1",
+        "pin": "2"
+      },
+      {
+        "ref": "U1",
+        "pin": "3",
+        "name": "PB13"
+      },
+      {
+        "ref": "U1",
+        "pin": "4",
+        "name": "PA7"
+      },
+      {
+        "ref": "U1",
+        "pin": "5",
+        "name": "PB14"
+      },
+      {
+        "ref": "U1",
+        "pin": "6"
+      },
+      {
+        "ref": "U1",
+        "pin": "7"
+      },
+      {
+        "ref": "U2",
+        "pin": "1"
+      },
+      {
+        "ref": "U2",
+        "pin": "2"
+      },
+      {
+        "ref": "U2",
+        "pin": "3"
+      },
+      {
+        "ref": "U2",
+        "pin": "4"
+      },
+      {
+        "ref": "U3",
+        "pin": "1"
+      },
+      {
+        "ref": "U3",
+        "pin": "2"
+      },
+      {
+        "ref": "U3",
+        "pin": "3"
+      },
+      {
+        "ref": "U3",
+        "pin": "4"
+      },
+      {
+        "ref": "U4",
+        "pin": "1"
+      },
+      {
+        "ref": "U4",
+        "pin": "2"
+      },
+      {
+        "ref": "U5",
+        "pin": "1"
+      },
+      {
+        "ref": "U6",
+        "pin": "1"
+      },
+      {
+        "ref": "U7",
+        "pin": "1"
+      }
+    ],
+    "nets": [
+      {
+        "name": "CANH",
+        "pins": [
+          {
+            "ref": "R1",
+            "pin": "1"
+          },
+          {
+            "ref": "U1",
+            "pin": "1"
+          },
+          {
+            "ref": "U4",
+            "pin": "1"
+          }
+        ]
+      },
+      {
+        "name": "CANL",
+        "pins": [
+          {
+            "ref": "R1",
+            "pin": "2"
+          },
+          {
+            "ref": "U1",
+            "pin": "2"
+          },
+          {
+            "ref": "U4",
+            "pin": "2"
+          }
+        ]
+      },
+      {
+        "name": "IMU_CS",
+        "pins": [
+          {
+            "ref": "U1",
+            "pin": "6"
+          },
+          {
+            "ref": "U2",
+            "pin": "4"
+          }
+        ]
+      },
+      {
+        "name": "MAG_CS",
+        "pins": [
+          {
+            "ref": "U1",
+            "pin": "7"
+          },
+          {
+            "ref": "U3",
+            "pin": "4"
+          }
+        ]
+      },
+      {
+        "name": "PWR",
+        "pins": [
+          {
+            "ref": "U5",
+            "pin": "1"
+          },
+          {
+            "ref": "U6",
+            "pin": "1"
+          },
+          {
+            "ref": "U7",
+            "pin": "1"
+          }
+        ]
+      },
+      {
+        "name": "SPI_MISO",
+        "pins": [
+          {
+            "ref": "U1",
+            "pin": "5",
+            "name": "PB14"
+          },
+          {
+            "ref": "U2",
+            "pin": "3"
+          },
+          {
+            "ref": "U3",
+            "pin": "3"
+          }
+        ]
+      },
+      {
+        "name": "SPI_MOSI",
+        "pins": [
+          {
+            "ref": "U1",
+            "pin": "4",
+            "name": "PA7"
+          },
+          {
+            "ref": "U2",
+            "pin": "2"
+          },
+          {
+            "ref": "U3",
+            "pin": "2"
+          }
+        ]
+      },
+      {
+        "name": "SPI_SCK",
+        "pins": [
+          {
+            "ref": "U1",
+            "pin": "3",
+            "name": "PB13"
+          },
+          {
+            "ref": "U2",
+            "pin": "1"
+          },
+          {
+            "ref": "U3",
+            "pin": "1"
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "input_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/design.net",
+      "parsed_at": "2026-10-03T09:00:32Z"
+    }
+  },
+  "findings": [
+    {
+      "id": "interface_pin_mismatch",
+      "rule_id": "interface_pin_mismatch",
+      "severity": "ERROR",
+      "net": "SPI_MOSI",
+      "message": "Contract imu_spi requires U1 (master) pin PB15 on net SPI_MOSI. Observed: U1 pin PA7.",
+      "ref": "U1",
+      "component_ref": "U1",
+      "pin": "4",
+      "expected": {
+        "text": "PB15"
+      },
+      "observed": {
+        "text": "PA7"
+      },
+      "bus_id": "imu_spi",
+      "bus_type": "spi",
+      "source": "user_yaml",
+      "contract_id": "imu_spi",
+      "contract_source": "user_yaml",
+      "contract_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml",
+      "requirement": "interface_pin_mismatch",
+      "provenance": {
+        "source": "user_yaml",
+        "source_id": "imu_spi",
+        "detail": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml"
+      },
+      "fix": "Connect U1 pin PB15 to SPI_MOSI.",
+      "inference": {
+        "net_name": "SPI_MOSI",
+        "source": "UNKNOWN",
+        "confidence_score": 0,
+        "confidence_level": "UNKNOWN",
+        "reason": "no voltage evidence found in net name \"SPI_MOSI\""
+      }
+    },
+    {
+      "id": "termination_count_low",
+      "rule_id": "termination_count_low",
+      "severity": "ERROR",
+      "message": "Contract vehicle_can requires 2 terminators of 120 ohms between CANH and CANL. Observed: 1.",
+      "expected": {
+        "text": "2"
+      },
+      "observed": {
+        "text": "1"
+      },
+      "bus_id": "vehicle_can",
+      "bus_type": "can",
+      "source": "user_yaml",
+      "contract_id": "vehicle_can",
+      "contract_source": "user_yaml",
+      "contract_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml",
+      "requirement": "termination_count_low",
+      "provenance": {
+        "source": "user_yaml",
+        "source_id": "vehicle_can",
+        "detail": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml"
+      },
+      "fix": "Add terminators of the required resistance between the named nets until the count matches the contract."
+    }
+  ],
+  "rules": [
+    {
+      "id": "interface_pin_mismatch",
+      "rule_id": "interface_pin_mismatch",
+      "severity": "ERROR",
+      "net": "SPI_MOSI",
+      "message": "Contract imu_spi requires U1 (master) pin PB15 on net SPI_MOSI. Observed: U1 pin PA7.",
+      "ref": "U1",
+      "component_ref": "U1",
+      "pin": "4",
+      "expected": {
+        "text": "PB15"
+      },
+      "observed": {
+        "text": "PA7"
+      },
+      "bus_id": "imu_spi",
+      "bus_type": "spi",
+      "source": "user_yaml",
+      "contract_id": "imu_spi",
+      "contract_source": "user_yaml",
+      "contract_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml",
+      "requirement": "interface_pin_mismatch",
+      "provenance": {
+        "source": "user_yaml",
+        "source_id": "imu_spi",
+        "detail": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml"
+      },
+      "fix": "Connect U1 pin PB15 to SPI_MOSI.",
+      "inference": {
+        "net_name": "SPI_MOSI",
+        "source": "UNKNOWN",
+        "confidence_score": 0,
+        "confidence_level": "UNKNOWN",
+        "reason": "no voltage evidence found in net name \"SPI_MOSI\""
+      }
+    },
+    {
+      "id": "termination_count_low",
+      "rule_id": "termination_count_low",
+      "severity": "ERROR",
+      "message": "Contract vehicle_can requires 2 terminators of 120 ohms between CANH and CANL. Observed: 1.",
+      "expected": {
+        "text": "2"
+      },
+      "observed": {
+        "text": "1"
+      },
+      "bus_id": "vehicle_can",
+      "bus_type": "can",
+      "source": "user_yaml",
+      "contract_id": "vehicle_can",
+      "contract_source": "user_yaml",
+      "contract_file": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml",
+      "requirement": "termination_count_low",
+      "provenance": {
+        "source": "user_yaml",
+        "source_id": "vehicle_can",
+        "detail": "/Users/badimirzai/Documents/go-projects/robotics-verifier-cli/examples/agent-loop/broken/.architon/contracts.yaml"
+      },
+      "fix": "Add terminators of the required resistance between the named nets until the count matches the contract."
+    }
+  ],
+  "contract_coverage": {
+    "components_total": 8,
+    "components_with_contracts": 0,
+    "pins_total": 22,
+    "pins_with_contracts": 0,
+    "nets_total": 8,
+    "nets_with_contracts": 0,
+    "parts_matched": 0,
+    "contracts_applied": 4,
+    "coverage_percentage": 0,
+    "enabled_contract_rules": [
+      "supply_abs_max",
+      "supply_recommended_range",
+      "gpio_abs_max",
+      "motor_driver_vm_range",
+      "regulator_output_current",
+      "common_ground",
+      "pullup_ohms",
+      "voltage_compatible",
+      "current_budget",
+      "no_i2c_address_conflict",
+      "interface_component_missing",
+      "interface_net_missing",
+      "interface_not_connected",
+      "interface_pin_mismatch",
+      "interface_pin_conflict",
+      "termination_count_low",
+      "termination_count_high",
+      "spi_cs_shared",
+      "power_budget_exceeded",
+      "power_margin_low"
+    ]
+  },
+  "derived": {
+    "inferred_net_voltages": [],
+    "unknown_voltage_nets": [
+      {
+        "net": "PWR",
+        "reason": "ambiguous power net name"
+      }
+    ],
+    "rail_inferences": [
+      {
+        "net_name": "PWR",
+        "voltage": null,
+        "source": "UNKNOWN",
+        "confidence_score": 0,
+        "confidence_level": "UNKNOWN",
+        "reason": "generic rail name \"PWR\" reduces confidence",
+        "evidence": [],
+        "warnings": [
+          "generic rail name \"PWR\" reduces confidence"
+        ]
+      }
+    ],
+    "rail_coverage": {
+      "total_nets": 8,
+      "rails_with_voltage": 0,
+      "rails_unknown": 8,
+      "high_confidence": 0,
+      "medium_confidence": 0,
+      "low_confidence": 0,
+      "unknown_confidence": 8,
+      "coverage_ratio": 0,
+      "high_confidence_ratio": 0,
+      "usable_for_rules_ratio": 0,
+      "overall_level": "UNKNOWN",
+      "warnings": [
+        "some rails have unknown voltage and cannot be checked by voltage rules",
+        "rail voltage coverage is incomplete; voltage checks may miss issues"
+      ]
+    }
+  }
+}
