@@ -202,7 +202,7 @@ stable IDs assigned for graph linking.
 
 Severity is one of `ERROR`, `WARN`, or `INFO`.
 
-Interface pin findings use `interface_pin_mismatch` and `interface_pin_conflict`. For a mismatch, `expected.text` is the contract pin token and `observed.text` is the netlist pin name, or the pin number when the name is empty. For a conflict, `expected.text` is the other signal in that contract and `observed.text` is the pin name or pin number bound to both signals. GraphIR copies those fields from the scan finding.
+Interface pin findings use `interface_pin_mismatch` and `interface_pin_conflict`. For a mismatch, `expected.text` is the contract pin token and `observed.text` is the netlist pin name, or the pin number when the name is empty. For a conflict, `expected.text` is the other signal in that contract and `observed.text` is the pin name or pin number bound to both signals. GraphIR copies `pin`, `expected`, and `observed` from the scan finding. `design_fixable` is true when a schematic or contract edit can clear the finding, and false for parse and tool failures.
 
 ### Findings Index
 

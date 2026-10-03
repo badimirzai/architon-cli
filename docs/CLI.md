@@ -4,6 +4,7 @@
 `rv check` validates system architecture from a YAML specification.
 `rv scan` imports KiCad BOM/netlist data and generates a normalized DesignIR report.
 `rv graph` emits stable GraphIR JSON for Studio and other renderers.
+`rv export` writes the Studio report and GraphIR under `.architon/studio/`.
 `rv report` generates a static offline HTML report for CI artifacts and sharing.
 
 Core commands:
@@ -13,6 +14,7 @@ rv check <file.yaml>          Run deterministic analysis
 rv scan <path>                Import BOM CSV, KiCad .net, or project directory and emit DesignIR report JSON
 rv mcp                        Serve one MCP tool, verify, over stdio. See docs/mcp.md
 rv graph <path>               Emit stable architecture GraphIR JSON
+rv export <path>              Write Studio report and GraphIR under .architon/studio/
 rv report <path>              Generate a static offline HTML report
 rv contracts validate <path>  Validate a custom contracts.yaml schema only
 rv parts list                 List built-in deterministic contract parts
@@ -50,6 +52,7 @@ rv scan examples/bom/bom.csv --map examples/mapping.yaml
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv graph exports/project.net --meta .architon/meta.yaml --format json
 rv graph . --contracts examples/contracts/i2c_policy.yaml --format json --out graph.json
+rv export .
 rv report . --format html --out architon-report.html
 rv scan . --contracts i2c_pullup_policy.yaml --verbose
 rv scan . --format github

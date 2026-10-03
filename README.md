@@ -170,6 +170,7 @@ Core commands:
 rv check <file.yaml>       Run deterministic analysis
 rv scan <path>             Import KiCad/BOM data and emit DesignIR report
 rv graph <path>            Emit stable GraphIR JSON for Studio/renderers
+rv export <path>           Write Studio report and GraphIR under .architon/studio/
 rv report <path>           Generate offline HTML reports for review/CI artifacts
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts

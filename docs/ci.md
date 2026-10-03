@@ -53,9 +53,58 @@ jobs:
 
 The scan step does not need `continue-on-error`. GitHub Actions fails the job on exit code `2`, and exit code `1` also marks the step as failed if you choose to treat warnings as blocking.
 
+## Architon Studio
+
+Architon Studio imports two files from the hardware project. It does not read `rv scan --format json` stdout. From the KiCad project directory, `rv export .` runs the scan pipeline once and writes:
+
+- `.architon/studio/report.json` — the verification report (`report_version`, `design_ir`, `findings`)
+- `.architon/studio/graph.json` — the GraphIR (`graph_version`, `nodes`, `edges`, `findings_index`)
+
+Exit codes match `rv scan`. Exit `2` still writes both files. Exit `3` writes nothing new when the pipeline fails before a report exists. Upload both files as one artifact named `architon-studio`. Use `if: always()` so the artifact is kept when violations fail the export step.
+
+```yaml
+name: Architon Studio
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  architon-studio:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install rv
+        run: go install ./cmd/rv
+
+      - name: Export Architon Studio files
+        run: rv export .
+
+      - name: Upload Architon Studio files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architon-studio
+          path: |
+            .architon/studio/report.json
+            .architon/studio/graph.json
+          if-no-files-found: ignore
+```
+
+This example is for a hardware project that contains a discoverable BOM, netlist, or root KiCad schematic. It is separate from the `--format github` workflow above.
+
 ## Testing This Source Repository
 
-This repository is the `rv` source tree, not a KiCad project, so `rv scan .` is expected to exit `3` here. The checked-in example workflow uses deterministic fixtures instead:
+This repository is the `rv` source tree, not a KiCad project, so `rv scan .` and `rv export .` are expected to exit `3` here. Do not add `rv export .` to this repository's own CI. The checked-in example workflow uses deterministic fixtures instead:
 
 - `internal/importers/kicad/testdata/bom_minimal.csv` must scan cleanly.
 - `testdata/esp32_overvoltage/netlist.net` with `testdata/esp32_overvoltage/meta.yaml` must emit a GitHub error annotation and exit `2`.
