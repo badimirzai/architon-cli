@@ -1,0 +1,12 @@
+.git
+.github
+.cursor
+.architon
+bin
+assets
+docs
+early-access
+**/.DS_Store
+**/.DS_STORE
+architon-report.json
+architon-report.html

@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+// Version is set at link time by release builds that have no VCS metadata,
+// such as the container image:
+//
+//	-ldflags "-X github.com/badimirzai/architon-cli/internal/version.Version=v0.15.0"
+//
+// When set, it takes precedence over the module version from build info.
+var Version string
+
 // Info describes the current build version metadata.
 type Info struct {
 	Version   string
@@ -32,6 +40,9 @@ func Get() Info {
 		if moduleVersion != "" && moduleVersion != "(devel)" && !modified && !strings.Contains(moduleVersion, "+dirty") {
 			info.Version = moduleVersion
 		}
+	}
+	if linked := strings.TrimSpace(Version); linked != "" {
+		info.Version = linked
 	}
 	return info
 }
