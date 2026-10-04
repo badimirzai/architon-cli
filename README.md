@@ -90,6 +90,16 @@ make install
 
 `rv scan .` can generate KiCad netlists automatically when `kicad-cli` is on `PATH` or installed in a common KiCad location on macOS, Linux, or Windows. If KiCad is installed somewhere custom, pass `--kicad-cli /full/path/to/kicad-cli`.
 
+### Run with Docker
+
+The container image runs `rv export` with `rv` and KiCad already inside. You only need [Docker Desktop](https://www.docker.com/products/docker-desktop/). From the folder that contains your `.kicad_sch` or `.net` file:
+
+```bash
+docker run --rm --pull always --network none -v "$PWD":/project ghcr.io/badimirzai/architon
+```
+
+It writes `.architon/studio/report.json` and `.architon/studio/graph.json` and exits with the `rv export` code. `--pull always` fetches the latest release before each run. `--network none` keeps the run offline, which is the supported way to run it. On Linux, add `--user "$(id -u):$(id -g)"` so the image can write to your project. To pin a release, use `ghcr.io/badimirzai/architon:v0.15.0`. See [docs/CLI.md](docs/CLI.md#container-image).
+
 ---
 
 ## Scan a real KiCad project (30 seconds)

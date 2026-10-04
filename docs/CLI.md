@@ -60,6 +60,72 @@ rv parts list
 rv parts show ESP32-WROOM-32
 ```
 
+## Container image
+
+`ghcr.io/badimirzai/architon` is `rv` and KiCad's `kicad-cli` packaged as a container image. It runs `rv export /project` on a project folder mounted at `/project`. You need Docker, not Go or KiCad. Architon Studio uses the same image.
+
+Run it from the KiCad project folder, the one that contains the root `.kicad_sch` or the `.net` file:
+
+```bash
+docker run --rm --pull always --network none -v "$PWD":/project ghcr.io/badimirzai/architon
+```
+
+- `-v "$PWD":/project` shares the current folder with the container as `/project`. This is the only folder the container can see.
+- `--network none` gives the container no network. This is the supported way to run it, and `rv` never needs the network.
+- `--pull always` checks the registry for a newer image before the run. Without it, Docker reuses the copy it downloaded last time. The download happens before the container starts, so it works together with `--network none`.
+- With no tag, Docker uses `latest`, which is the most recent release.
+- On Linux, add `--user "$(id -u):$(id -g)"` after `--network none`. The image runs as non-root uid `1000`, and a mounted folder keeps its host owner, so a different uid could not write `.architon/studio`. Docker Desktop on macOS and Windows does not need it.
+
+The run writes `.architon/studio/report.json` and `.architon/studio/graph.json`, the two files Studio imports. The exit code is the `rv export` exit code: `0` clean, `1` warnings, `2` violations, `3` tool failure. Exit `2` still writes both files. Exit `3` writes nothing new, for example when the folder has no schematic, netlist, or BOM.
+
+A project that already has a `.net` file needs nothing else. A project with only one root `.kicad_sch` gets `.architon/generated.net` from the `kicad-cli` inside the image, which is the latest KiCad 9.0 release from Debian backports. A schematic saved by a newer major KiCad version may not open. Check the bundled version with:
+
+```bash
+docker run --rm --network none ghcr.io/badimirzai/architon kicad-cli version
+```
+
+The output matches `rv export` on the host for the same project and the same KiCad version, with two exceptions. Absolute paths name the project `/project`, and the `imported` and `parsed_at` timestamps record when the run happened.
+
+### Versions
+
+Each release tag publishes two tags: the version, such as `v0.15.0`, and `latest`. Use `latest` to stay current. Pin a version when a run must be repeatable, for example in CI:
+
+```bash
+docker run --rm --network none -v "$PWD":/project ghcr.io/badimirzai/architon:v0.15.0
+```
+
+`rv version` inside the image prints its release, and `graph.json` records it as `rv_version`:
+
+```bash
+docker run --rm --network none ghcr.io/badimirzai/architon rv version
+```
+
+### Other commands
+
+The default command is `rv export /project`. To run a different `rv` command, put it after the image name:
+
+```bash
+docker run --rm --network none -v "$PWD":/project ghcr.io/badimirzai/architon rv scan /project --format json
+```
+
+For GitHub Actions, see [docs/ci.md](ci.md#architon-studio).
+
+### Build and test the image locally
+
+```bash
+docker build --build-arg VERSION=v0.15.0 -t architon:local .
+ARCHITON_IMAGE=architon:local EXPECT_VERSION=v0.15.0 bash scripts/docker-smoke.sh
+```
+
+Then run `architon:local` in a KiCad project folder in place of `ghcr.io/badimirzai/architon`.
+
+```bash
+docker build --build-arg VERSION=v0.15.0 -t architon:v0.15.0 .
+ARCHITON_IMAGE=architon:v0.15.0 EXPECT_VERSION=v0.15.0 bash scripts/docker-smoke.sh
+```
+
+`scripts/docker-smoke.sh` runs the image on `examples/agent-loop/broken` with `--network none`. It checks for exit `2`, both Studio files, and the same files as host `rv export`. It prints `SKIP` and exits `0` when Docker is unavailable.
+
 Architon normalizes imported hardware designs into DesignIR, applies ContractIR requirements, and emits deterministic findings. See [docs/architecture.md](docs/architecture.md) for details.
 
 Contracts come from built-in component data, project metadata, schematic/BOM fields, and explicit user YAML policies. Custom contracts can enforce rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current budgets, and interface connectivity (`require.connected`). A participant's optional `pins` map names the pin name or pin number that must land on each connected net. A different pin on that net is `interface_pin_mismatch`. The same pin bound to two signals in the contract is `interface_pin_conflict`. See [docs/contracts.md](docs/contracts.md).
