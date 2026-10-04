@@ -1,0 +1,91 @@
+name: Container Image
+
+# Publishes ghcr.io/badimirzai/architon:<tag> and :latest on a version tag.
+# Pull requests that touch the image only build and smoke test it.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - scripts/docker-smoke.sh
+      - .github/workflows/container.yml
+
+env:
+  IMAGE: ghcr.io/badimirzai/architon
+  VERSION: ${{ github.event_name == 'push' && github.ref_name || 'v0.0.0-ci' }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Run unit tests
+        run: go test ./...
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: architon:smoke
+          build-args: VERSION=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Runs the image with --network none on examples/agent-loop/broken.
+      # Expects exit 2, both Studio files, and the same files as host rv export.
+      - name: Smoke test image
+        env:
+          ARCHITON_IMAGE: architon:smoke
+          EXPECT_VERSION: ${{ env.VERSION }}
+          REQUIRE_DOCKER: '1'
+        run: bash scripts/docker-smoke.sh
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ env.VERSION }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+
+      - name: Verify published version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker pull "$IMAGE:$VERSION"
+          docker run --rm --network none "$IMAGE:$VERSION" rv version | tee rv-version.txt
+          grep -qx "rv version: $VERSION" rv-version.txt
