@@ -62,6 +62,8 @@ Architon Studio imports two files from the hardware project. It does not read `r
 
 Exit codes match `rv scan`. Exit `2` still writes both files. Exit `3` writes nothing new when the pipeline fails before a report exists. Upload both files as one artifact named `architon-studio`. Use `if: always()` so the artifact is kept when violations fail the export step.
 
+The workflow below runs the [container image](CLI.md#container-image), so the job installs neither Go nor KiCad. GitHub's Ubuntu runners already have Docker. `--user` lets the container write to the checkout, and `--network none` keeps the export offline. Use `ghcr.io/badimirzai/architon:v0.15.0` in place of `ghcr.io/badimirzai/architon` to pin a release. If the KiCad project is in a subfolder, mount that folder: `-v "$GITHUB_WORKSPACE/hardware":/project`, and update the artifact paths to match.
+
 ```yaml
 name: Architon Studio
 
@@ -79,15 +81,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Install rv
-        run: go install ./cmd/rv
-
       - name: Export Architon Studio files
-        run: rv export .
+        run: |
+          docker run --rm --pull always --network none \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE":/project \
+            ghcr.io/badimirzai/architon
 
       - name: Upload Architon Studio files
         if: always()
@@ -100,7 +99,7 @@ jobs:
           if-no-files-found: ignore
 ```
 
-This example is for a hardware project that contains a discoverable BOM, netlist, or root KiCad schematic. It is separate from the `--format github` workflow above.
+This example is for a hardware project that contains a discoverable BOM, netlist, or root KiCad schematic. It is separate from the `--format github` workflow above. If the job installs `rv` with Go instead, `rv export .` writes the same two files.
 
 ## Testing This Source Repository
 
@@ -108,6 +107,8 @@ This repository is the `rv` source tree, not a KiCad project, so `rv scan .` and
 
 - `internal/importers/kicad/testdata/bom_minimal.csv` must scan cleanly.
 - `testdata/esp32_overvoltage/netlist.net` with `testdata/esp32_overvoltage/meta.yaml` must emit a GitHub error annotation and exit `2`.
+
+The `Container Image` workflow builds the Docker image and runs `scripts/docker-smoke.sh`, which exports `examples/agent-loop/broken` with `--network none` and expects exit `2`. On a `vX.Y.Z` tag it pushes `ghcr.io/badimirzai/architon:<tag>` and `:latest`. It never runs `rv export .` on this repository. GHCR creates a new package as private. After the first publish, set the `architon` package visibility to Public in its GitHub package settings, or `docker pull` fails with `denied`.
 
 That keeps pushes and PRs green when behavior is correct while still proving that GitHub annotation output works. For a hardware project repository, use `rv scan . --format github` once the project root contains a discoverable BOM, netlist, or root KiCad schematic.
 
