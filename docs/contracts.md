@@ -72,7 +72,34 @@ Contract source precedence is:
 
 Custom contracts are explicit YAML policies. They can enforce project or organization rules such as I2C pull-up resistance, duplicate I2C addresses, voltage compatibility, current-budget utilization, explicit power budgets, which physical pin lands on each named interface net, CAN terminator count, and SPI chip-select exclusivity.
 
-Custom contracts are deterministic. AI may generate contracts in future Studio workflows, but `rv` only validates and enforces explicit YAML.
+Custom contracts are deterministic. `rv contracts draft` writes a reviewable YAML draft from net names. That draft is not a verification result. AI may generate contracts in future Studio workflows, but `rv` validates and enforces explicit YAML.
+
+## Draft from a netlist
+
+`rv contracts draft <path>` reads the same project directory or netlist path as `rv scan` and writes `.architon/contracts.draft.yaml`.
+
+The draft is not a verification result. The command does not scan the design, does not evaluate the draft, and does not load a second rule set. It does not fill pin tokens from pin names in the netlist, and it does not fill currents from datasheets or built-in parts.
+
+The command never writes `.architon/contracts.yaml`. If `.architon/contracts.draft.yaml` already exists, the command exits 3 and leaves that file unchanged. `--force` overwrites the draft file only.
+
+A comment at the top of the draft says the user fills pin tokens and power_budget currents. The draft does not emit `power_budget`.
+
+Recognized net names match with or without a leading `/`:
+
+- `SPI_SCK`, `SPI_MOSI`, and `SPI_MISO` become one `require.connected` contract when all three nets exist. A participant is a ref with a pin on all three. The ref with the most pins on other nets is `master` and is listed first. The other refs are `slave`. The `pins` map is omitted. Among nets other than those three, a slave with a pin on exactly one net whose name ends in `_CS` or `CS` gets a `chip_selects` entry. A slave with two such nets is left out of `chip_selects`. Two slaves on the same chip-select net are both listed.
+- `CANH` and `CANL` become one contract when both nets exist. `require.connected` lists every ref with a pin on either net. `require.terminated` names those nets with `resistance_ohms: 120` and `count: 2`. The count does not come from resistor values in the netlist.
+- `SDA` and `SCL` become one I2C contract with id `i2c`. `I2C_SDA` and `I2C_SCL` become one I2C contract with id `i2c_bus`. Each sets `require.common_ground: true` and `require.pullup_ohms` min 2200 max 10000, and records the net names under `scope.nets`.
+
+If none of these nets exist, the command exits 0 and writes an empty contracts list with the same comment. It does not invent a contract for another net.
+
+Each contract has `scope.bus_type`, `scope.bus_id`, and `severity: error`. Contract ids are stable across runs on the same netlist. The command prints the draft path and those ids. It does not print a design pass or fail.
+
+```bash
+rv contracts draft .
+rv contracts validate .architon/contracts.draft.yaml
+```
+
+`rv contracts validate` checks the draft schema only. That check is not a verification result. Use `rv scan --contracts .architon/contracts.draft.yaml` after reviewing the draft, including any pin tokens or power_budget currents you add.
 
 ## Interface contracts
 
@@ -226,7 +253,7 @@ Validate contract schema only:
 rv contracts validate <path>
 ```
 
-Schema validation does not verify a design. Use `rv scan --contracts <path>` to enforce contracts against a project.
+Schema validation does not verify a design. A file written by `rv contracts draft` is checked the same way, and that check is not a verification result. Use `rv scan --contracts <path>` to enforce contracts against a project.
 
 `pullup_ohms` is resistance-only in v0.4.0. Capacitance/rise-time validation is future work.
 
