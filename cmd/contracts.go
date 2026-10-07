@@ -18,8 +18,13 @@ func newContractsCmd() *cobra.Command {
 	// validation can evolve independently.
 	cmd := &cobra.Command{
 		Use:   "contracts",
-		Short: "Validate project-defined system contracts",
+		Short: "Draft or validate project contracts",
+		Long: `Draft a reviewable contracts file from a netlist, or validate contracts YAML.
+
+  rv contracts draft <path>     Write .architon/contracts.draft.yaml. This is not a verification result.
+  rv contracts validate <path>  Validate a contracts YAML schema only.`,
 	}
+	cmd.AddCommand(newContractsDraftCmd())
 	cmd.AddCommand(newContractsValidateCmd())
 	return cmd
 }
