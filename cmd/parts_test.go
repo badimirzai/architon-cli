@@ -44,6 +44,28 @@ func TestPartsShowESP32(t *testing.T) {
 	if !strings.Contains(stdout, "supply_abs_max") {
 		t.Fatalf("expected supply_abs_max contract, got %q", stdout)
 	}
+	if !strings.Contains(stdout, "kind=power") || !strings.Contains(stdout, "3V3") {
+		t.Fatalf("expected cited power pin, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "citation: ESP32-WROOM-32 Datasheet, revision 3.8") {
+		t.Fatalf("expected datasheet citation, got %q", stdout)
+	}
+}
+
+func TestPartsShowMPU6050BusPins(t *testing.T) {
+	stdout, err := runPartsCommand(t, "show", "MPU-6050")
+	if err != nil {
+		t.Fatalf("expected parts show to succeed, got %v", err)
+	}
+	if !strings.Contains(stdout, "SDA number=24 kind=bus signal=SDA") {
+		t.Fatalf("expected dedicated SDA pin, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "SCL number=23 kind=bus signal=SCL") {
+		t.Fatalf("expected dedicated SCL pin, got %q", stdout)
+	}
+	if !strings.Contains(stdout, "MPU-6000 and MPU-6050 Product Specification, revision 3.4, section 7.1 Pin Out and Signal Description") {
+		t.Fatalf("expected MPU datasheet citation, got %q", stdout)
+	}
 }
 
 func TestPartsListJSON(t *testing.T) {
