@@ -25,9 +25,11 @@ rv scan . --bom bom/bom.csv --netlist exports/project.net
                                       Override detected project files
 rv scan . --kicad-cli /full/path/to/kicad-cli
                                       Use an explicit KiCad CLI binary
+rv contracts draft <path>             Write .architon/contracts.draft.yaml from a netlist
+rv connections propose <path>         Write .architon/connections.proposal.yaml from pin functions
 rv contracts validate contracts.yaml  Validate custom contract schema only
 rv parts list                         List built-in deterministic contract parts
-rv parts show ESP32-WROOM-32          Show one built-in contract part
+rv parts show ESP32-WROOM-32          Show one built-in contract part, including cited pin functions
 rv doctor                             Check rv and KiCad CLI setup
 rv init                                Create .architon/meta.yaml and README.md
 rv init --list                        List available templates
@@ -104,6 +106,8 @@ rv scan bom.csv --map examples/mapping.yaml
 rv scan bom.csv --out my-report.json
 rv scan exports/project.net --meta .architon/meta.yaml --rails
 rv scan . --contracts i2c_pullup_policy.yaml --verbose
+rv contracts draft .
+rv connections propose .
 rv graph . --contracts examples/contracts/i2c_policy.yaml --format json --out graph.json
 rv init
 rv init --template 4wd-problem

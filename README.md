@@ -188,9 +188,11 @@ rv scan <path>             Import KiCad/BOM data and emit DesignIR report
 rv graph <path>            Emit stable GraphIR JSON for Studio/renderers
 rv export <path>           Write Studio report and GraphIR under .architon/studio/
 rv report <path>           Generate offline HTML reports for review/CI artifacts
+rv contracts draft <path>  Write a reviewable contracts draft from a netlist
+rv connections propose <path>  Write a reviewable connection proposal from pin functions
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
-rv parts show <mpn>        Show one built-in contract part
+rv parts show <mpn>        Show one built-in contract part, including cited pin functions
 rv init                    Create starter specs and metadata
 rv mcp                     Serve the verify tool for Cursor and Claude
 rv version                 Show installed version
@@ -199,7 +201,7 @@ Detailed CLI examples, scan behavior, import modes, rail inference, and advanced
 
 - [docs/CLI.md](docs/CLI.md)
 - [docs/mcp.md](docs/mcp.md) — local MCP server: what `verify` checks, and Cursor and Claude setup
-- [docs/contracts.md](docs/contracts.md) — contracts, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
+- [docs/contracts.md](docs/contracts.md) — contracts, connection proposals, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
 - [docs/ci.md](docs/ci.md) — GitHub Actions and the hardware workflow to copy
 - [docs/graph-ir.md](docs/graph-ir.md)
 - [docs/importers.md](docs/importers.md)

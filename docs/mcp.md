@@ -46,7 +46,9 @@ These commands stay on the terminal. The MCP server does not expose them:
 
 ```text
 rv init
+rv contracts draft
 rv contracts validate
+rv connections propose
 rv parts list
 rv parts show
 rv graph
@@ -195,7 +197,7 @@ rv init contracts
 rv scan . --format json
 ```
 
-`rv init contracts` writes `.architon/contracts.yaml`. The starter contract checks I2C pull-ups. Replace it with the contracts for this board, then scan again. `rv contracts validate .architon/contracts.yaml` checks the YAML. `rv scan` checks the design.
+`rv init contracts` writes `.architon/contracts.yaml`. The starter contract checks I2C pull-ups. Replace it with the contracts for this board, then scan again. `rv contracts validate .architon/contracts.yaml` checks the YAML. `rv scan` checks the design. `rv connections propose .` writes `.architon/connections.proposal.yaml` for review. `verify` does not read that file, and a decided entry is not a scan result.
 
 `rv scan .` uses a root `*.net` when one exists. With no netlist and one root `*.kicad_sch`, it exports `.architon/generated.net` through `kicad-cli`. See [importers.md](importers.md).
 

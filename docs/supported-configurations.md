@@ -23,6 +23,9 @@ BOM ingestion and normalization with `rv scan`:
 - Deterministic BOM + netlist merge into one DesignIR
 - Metadata-backed voltage propagation and overvoltage rule findings for netlist scans
 - Interface connectivity contracts (`require.connected`), including an optional pin name or pin number on each named net (`interface_pin_mismatch`, `interface_pin_conflict`)
+- Cited built-in pin functions for dedicated SDA and SCL pins, plus `gpio_candidate` pins (`pin_function_mismatch`, `pin_bus_short`, and `coverage`)
+- `rv contracts draft` writes `.architon/contracts.draft.yaml` from net names. That draft is not a verification result
+- `rv connections propose` writes `.architon/connections.proposal.yaml` from built-in pin functions and the netlist. A decided entry is not a scan result, and a `needs_choice` entry is not accepted
 - Deterministic rail voltage inference, confidence reporting, and rail coverage metrics
 - Automatic delimiter detection for comma, semicolon, and tab
 - Deterministic DesignIR JSON generation

@@ -148,6 +148,9 @@ Primary command:
 - `rv scan <netlist.net> --meta .architon/meta.yaml`
 - `rv scan <netlist.net> --rails`
 - `rv scan . --kicad-cli /full/path/to/kicad-cli`
+- `rv contracts draft <path>`
+- `rv connections propose <path>`
+- `rv contracts validate <path>`
 - `rv doctor`
 
 Output modes:
