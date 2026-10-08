@@ -172,7 +172,8 @@ Exit behavior is documented in the canonical exit code table in `README.md`.
 - deprecated compatibility aliases: `summary.contracts_applied` and `summary.contract_coverage_percentage`
 - `derived.net_voltages`, `derived.inferred_net_voltages`, `derived.unknown_voltage_nets`, `derived.rail_inferences`, and `derived.rail_coverage` when voltage inference data is present
 - optional `findings[].inference` provenance for voltage-based findings, including reason when available
-- optional contract finding details: `findings[].component_ref`, `findings[].bus_id`, `findings[].bus_type`, `findings[].bus_nets`, `findings[].source`, `findings[].provenance`, and `findings[].fix`
+- optional contract finding details: `findings[].component_ref`, `findings[].bus_id`, `findings[].bus_type`, `findings[].bus_nets`, `findings[].source`, `findings[].provenance`, `findings[].citations`, and `findings[].fix`
+- `coverage` for pin-function checks: `proved`, `refused`, and `not_checked`. It does not change the exit code. An unchecked pin is not a violation.
 - `rules` is a deprecated alias of `findings`
 
 Successful CLI output also prints a short deterministic terminal summary with:

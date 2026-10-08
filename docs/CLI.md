@@ -18,7 +18,7 @@ rv export <path>              Write Studio report and GraphIR under .architon/st
 rv report <path>              Generate a static offline HTML report
 rv contracts validate <path>  Validate a custom contracts.yaml schema only
 rv parts list                 List built-in deterministic contract parts
-rv parts show <mpn>           Show one built-in contract part
+rv parts show <mpn>           Show one built-in contract part, including cited pin functions
 rv init                       Create .architon metadata or write a starter robot spec
 rv version                    Show installed version
 rv check --output json        Emit JSON findings to stdout

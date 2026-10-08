@@ -114,6 +114,8 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 - `supply_abs_max` (`ERROR`): powered supply pin exceeds a matched part's absolute maximum supply voltage
 - `supply_recommended_range` (`WARNING`): powered supply pin is outside the recommended operating range but within absolute maximum
 - `gpio_abs_max` (`ERROR`): GPIO-like pin is on a net above its absolute maximum voltage
+- `pin_function_mismatch` (`ERROR`): a cited dedicated SDA pin is on a net named `SCL` or `I2C_SCL`, or a cited dedicated SCL pin is on a net named `SDA` or `I2C_SDA`. A leading `/` is ignored. `expected.text` is the function signal. `observed.text` is the net. `citations` is the datasheet citation. A `gpio_candidate` does not produce this finding.
+- `pin_bus_short` (`ERROR`): cited dedicated SDA and SCL of the same part land on one net. `expected.text` is `SDA and SCL on different nets`. `observed.text` is that net. A `gpio_candidate` does not produce this finding.
 - `motor_driver_vm_range` (`ERROR`): motor-driver VM pin is outside the supported motor-supply voltage range
 - `regulator_output_current` (`ERROR`): known downstream load current exceeds a regulator output-current contract
 - `interface_component_missing` (`ERROR`): a `connected` or `power_budget` contract names a component ref that is not in the design
@@ -130,6 +132,8 @@ Netlist-backed scans can run deterministic contract rules when rail voltages are
 Voltage-based findings include inference provenance when available: net name, source, confidence score, confidence level, and reason.
 
 Contract source precedence is deterministic: explicit `.architon/meta.yaml`, then schematic/BOM contract fields, then the curated built-in contract source, then explicit custom contracts from `.architon/contracts.yaml` or `--contracts`, then inferred net names. Built-ins are intentionally small and local; there is no network lookup, datasheet scraping, or generic parts database.
+
+Built-in pin functions are citations copied from a datasheet pin table. They are not inferred currents and not a generated schematic. A function without a title, revision, and table or section is ignored. `pin_function_mismatch` and `pin_bus_short` run only when the netlist pin name or pin number matches a cited dedicated SDA or SCL pin. They do not replace `supply_abs_max` or `gpio_abs_max`. `rv scan --format json` adds `coverage`. `proved` counts those bus checks that passed. `refused` lists existing `ERROR` and `WARN` findings. `not_checked` lists unmatched parts, matched pins with no cited function, and a `gpio_candidate` on an I2C net name. Coverage does not change the exit code. An unchecked pin is not a violation. See [docs/contracts.md](contracts.md).
 
 Custom contracts are deterministic explicit YAML. `rv contracts validate` validates schema only; use `rv scan --contracts <path>` to enforce a contract file against a design.
 

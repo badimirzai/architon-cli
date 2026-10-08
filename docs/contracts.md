@@ -26,6 +26,31 @@ rv parts list
 rv parts show ESP32-WROOM-32
 ```
 
+## Pin functions
+
+A built-in pin function is a citation copied from a datasheet pin table. It is not an inferred current, and it is not a generated schematic. `rv scan` does not fetch a datasheet, does not call a model, and does not invent a pin number. A function without a datasheet title, revision, and table or section is ignored.
+
+Each function has a name, an optional number, a kind, and an optional signal. The kind is `power`, `ground`, `bus`, or `gpio_candidate`. Dedicated SDA and SCL pins are `bus` with signal `SDA` or `SCL`. VIN and VOUT are `power`. `gpio_candidate` means the datasheet allows that GPIO to carry I2C through pinmux. It is not a dedicated SDA or SCL pin.
+
+`MPU-6050` and `BNO055` record dedicated power, ground, SDA, and SCL pins. `AP2114H-3.3` records dedicated VIN, VOUT, and GND, and it has no I2C function. `AMS1117-3.3` stays on its voltage contract: the datasheet that was read names those pins and does not print a revision, so no pin function was added. `ESP32-WROOM-32`, `STM32F103C8T6`, and `RP2040` record dedicated power and ground, plus GPIO pins the datasheet allows for I2C as `gpio_candidate`. `DRV8833`, `TB6612FNG`, `L298N`, `PCA9306`, and `TXS0108E` keep their voltage contracts only. This release does not add bus pins to them.
+
+`rv parts show <mpn>` prints each function and its citation.
+
+These checks run only when a cited function exists and the netlist pin name or pin number matches that function. They do not replace `supply_abs_max` or `gpio_abs_max`.
+
+- `pin_function_mismatch` (`ERROR`): a dedicated SDA pin is on a net named `SCL` or `I2C_SCL`, or a dedicated SCL pin is on a net named `SDA` or `I2C_SDA`. A leading `/` is ignored. `expected.text` is the function signal. `observed.text` is the net as stored. `citations` is the datasheet citation.
+- `pin_bus_short` (`ERROR`): dedicated SDA and SCL of the same part land on one net. `expected.text` is `SDA and SCL on different nets`. `observed.text` is that net. `citations` lists the datasheet citations for those pins.
+
+A `gpio_candidate` does not produce these findings. A missing citation does not produce a finding.
+
+`rv scan --format json` and `architon-report.json` include `coverage`. It does not change the exit code. An unchecked pin is not a violation.
+
+- `proved.count` is the number of dedicated bus-pin checks that passed. `proved.rule_ids` lists `pin_function_mismatch` and `pin_bus_short` only when that rule passed at least once. A rule that only failed is not listed there.
+- `refused` is the existing `ERROR` and `WARN` findings. Each item has `rule_id`, `severity`, and the finding's `component_ref`, `net`, `pin`, `message`, `expected`, `observed`, and `citations` when those are set.
+- `not_checked` lists rows with `ref` and `reason`. `unmatched_part` is a part that did not match a built-in contract. `no_pin_function` is a pin on a matched part with no cited function; `pin` and `net` are set. `gpio_candidate` is a candidate pin on a net named `SDA`, `SCL`, `I2C_SDA`, or `I2C_SCL`.
+
+A pass in `proved` is a check that ran. A `gpio_candidate` on `I2C_SDA` stays in `not_checked`.
+
 ## User contracts
 
 User contracts represent system-level design intent.
