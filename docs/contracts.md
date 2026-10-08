@@ -36,6 +36,8 @@ Each function has a name, an optional number, a kind, and an optional signal. Th
 
 `rv parts show <mpn>` prints each function and its citation.
 
+`rv connections propose` writes a reviewable join proposal from these pin functions and the netlist. That file is not a scan result. See [Connection proposals](#connection-proposals).
+
 These checks run only when a cited function exists and the netlist pin name or pin number matches that function. They do not replace `supply_abs_max` or `gpio_abs_max`.
 
 - `pin_function_mismatch` (`ERROR`): a dedicated SDA pin is on a net named `SCL` or `I2C_SCL`, or a dedicated SCL pin is on a net named `SDA` or `I2C_SDA`. A leading `/` is ignored. `expected.text` is the function signal. `observed.text` is the net as stored. `citations` is the datasheet citation.
@@ -125,6 +127,85 @@ rv contracts validate .architon/contracts.draft.yaml
 ```
 
 `rv contracts validate` checks the draft schema only. That check is not a verification result. Use `rv scan --contracts .architon/contracts.draft.yaml` after reviewing the draft, including any pin tokens or power_budget currents you add.
+
+## Connection proposals
+
+`rv connections propose <path>` reads the same project directory or netlist path as `rv scan` and writes `.architon/connections.proposal.yaml`.
+
+The proposal is not a scan result. The command does not verify the design, does not call a model, does not read a PDF, and does not evaluate the proposal with the rule engine. It does not edit a KiCad schematic, netlist, or other KiCad file. It never writes `.architon/contracts.yaml`.
+
+If `.architon/connections.proposal.yaml` already exists, the command exits 3 and leaves that file unchanged. `--force` overwrites the proposal file only.
+
+A comment at the top says a decided entry is not a scan result, and a needs_choice entry is not accepted.
+
+The command matches parts to built-in pin functions, then reads nets from the imported design. A `gpio_candidate` pin cannot decide an entry. An unmatched part is left out. A function without a datasheet title, revision, and table or section is ignored.
+
+An entry is `decided` only when all of these are true:
+
+- Two different matched parts each have a dedicated pin function for the same signal. The signal is `SDA` or `SCL`.
+- One of those pins is already on a net.
+- The other pin is unconnected, or already on that same net.
+
+A decided entry names both refs, both pin names, the signal, the net, and both citations. Its status is `decided`. The pin name is the datasheet function name, so a BNO055 pad recorded as both `SDA` and `COM0` is named `SDA`.
+
+Net identity ignores leading `/` characters. `/I2C_SDA` and `I2C_SDA` are the same net. The displayed name prefers the form without a slash when both forms exist. A KiCad net whose name, ignoring leading slashes, starts with `unconnected` is unconnected. A pin that appears on no net is unconnected.
+
+If the other side is a matched part with only `gpio_candidate` pins for that signal, the command emits `needs_choice`. `ESP32-WROOM-32`, `STM32F103C8T6`, and `RP2040` are in this group: their power and ground pins stay dedicated, and their I2C-capable GPIOs stay candidates. The entry lists every candidate pin. Pins that share a number are one candidate with every datasheet name, such as `IO21` and `GPIO21`. Catalog order is kept. That order is not a ranking. The entry does not pick a candidate, and it does not mark any GPIO accepted.
+
+The choice names the net to join when the dedicated pins for that signal already agree on one net. A `gpio_candidate` that already sits on a net does not choose that net. When no dedicated pin is on a net, or dedicated pins disagree, the choice omits `net`.
+
+If a dedicated pin is already on a different net than the proposed signal net, the command emits `conflict` and does not propose a join. The conflict entry has no top-level `net`. Each part names the net its dedicated pin is already on.
+
+If nothing matches, the command exits 0 and writes an empty connections list with the same comment.
+
+Ids are stable across runs on the same connectivity. A pair id is the lowercase signal plus the two refs in lexicographic order, such as `sda-U2-U3`. A choice id is the signal plus the MCU ref, such as `sda-U1`.
+
+The command prints the proposal path, then `decided:`, `needs_choice:`, and `conflict:` counts. It does not print a design pass or fail.
+
+```bash
+rv connections propose .
+```
+
+```yaml
+# A decided entry is not a scan result, and a needs_choice entry is not accepted.
+connections:
+  - id: "sda-U2-U3"
+    status: decided
+    signal: SDA
+    net: I2C_SDA
+    parts:
+      - ref: U2
+        mpn: "MPU-6050"
+        pin: SDA
+        citation:
+          datasheet: "MPU-6000 and MPU-6050 Product Specification"
+          revision: "3.4"
+          section: "7.1 Pin Out and Signal Description"
+      - ref: U3
+        mpn: BNO055
+        pin: SDA
+        citation:
+          datasheet: "BNO055 Intelligent 9-axis absolute orientation sensor"
+          revision: "1.8"
+          table: "5-1 Pin description"
+          section: "5.1 Pin-out"
+  - id: "sda-U1"
+    status: needs_choice
+    signal: SDA
+    net: I2C_SDA
+    ref: U1
+    mpn: "ESP32-WROOM-32"
+    candidates:
+      - pins: [IO32, GPIO32]
+        number: "8"
+        citation:
+          datasheet: "ESP32-WROOM-32 Datasheet"
+          revision: "3.8"
+          table: "2 Pin Definitions"
+          section: "4.2.4 I2C Interface"
+```
+
+The real ESP32 choice continues with every cited `gpio_candidate`. When the dedicated SCL pins are unconnected, the SCL choice is a second `needs_choice` entry and it has no `net`.
 
 ## Interface contracts
 
