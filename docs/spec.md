@@ -173,7 +173,7 @@ rv parts list
 rv parts show ESP32-WROOM-32
 ```
 
-`rv parts show` prints cited pin functions. `rv connections propose <path>` writes `.architon/connections.proposal.yaml` from those functions and a netlist. That proposal is not a scan result. See [contracts.md](contracts.md).
+`rv parts show` prints cited pin functions. `rv connections propose <path>` writes `.architon/connections.proposal.yaml` from those functions and a netlist. That proposal is not a scan result. `rv connections apply <path>` adds net labels for entries marked `accepted`. See [contracts.md](contracts.md).
 
 The v0.3.1 built-in contract source covers `ESP32-WROOM-32`, `STM32F103C8T6`, `RP2040`, `MPU-6050`, `BNO055`, `AMS1117-3.3`, `AP2114H-3.3`, `DRV8833`, `TB6612FNG`, `L298N`, `PCA9306`, and `TXS0108E`.
 
