@@ -190,6 +190,7 @@ rv export <path>           Write Studio report and GraphIR under .architon/studi
 rv report <path>           Generate offline HTML reports for review/CI artifacts
 rv contracts draft <path>  Write a reviewable contracts draft from a netlist
 rv connections propose <path>  Write a reviewable connection proposal from pin functions
+rv connections apply <path>    Add net labels for accepted connection entries
 rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part, including cited pin functions

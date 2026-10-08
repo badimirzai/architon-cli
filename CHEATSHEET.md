@@ -27,6 +27,7 @@ rv scan . --kicad-cli /full/path/to/kicad-cli
                                       Use an explicit KiCad CLI binary
 rv contracts draft <path>             Write .architon/contracts.draft.yaml from a netlist
 rv connections propose <path>         Write .architon/connections.proposal.yaml from pin functions
+rv connections apply <path>           Add net labels for accepted entries in that proposal
 rv contracts validate contracts.yaml  Validate custom contract schema only
 rv parts list                         List built-in deterministic contract parts
 rv parts show ESP32-WROOM-32          Show one built-in contract part, including cited pin functions

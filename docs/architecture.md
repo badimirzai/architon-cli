@@ -150,6 +150,7 @@ Primary command:
 - `rv scan . --kicad-cli /full/path/to/kicad-cli`
 - `rv contracts draft <path>`
 - `rv connections propose <path>`
+- `rv connections apply <path>`
 - `rv contracts validate <path>`
 - `rv doctor`
 

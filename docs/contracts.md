@@ -36,7 +36,7 @@ Each function has a name, an optional number, a kind, and an optional signal. Th
 
 `rv parts show <mpn>` prints each function and its citation.
 
-`rv connections propose` writes a reviewable join proposal from these pin functions and the netlist. That file is not a scan result. See [Connection proposals](#connection-proposals).
+`rv connections propose` writes a reviewable join proposal from these pin functions and the netlist. That file is not a scan result. `rv connections apply` adds net labels for entries marked `accepted`. See [Connection proposals](#connection-proposals).
 
 These checks run only when a cited function exists and the netlist pin name or pin number matches that function. They do not replace `supply_abs_max` or `gpio_abs_max`.
 
@@ -206,6 +206,24 @@ connections:
 ```
 
 The real ESP32 choice continues with every cited `gpio_candidate`. When the dedicated SCL pins are unconnected, the SCL choice is a second `needs_choice` entry and it has no `net`.
+
+### Applying an accepted entry
+
+`rv connections apply <path>` reads `.architon/connections.proposal.yaml` and the project schematics. It adds a KiCad net label for each unconnected pin named by an entry whose status is `accepted`.
+
+The command does not scan, does not call a model, and does not draw wires. It does not edit a `.kicad_pcb`. It does not move a symbol, and it does not add a no-connect or a new symbol.
+
+`decided` is not `accepted`. A person or a later tool changes that status. `needs_choice` and `conflict` are never applied.
+
+For one accepted entry, both pins must already be on a schematic. The pin is matched by reference and by pin name or pin number. A missing pin, a pin already on a different net, or a pin with a no-connect exits 3 and writes nothing. A pin already on the proposal net is left as it is. An unconnected pin gets one local label at that pin's connection point. The label uses the form saved by KiCad 9 (`version 20250114`): `(label "NAME" (at x y 0) ...)`.
+
+Every accepted entry is applied, or none are. On failure the schematic bytes are restored.
+
+The command prints the schematic paths that changed and the entry ids applied. It does not print a pass or fail. Run `rv scan` or the verify tool to see the verdict.
+
+```bash
+rv connections apply .
+```
 
 ## Interface contracts
 
