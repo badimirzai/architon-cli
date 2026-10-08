@@ -97,6 +97,23 @@ func newPartsShowCmd() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout())
 			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Pin functions:")
+			if len(part.PinFunctions) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "- none")
+				return nil
+			}
+			for _, fn := range part.PinFunctions {
+				fmt.Fprintf(cmd.OutOrStdout(), "- %s", fn.Name)
+				if fn.Number != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), " number=%s", fn.Number)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), " kind=%s", fn.Kind)
+				if fn.Signal != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), " signal=%s", fn.Signal)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+				fmt.Fprintf(cmd.OutOrStdout(), "  citation: %s\n", fn.Citation.String())
+			}
 			return nil
 		},
 	}

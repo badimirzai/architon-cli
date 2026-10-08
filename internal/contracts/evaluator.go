@@ -45,6 +45,7 @@ type Finding struct {
 	Provenance          Provenance         `json:"provenance,omitempty"`
 	Fix                 string             `json:"fix,omitempty"`
 	WhyThisMatters      string             `json:"why_this_matters,omitempty"`
+	Citations           []Citation         `json:"citations,omitempty"`
 }
 
 // EnabledRuleIDs returns the deterministic contract evaluator rule set.
@@ -70,14 +71,19 @@ func EnabledRuleIDs() []string {
 		RuleSPICSShared,
 		RulePowerBudgetExceeded,
 		RulePowerMarginLow,
+		RulePinFunctionMismatch,
+		RulePinBusShort,
 	}
 }
 
 // Evaluate runs deterministic contract requirements that are not represented by
 // the older generic ContractIR rules.
 func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
-	if design == nil || contractIR == nil || len(contractIR.AppliedRequirements) == 0 {
+	if design == nil || contractIR == nil {
 		return nil
+	}
+	if len(contractIR.AppliedRequirements) == 0 {
+		return finishContractFindings(AnalyzePinFunctions(design, contractIR).Findings)
 	}
 
 	reqs := append([]AppliedRequirement(nil), contractIR.AppliedRequirements...)
@@ -258,6 +264,16 @@ func Evaluate(design *ir.DesignIR, contractIR *ContractIR) []Finding {
 		}
 	}
 
+	findings = append(findings, AnalyzePinFunctions(design, contractIR).Findings...)
+	return finishContractFindings(findings)
+}
+
+// finishContractFindings normalizes, dedupes, and sorts contract findings.
+// An empty result stays nil so callers can treat "no findings" as a nil slice.
+func finishContractFindings(findings []Finding) []Finding {
+	if len(findings) == 0 {
+		return nil
+	}
 	normalizeContractFindings(findings)
 	// connected and terminated can both name the same missing net. Keep one finding.
 	findings = dedupeInterfaceNetMissing(findings)

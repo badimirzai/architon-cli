@@ -12,10 +12,11 @@ import (
 )
 
 type scanCIReport struct {
-	ReportVersion string          `json:"report_version"`
-	RVVersion     string          `json:"rv_version"`
-	Summary       scanCISummary   `json:"summary"`
-	Findings      []scanCIFinding `json:"findings"`
+	ReportVersion string                  `json:"report_version"`
+	RVVersion     string                  `json:"rv_version"`
+	Summary       scanCISummary           `json:"summary"`
+	Findings      []scanCIFinding         `json:"findings"`
+	Coverage      contracts.CheckCoverage `json:"coverage"`
 }
 
 type scanCISummary struct {
@@ -49,6 +50,8 @@ type scanCIFinding struct {
 	// Expected and Observed are copied from the scan finding. Nil stays omitted.
 	Expected *contracts.Evidence `json:"expected,omitempty"`
 	Observed *contracts.Evidence `json:"observed,omitempty"`
+	// Citations are datasheet locations copied from a pin-function finding.
+	Citations []contracts.Citation `json:"citations,omitempty"`
 	// DesignFixable is true when a schematic or contract edit can clear the finding.
 	// Parse and tool failures stay false.
 	DesignFixable bool `json:"design_fixable"`
@@ -57,6 +60,7 @@ type scanCIFinding struct {
 func scanRenderCIJSON(result report.VerificationReport, inputPath string) ([]byte, error) {
 	payload := scanBuildCIReport(result, inputPath)
 	payload.Findings = append(payload.Findings, scanParseFailureFindings(result)...)
+	payload.Coverage.Refused = scanRefusedFromCI(payload.Findings)
 	return json.MarshalIndent(payload, "", "  ")
 }
 
@@ -80,6 +84,7 @@ func scanBuildCIReport(result report.VerificationReport, inputPath string) scanC
 	return scanCIReport{
 		ReportVersion: report.SchemaVersion,
 		RVVersion:     version.Get().Version,
+		Coverage:      scanCopyCoverage(result.Coverage),
 		Summary: scanCISummary{
 			InputPath:              inputPath,
 			Source:                 result.Summary.Source,
@@ -128,8 +133,84 @@ func scanBuildCIFinding(finding report.RuleResult) scanCIFinding {
 		Provenance:     scanFindingProvenance(finding),
 		Expected:       finding.Expected,
 		Observed:       finding.Observed,
+		Citations:      append([]contracts.Citation(nil), finding.Citations...),
 		DesignFixable:  scanFindingDesignFixable(finding),
 	}
+}
+
+// scanCopyCoverage copies proved and not_checked from the scan report.
+// Refused is filled from the CI findings after parse errors are appended.
+func scanCopyCoverage(coverage *contracts.CheckCoverage) contracts.CheckCoverage {
+	out := contracts.CheckCoverage{
+		Proved:     contracts.ProvedCoverage{RuleIDs: []string{}},
+		Refused:    []contracts.RefusedFinding{},
+		NotChecked: []contracts.UncheckedItem{},
+	}
+	if coverage == nil {
+		return out
+	}
+	out.Proved.Count = coverage.Proved.Count
+	if len(coverage.Proved.RuleIDs) > 0 {
+		out.Proved.RuleIDs = append([]string{}, coverage.Proved.RuleIDs...)
+	}
+	if len(coverage.NotChecked) > 0 {
+		out.NotChecked = append([]contracts.UncheckedItem{}, coverage.NotChecked...)
+	}
+	return out
+}
+
+// scanRefusedFindings copies ERROR and WARN report findings into coverage.
+// INFO findings and unchecked pins stay out. This does not change the exit code.
+func scanRefusedFindings(findings []report.RuleResult) []contracts.RefusedFinding {
+	out := make([]contracts.RefusedFinding, 0)
+	for _, finding := range findings {
+		severity := normalizeSeverity(finding.Severity)
+		if severity != "ERROR" && severity != "WARN" {
+			continue
+		}
+		ruleID := strings.TrimSpace(finding.RuleID)
+		if ruleID == "" {
+			ruleID = strings.TrimSpace(finding.ID)
+		}
+		ref := strings.TrimSpace(finding.ComponentRef)
+		if ref == "" {
+			ref = strings.TrimSpace(finding.Ref)
+		}
+		out = append(out, contracts.RefusedFinding{
+			RuleID:       ruleID,
+			Severity:     severity,
+			ComponentRef: ref,
+			Net:          strings.TrimSpace(finding.Net),
+			Pin:          strings.TrimSpace(finding.Pin),
+			Message:      strings.TrimSpace(finding.Message),
+			Expected:     finding.Expected,
+			Observed:     finding.Observed,
+			Citations:    append([]contracts.Citation(nil), finding.Citations...),
+		})
+	}
+	return out
+}
+
+func scanRefusedFromCI(findings []scanCIFinding) []contracts.RefusedFinding {
+	out := make([]contracts.RefusedFinding, 0)
+	for _, finding := range findings {
+		severity := normalizeSeverity(finding.Severity)
+		if severity != "ERROR" && severity != "WARN" {
+			continue
+		}
+		out = append(out, contracts.RefusedFinding{
+			RuleID:       strings.TrimSpace(finding.RuleID),
+			Severity:     severity,
+			ComponentRef: strings.TrimSpace(finding.ComponentRef),
+			Net:          strings.TrimSpace(finding.Net),
+			Pin:          strings.TrimSpace(finding.Pin),
+			Message:      strings.TrimSpace(finding.Message),
+			Expected:     finding.Expected,
+			Observed:     finding.Observed,
+			Citations:    append([]contracts.Citation(nil), finding.Citations...),
+		})
+	}
+	return out
 }
 
 // scanFindingDesignFixable reports whether a schematic or contract edit can clear the finding.

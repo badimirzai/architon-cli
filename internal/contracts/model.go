@@ -45,6 +45,10 @@ const (
 	RulePowerBudgetExceeded = "power_budget_exceeded"
 	// Declared load is within the source limit, and remaining margin is below the contract minimum.
 	RulePowerMarginLow = "power_margin_low"
+	// A dedicated SDA pin is on a net named SCL or I2C_SCL, or a dedicated SCL pin is on SDA or I2C_SDA.
+	RulePinFunctionMismatch = "pin_function_mismatch"
+	// Dedicated SDA and SCL of one part land on the same net.
+	RulePinBusShort = "pin_bus_short"
 )
 
 // ContractSourceKind is the report-facing provenance enum for contract-backed
@@ -62,14 +66,16 @@ const (
 // small: it describes known electrical requirements for one concrete MPN or
 // alias set, not a generic searchable parts database.
 type SystemContract struct {
-	ID           string             `json:"id,omitempty"`
-	MPN          string             `json:"mpn"`
-	Manufacturer string             `json:"manufacturer,omitempty"`
-	Aliases      []string           `json:"aliases,omitempty"`
-	Description  string             `json:"description,omitempty"`
-	Scope        ContractScope      `json:"scope,omitempty"`
-	Requirements []Requirement      `json:"requirements"`
-	GroundPins   []string           `json:"-"`
+	ID           string        `json:"id,omitempty"`
+	MPN          string        `json:"mpn"`
+	Manufacturer string        `json:"manufacturer,omitempty"`
+	Aliases      []string      `json:"aliases,omitempty"`
+	Description  string        `json:"description,omitempty"`
+	Scope        ContractScope `json:"scope,omitempty"`
+	Requirements []Requirement `json:"requirements"`
+	GroundPins   []string      `json:"-"`
+	// PinFunctions are cited datasheet pins. They are not inferred currents.
+	PinFunctions []PinFunction      `json:"pin_functions,omitempty"`
 	SourceKind   ContractSourceKind `json:"source_kind,omitempty"`
 	ContractFile string             `json:"contract_file,omitempty"`
 	Provenance   Provenance         `json:"provenance"`
