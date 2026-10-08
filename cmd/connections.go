@@ -20,12 +20,14 @@ func init() {
 func newConnectionsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "connections",
-		Short: "Propose reviewable connections from pin functions",
-		Long: `Propose reviewable connections from built-in pin functions and a netlist.
+		Short: "Propose and apply reviewable connections",
+		Long: `Propose reviewable connections from built-in pin functions, then apply accepted entries.
 
-  rv connections propose <path>  Write .architon/connections.proposal.yaml. This is not a scan result.`,
+  rv connections propose <path>  Write .architon/connections.proposal.yaml. This is not a scan result.
+  rv connections apply <path>    Add net labels for accepted entries. This does not scan.`,
 	}
 	cmd.AddCommand(newConnectionsProposeCmd())
+	cmd.AddCommand(newConnectionsApplyCmd())
 	return cmd
 }
 
