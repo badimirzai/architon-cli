@@ -45,6 +45,7 @@ type RuleResult struct {
 	Provenance          *contracts.Provenance `json:"provenance,omitempty"`
 	Fix                 string                `json:"fix,omitempty"`
 	WhyThisMatters      string                `json:"why_this_matters,omitempty"`
+	Citations           []contracts.Citation  `json:"citations,omitempty"`
 	Inference           *InferenceProvenance  `json:"inference,omitempty"`
 }
 
@@ -95,7 +96,10 @@ type VerificationReport struct {
 	Findings         []RuleResult               `json:"findings"` // Canonical; future Studio consumers should use findings.
 	Rules            []RuleResult               `json:"rules"`    // Deprecated alias kept only for backward compatibility.
 	ContractCoverage *contracts.CoverageSummary `json:"contract_coverage,omitempty"`
-	Derived          *Derived                   `json:"derived,omitempty"`
+	// Coverage separates checks that passed, ERROR and WARN findings, and pins that were not checked.
+	// It does not change the exit code.
+	Coverage *contracts.CheckCoverage `json:"coverage,omitempty"`
+	Derived  *Derived                 `json:"derived,omitempty"`
 }
 
 // Derived stores non-authoritative analysis data that supports findings.

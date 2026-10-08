@@ -55,6 +55,8 @@ type ComponentContract struct {
 	Pins       map[string]PinContract `json:"pins,omitempty"`
 	VoltageMax *float64               `json:"voltage_max,omitempty"`
 	Source     string                 `json:"source,omitempty"`
+	// PinFunctions are copied from a matched built-in contract. A missing citation is not stored.
+	PinFunctions []PinFunction `json:"pin_functions,omitempty"`
 }
 
 // PinContract is the rule-facing electrical contract for a single component pin.
@@ -254,6 +256,9 @@ func (c *ContractIR) Merge(other *ContractIR) {
 		}
 		if existing.Source == "" {
 			existing.Source = component.Source
+		}
+		if len(existing.PinFunctions) == 0 && len(component.PinFunctions) > 0 {
+			existing.PinFunctions = clonePinFunctions(component.PinFunctions)
 		}
 		if existing.Pins == nil {
 			existing.Pins = map[string]PinContract{}

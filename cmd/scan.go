@@ -468,6 +468,12 @@ func runScanPipeline(inputPath string, opts scanPipelineOptions) (scanPipelineRe
 	designReport.Summary.ContractCoveragePercentage = coverage.CoveragePercentage
 	designReport.Summary.UnknownPowerCriticalRefs = coverage.UnknownPowerCriticalRefs
 	designReport.Summary.EnabledContractRules = coverage.EnabledContractRules
+	pinAnalysis := contracts.AnalyzePinFunctions(design, contractIR)
+	designReport.Coverage = &contracts.CheckCoverage{
+		Proved:     pinAnalysis.Proved,
+		Refused:    scanRefusedFindings(designReport.Findings),
+		NotChecked: pinAnalysis.NotChecked,
+	}
 
 	return scanPipelineResult{
 		Input:           resolvedInput,
@@ -1386,6 +1392,7 @@ func scanReportContractResults(findings []contracts.Finding, inferencesByNet map
 			Requirement:         finding.Requirement,
 			WhyThisMatters:      finding.WhyThisMatters,
 			Fix:                 finding.Fix,
+			Citations:           append([]contracts.Citation(nil), finding.Citations...),
 		}
 		if finding.Provenance.Source != "" {
 			prov := finding.Provenance

@@ -53,6 +53,7 @@ func (s BuiltinPartsSource) Enrich(design *ir.DesignIR) (*ContractIR, error) {
 		component := out.EnsureComponent(part.Ref)
 		component.MPN = match.Contract.MPN
 		component.Source = s.Name()
+		component.PinFunctions = clonePinFunctions(match.Contract.PinFunctions)
 		out.PutComponent(component)
 		out.PartMatches = append(out.PartMatches, PartMatch{
 			Ref:         part.Ref,
@@ -276,6 +277,9 @@ func BuiltinContracts() []SystemContract {
 			Provenance: builtInProvenance("TXS0108E"),
 		},
 	}
+	for i := range contracts {
+		contracts[i].PinFunctions = builtInPinFunctions(contracts[i].MPN)
+	}
 	sort.Slice(contracts, func(i, j int) bool { return contracts[i].MPN < contracts[j].MPN })
 	return cloneSystemContracts(contracts)
 }
@@ -354,6 +358,7 @@ func cloneSystemContracts(in []SystemContract) []SystemContract {
 		out[i] = contract
 		out[i].Aliases = cloneStrings(contract.Aliases)
 		out[i].GroundPins = cloneStrings(contract.GroundPins)
+		out[i].PinFunctions = clonePinFunctions(contract.PinFunctions)
 		out[i].Scope.Pins = cloneStrings(contract.Scope.Pins)
 		out[i].Scope.Nets = cloneI2CBusNets(contract.Scope.Nets)
 		out[i].Requirements = make([]Requirement, len(contract.Requirements))
