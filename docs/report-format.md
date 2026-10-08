@@ -112,6 +112,8 @@ On parse failures, the report still includes `report_version`, `design_ir.versio
 
 `summary.next_steps` appears only when parse failures are present.
 
+`summary.source_revision` is optional. When the summary has no source revision and `RV_SOURCE_REVISION` is non-empty, the written report sets `source_revision` to that value. An empty variable omits the field. The scan exit code is unchanged.
+
 `summary.user_contracts_loaded`, `summary.built_in_contracts_loaded`, `summary.requirements_enabled`, `summary.parts_matched`, `summary.part_contract_coverage_percentage`, `summary.unknown_power_critical_refs`, and `summary.enabled_contract_rules` describe deterministic contract loading and coverage.
 
 `summary.contracts_applied` and `summary.contract_coverage_percentage` remain as deprecated compatibility aliases for one release.

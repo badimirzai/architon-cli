@@ -100,6 +100,12 @@ docker run --rm --pull always --network none -v "$PWD":/project ghcr.io/badimirz
 
 It writes `.architon/studio/report.json` and `.architon/studio/graph.json` and exits with the `rv export` code. `--pull always` fetches the latest release before each run. `--network none` keeps the run offline, which is the supported way to run it. On Linux, add `--user "$(id -u):$(id -g)"` so the image can write to your project. To pin a release, use `ghcr.io/badimirzai/architon:v0.15.0`. See [docs/CLI.md](docs/CLI.md#container-image).
 
+### GitHub Actions for a hardware repository
+
+Copy [`dist/github/architon.yaml`](dist/github/architon.yaml) to `.github/workflows/architon.yaml` in the hardware project. On each pull request and each push to `main`, that workflow checks out the repository and runs `rv export .` in `ghcr.io/badimirzai/architon:v0.17.0`, with the repo mounted at `/project`. It uploads `.architon/studio/report.json` and `.architon/studio/graph.json`, and on a pull request it comments the export exit code and a Studio link for that commit. Update the image pin in `dist/github/architon.yaml` when a release is cut. Details are in [docs/ci.md](docs/ci.md).
+
+[`.github/workflows/architon-example.yml`](.github/workflows/architon-example.yml) remains the workflow for this source repository. It compiles `rv` and scans fixtures.
+
 ---
 
 ## Scan a real KiCad project (30 seconds)
@@ -194,7 +200,7 @@ Detailed CLI examples, scan behavior, import modes, rail inference, and advanced
 - [docs/CLI.md](docs/CLI.md)
 - [docs/mcp.md](docs/mcp.md) — local MCP server: what `verify` checks, and Cursor and Claude setup
 - [docs/contracts.md](docs/contracts.md) — contracts, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
-- [docs/ci.md](docs/ci.md)
+- [docs/ci.md](docs/ci.md) — GitHub Actions and the hardware workflow to copy
 - [docs/graph-ir.md](docs/graph-ir.md)
 - [docs/importers.md](docs/importers.md)
 - [docs/rail-inference.md](docs/rail-inference.md)
@@ -251,7 +257,7 @@ No probabilistic models or network calls are used. Validation operates only on t
 Detailed technical documentation is available in `docs/`:
 
 - [docs/architecture.md](docs/architecture.md) — engine architecture and system design
-- [docs/ci.md](docs/ci.md) — GitHub Actions, PR comments, and scan artifacts
+- [docs/ci.md](docs/ci.md) — GitHub Actions, the hardware workflow to copy, PR comments, and scan artifacts
 - [docs/contracts.md](docs/contracts.md) — built-in and user system contracts, and the [scan loop](docs/contracts.md#scan-loop)
 - [docs/importers.md](docs/importers.md) — KiCad/BOM/netlist import behavior
 - [docs/rail-inference.md](docs/rail-inference.md) — rail voltage inference and coverage
