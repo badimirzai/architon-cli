@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/badimirzai/architon-cli/internal/importers/kicad"
 	"gopkg.in/yaml.v3"
 )
 
@@ -327,4 +328,410 @@ const i2cProposalNetlist = `(export
       (node (ref "U1") (pin "33") (pinfunction "IO21")))
     (net (code "3") (name "+3V3")
       (node (ref "U2") (pin "13") (pinfunction "VDD")))))
+`
+
+func TestConnectionsApplyAcceptedSDALabels(t *testing.T) {
+	dir := t.TempDir()
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+	schPath := filepath.Join(root, "board.kicad_sch")
+	childPath := filepath.Join(root, "sheets", "child.kicad_sch")
+	pcbPath := filepath.Join(root, "board.kicad_pcb")
+	contractsPath := filepath.Join(root, ".architon", "contracts.yaml")
+	proposalPath := filepath.Join(root, ".architon", "connections.proposal.yaml")
+	schBefore := []byte(twoSDASchematic())
+	childBefore := []byte(indentKiCad(`(kicad_sch
+>(version 20250114)
+>(generator "eeschema")
+>(generator_version "9.0")
+>(uuid "99999999-9999-4999-8999-999999999999")
+>(paper "A4")
+>(embedded_fonts no)
+)
+`))
+	pcbBefore := []byte("(kicad_pcb (version 20241229))\n")
+	contractsBefore := []byte("contracts: []\n")
+	proposalBefore := []byte(acceptedSDAProposal)
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, childPath, string(childBefore))
+	writeScanTestFile(t, pcbPath, string(pcbBefore))
+	writeScanTestFile(t, contractsPath, string(contractsBefore))
+	writeScanTestFile(t, proposalPath, string(proposalBefore))
+
+	stdout, err := runConnectionsCommand(t, "apply", dir)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if stdout != schPath+"\nsda-U2-U3\nRun rv scan or the verify tool.\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Contains(stdout, "PASS") || strings.Contains(stdout, "FAIL") || strings.Contains(stdout, "violations") || strings.Contains(stdout, "ARCHITON") {
+		t.Fatalf("apply printed a verdict: %q", stdout)
+	}
+	got, err := os.ReadFile(schPath)
+	if err != nil {
+		t.Fatalf("read schematic: %v", err)
+	}
+	assertOnlyNetLabelsInserted(t, string(schBefore), string(got), "100 80", "130 80")
+	if strings.Contains(string(got), "(wire") || strings.Contains(string(got), "(no_connect") {
+		t.Fatal("apply added a wire or no-connect")
+	}
+	assertBytesUnchanged(t, childPath, childBefore)
+	assertBytesUnchanged(t, pcbPath, pcbBefore)
+	assertBytesUnchanged(t, contractsPath, contractsBefore)
+	assertBytesUnchanged(t, proposalPath, proposalBefore)
+	if _, statErr := os.Stat(filepath.Join(root, "architon-report.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("apply wrote a scan report: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".architon", "generated.net")); !os.IsNotExist(statErr) {
+		t.Fatalf("apply wrote a netlist: %v", statErr)
+	}
+
+	info, err := os.Stat(schPath)
+	if err != nil {
+		t.Fatalf("stat schematic: %v", err)
+	}
+	stdout, err = runConnectionsCommand(t, "apply", dir)
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if stdout != "sda-U2-U3\nRun rv scan or the verify tool.\n" {
+		t.Fatalf("second stdout = %q", stdout)
+	}
+	assertBytesUnchanged(t, schPath, got)
+	infoAfter, err := os.Stat(schPath)
+	if err != nil {
+		t.Fatalf("stat schematic after second apply: %v", err)
+	}
+	if !infoAfter.ModTime().Equal(info.ModTime()) || infoAfter.Size() != info.Size() {
+		t.Fatal("second apply rewrote the schematic")
+	}
+	assertBytesUnchanged(t, childPath, childBefore)
+	assertBytesUnchanged(t, pcbPath, pcbBefore)
+	assertBytesUnchanged(t, proposalPath, proposalBefore)
+}
+
+func TestConnectionsApplySkipsUndecidedEntries(t *testing.T) {
+	dir := t.TempDir()
+	schPath := filepath.Join(dir, "board.kicad_sch")
+	schBefore := []byte(twoSDASchematic())
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, filepath.Join(dir, ".architon", "connections.proposal.yaml"), undecidedConnectionsProposal)
+
+	stdout, err := runConnectionsCommand(t, "apply", dir)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if stdout != "Run rv scan or the verify tool.\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	assertBytesUnchanged(t, schPath, schBefore)
+}
+
+func TestConnectionsApplyDifferentNetWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	schPath := filepath.Join(dir, "board.kicad_sch")
+	pcbPath := filepath.Join(dir, "board.kicad_pcb")
+	schBefore := []byte(schematicWithOtherNet(twoSDASchematic()))
+	pcbBefore := []byte("(kicad_pcb (version 20241229))\n")
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, pcbPath, string(pcbBefore))
+	writeScanTestFile(t, filepath.Join(dir, ".architon", "connections.proposal.yaml"), acceptedSDAProposal)
+
+	stdout, err := runConnectionsCommand(t, "apply", dir)
+	if err == nil {
+		t.Fatal("expected a pin on another net to fail")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("expected exit 3, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "pin U2 SDA is already on net OTHER") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	assertBytesUnchanged(t, schPath, schBefore)
+	assertBytesUnchanged(t, pcbPath, pcbBefore)
+}
+
+func TestConnectionsApplyMissingPinWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	schPath := filepath.Join(dir, "board.kicad_sch")
+	schBefore := []byte(twoSDASchematic())
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, filepath.Join(dir, ".architon", "connections.proposal.yaml"), strings.Replace(acceptedSDAProposal, "ref: U3", "ref: U9", 1))
+
+	stdout, err := runConnectionsCommand(t, "apply", dir)
+	if err == nil {
+		t.Fatal("expected a missing pin to fail")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("expected exit 3, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "pin U9 SDA not found") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	assertBytesUnchanged(t, schPath, schBefore)
+}
+
+func TestAcceptedEntriesKeepNumericPins(t *testing.T) {
+	entries, err := acceptedNetLabelEntries([]byte(`
+connections:
+  - id: sda-U2-U3
+    status: accepted
+    net: I2C_SDA
+    parts:
+      - ref: U2
+        pin: 1
+      - ref: U3
+        pin: "24"
+  - id: sda-U1
+    status: needs_choice
+    net: I2C_SDA
+    ref: U1
+  - id: sda-U4-U5
+    status: decided
+    net: I2C_SDA
+    parts:
+      - ref: U4
+        pin: SDA
+      - ref: U5
+        pin: SDA
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "sda-U2-U3" || entries[0].Net != "I2C_SDA" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if entries[0].Pins[0] != (kicad.NetLabelPin{Ref: "U2", Pin: "1"}) || entries[0].Pins[1] != (kicad.NetLabelPin{Ref: "U3", Pin: "24"}) {
+		t.Fatalf("pins = %+v", entries[0].Pins)
+	}
+}
+
+func assertOnlyNetLabelsInserted(t *testing.T, before string, after string, positions ...string) {
+	t.Helper()
+	idx := strings.LastIndex(before, ")")
+	if idx < 0 {
+		t.Fatal("schematic has no closing parenthesis")
+	}
+	if !strings.HasPrefix(after, before[:idx]) || !strings.HasSuffix(after, before[idx:]) {
+		t.Fatal("schematic changed outside the inserted labels")
+	}
+	inserted := after[idx : len(after)-len(before[idx:])]
+	if strings.Contains(inserted, "(wire") || strings.Contains(inserted, "(symbol") || strings.Contains(inserted, "(no_connect") {
+		t.Fatalf("inserted more than labels:\n%s", inserted)
+	}
+	if strings.Count(inserted, "(label \"I2C_SDA\"") != len(positions) {
+		t.Fatalf("inserted labels:\n%s", inserted)
+	}
+	for _, position := range positions {
+		needle := "\t(label \"I2C_SDA\"\n\t\t(at " + position + " 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t\t(justify left bottom)\n\t\t)\n\t\t(uuid \""
+		if !strings.Contains(inserted, needle) {
+			t.Fatalf("label at %s missing:\n%s", position, inserted)
+		}
+	}
+}
+
+func schematicWithOtherNet(base string) string {
+	extra := indentKiCad(`>(wire
+>>(pts
+>>>(xy 100 80) (xy 100 60)
+>>)
+>>(stroke
+>>>(width 0)
+>>>(type default)
+>>)
+>>(uuid "44444444-4444-4444-8444-444444444444")
+>)
+>(label "OTHER"
+>>(at 100 60 0)
+>>(effects
+>>>(font
+>>>>(size 1.27 1.27)
+>>>)
+>>>(justify left bottom)
+>>)
+>>(uuid "55555555-5555-4555-8555-555555555555")
+>)
+`)
+	const marker = "\t(embedded_fonts no)\n"
+	if !strings.Contains(base, marker) {
+		panic("schematic marker missing")
+	}
+	return strings.Replace(base, marker, extra+marker, 1)
+}
+
+func indentKiCad(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		n := 0
+		for n < len(line) && line[n] == '>' {
+			n++
+		}
+		if n > 0 {
+			lines[i] = strings.Repeat("\t", n) + line[n:]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func twoSDASchematic() string {
+	return indentKiCad(`(kicad_sch
+>(version 20250114)
+>(generator "eeschema")
+>(generator_version "9.0")
+>(uuid "11111111-1111-4111-8111-111111111111")
+>(paper "A4")
+>(lib_symbols
+>>(symbol "Sensor:Part"
+>>>(symbol "Part_1_1"
+>>>>(pin bidirectional line
+>>>>>(at 0 0 0)
+>>>>>(length 2.54)
+>>>>>(name "SDA"
+>>>>>>(effects
+>>>>>>>(font
+>>>>>>>(size 1.27 1.27)
+>>>>>>)
+>>>>>)
+>>>>)
+>>>>>(number "1"
+>>>>>>(effects
+>>>>>>>(font
+>>>>>>>(size 1.27 1.27)
+>>>>>>)
+>>>>>)
+>>>>)
+>>>>)
+>>>)
+>>)
+>)
+>(symbol
+>>(lib_id "Sensor:Part")
+>>(at 100 80 0)
+>>(unit 1)
+>>(exclude_from_sim no)
+>>(in_bom yes)
+>>(on_board yes)
+>>(dnp no)
+>>(uuid "22222222-2222-4222-8222-222222222222")
+>>(property "Reference" "U2"
+>>>(at 100 70 0)
+>>>(effects
+>>>>(font
+>>>>>(size 1.27 1.27)
+>>>>)
+>>>)
+>>)
+>>(pin "1"
+>>>(uuid "33333333-3333-4333-8333-333333333333")
+>>)
+>>(instances
+>>>(project "fixture"
+>>>>(path "/11111111-1111-4111-8111-111111111111"
+>>>>>(reference "U2")
+>>>>>(unit 1)
+>>>>)
+>>>)
+>>)
+>)
+>(symbol
+>>(lib_id "Sensor:Part")
+>>(at 130 80 0)
+>>(unit 1)
+>>(exclude_from_sim no)
+>>(in_bom yes)
+>>(on_board yes)
+>>(dnp no)
+>>(uuid "66666666-6666-4666-8666-666666666666")
+>>(property "Reference" "U3"
+>>>(at 130 70 0)
+>>>(effects
+>>>>(font
+>>>>>(size 1.27 1.27)
+>>>>)
+>>>)
+>>)
+>>(pin "1"
+>>>(uuid "77777777-7777-4777-8777-777777777777")
+>>)
+>>(instances
+>>>(project "fixture"
+>>>>(path "/11111111-1111-4111-8111-111111111111"
+>>>>>(reference "U3")
+>>>>>(unit 1)
+>>>>)
+>>>)
+>>)
+>)
+>(embedded_fonts no)
+)
+`)
+}
+
+const acceptedSDAProposal = `# A decided entry is not a scan result, and a needs_choice entry is not accepted.
+connections:
+  - id: "sda-U2-U3"
+    status: accepted
+    signal: SDA
+    net: I2C_SDA
+    parts:
+      - ref: U2
+        mpn: "MPU-6050"
+        pin: SDA
+        citation:
+          datasheet: "MPU-6000 and MPU-6050 Product Specification"
+          revision: "3.4"
+          section: "7.1 Pin Out and Signal Description"
+      - ref: U3
+        mpn: BNO055
+        pin: SDA
+        citation:
+          datasheet: "BNO055 Intelligent 9-axis absolute orientation sensor"
+          revision: "1.8"
+          table: "5-1 Pin description"
+          section: "5.1 Pin-out"
+`
+
+const undecidedConnectionsProposal = `# A decided entry is not a scan result, and a needs_choice entry is not accepted.
+connections:
+  - id: "sda-U2-U3"
+    status: decided
+    signal: SDA
+    net: I2C_SDA
+    parts:
+      - ref: U2
+        mpn: "MPU-6050"
+        pin: SDA
+      - ref: U3
+        mpn: BNO055
+        pin: SDA
+  - id: "sda-U1"
+    status: needs_choice
+    signal: SDA
+    net: I2C_SDA
+    ref: U1
+    mpn: "ESP32-WROOM-32"
+    candidates:
+      - pins: [IO21, GPIO21]
+        number: "33"
+  - id: "scl-U2-U3"
+    status: conflict
+    signal: SCL
+    parts:
+      - ref: U2
+        pin: SCL
+        net: SCL_A
+      - ref: U3
+        pin: SCL
+        net: SCL_B
 `
