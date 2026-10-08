@@ -23,6 +23,7 @@ Quick help:
   rv export <path>           Write Studio report and GraphIR under .architon/studio/
   rv report <path>           Generate a static offline HTML report
   rv contracts draft <path>  Write a reviewable contracts draft from a netlist
+  rv connections propose <path>  Write a reviewable connection proposal from pin functions
   rv contracts validate      Validate a custom contracts.yaml schema only
   rv parts list              List built-in deterministic contract parts
   rv init                    Initialize Architon metadata or write a starter robot spec
