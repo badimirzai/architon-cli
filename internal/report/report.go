@@ -61,6 +61,7 @@ type InferenceProvenance struct {
 type Summary struct {
 	Source                         string   `json:"source"`
 	SourceImporter                 string   `json:"source_importer,omitempty"`
+	SourceRevision                 string   `json:"source_revision,omitempty"` // Commit SHA from RV_SOURCE_REVISION when this summary has none.
 	InputFile                      string   `json:"input_file"`
 	Parts                          int      `json:"parts"`
 	Pins                           int      `json:"pins,omitempty"`
@@ -158,9 +159,28 @@ func NewVerificationReport(design *ir.DesignIR) VerificationReport {
 	}
 }
 
+// envSourceRevision is the commit SHA a CI job can attach to the report.
+const envSourceRevision = "RV_SOURCE_REVISION"
+
+// applySourceRevision sets summary.source_revision from RV_SOURCE_REVISION
+// when the summary does not already have one. An empty variable leaves the
+// field blank so JSON omitempty drops it. Exit codes do not read this field.
+func applySourceRevision(summary Summary) Summary {
+	if strings.TrimSpace(summary.SourceRevision) != "" {
+		return summary
+	}
+	revision := strings.TrimSpace(os.Getenv(envSourceRevision))
+	if revision == "" {
+		return summary
+	}
+	summary.SourceRevision = revision
+	return summary
+}
+
 // WriteVerificationReport writes report JSON to a file with stable formatting.
 func WriteVerificationReport(path string, result VerificationReport) error {
 	result = CanonicalizeVerificationReport(result)
+	result.Summary = applySourceRevision(result.Summary)
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal report JSON: %w", err)

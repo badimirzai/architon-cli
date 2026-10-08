@@ -1,0 +1,84 @@
+# Copy this file to .github/workflows/architon.yaml in a hardware repository.
+# Update the pinned image tag when a release is cut.
+
+name: Architon
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  architon:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      exit_code: ${{ steps.export.outputs.exit_code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Record the rv export code, then let the upload run.
+      # The following step exits with that code, so exit 2 fails the check.
+      - name: Export Architon Studio files
+        id: export
+        shell: bash
+        run: |
+          set +e
+          docker run --rm --pull always --network none \
+            --user "$(id -u):$(id -g)" \
+            -e RV_SOURCE_REVISION="${GITHUB_SHA}" \
+            -v "$GITHUB_WORKSPACE":/project \
+            ghcr.io/badimirzai/architon:v0.17.0 \
+            rv export .
+          exit_code=$?
+          echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
+          echo "rv export exited ${exit_code}"
+          exit 0
+
+      - name: Upload Architon Studio files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: architon-studio
+          path: |
+            .architon/studio/report.json
+            .architon/studio/graph.json
+          if-no-files-found: ignore
+
+      - name: Exit with export code
+        if: always()
+        shell: bash
+        run: exit "${{ steps.export.outputs.exit_code }}"
+
+  comment:
+    needs: architon
+    if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Comment Studio link
+        uses: actions/github-script@v7
+        env:
+          EXPORT_EXIT_CODE: ${{ needs.architon.outputs.exit_code }}
+        with:
+          script: |
+            const owner = process.env.GITHUB_REPOSITORY_OWNER || "";
+            const repository = process.env.GITHUB_REPOSITORY || "";
+            const slash = repository.indexOf("/");
+            const repo = slash >= 0 ? repository.slice(slash + 1) : "";
+            const sha = process.env.GITHUB_SHA || "";
+            const exitCode = process.env.EXPORT_EXIT_CODE || "";
+            const url = `https://studio.architon.io/?github=${owner}/${repo}&ref=${sha}`;
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: context.issue.number,
+              body: `Architon export exit code: ${exitCode}\n\n${url}\n`
+            });
