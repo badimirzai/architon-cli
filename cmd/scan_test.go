@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -149,25 +150,47 @@ type scanCIOutput struct {
 		RulesEnabled           []string `json:"rules_enabled"`
 	} `json:"summary"`
 	Findings []scanCIFindingOutput `json:"findings"`
+	Coverage scanCoverageOutput    `json:"coverage"`
+}
+
+type scanCoverageOutput struct {
+	Proved struct {
+		Count   int      `json:"count"`
+		RuleIDs []string `json:"rule_ids"`
+	} `json:"proved"`
+	Refused []struct {
+		RuleID       string `json:"rule_id"`
+		Severity     string `json:"severity"`
+		ComponentRef string `json:"component_ref"`
+		Net          string `json:"net"`
+		Pin          string `json:"pin"`
+	} `json:"refused"`
+	NotChecked []struct {
+		Ref    string `json:"ref"`
+		Pin    string `json:"pin"`
+		Net    string `json:"net"`
+		Reason string `json:"reason"`
+	} `json:"not_checked"`
 }
 
 type scanCIFindingOutput struct {
-	ID             string                 `json:"id"`
-	RuleID         string                 `json:"rule_id"`
-	ContractID     string                 `json:"contract_id"`
-	ContractSource string                 `json:"contract_source"`
-	Severity       string                 `json:"severity"`
-	Message        string                 `json:"message"`
-	ComponentRef   string                 `json:"component_ref"`
-	Net            string                 `json:"net"`
-	Pin            string                 `json:"pin"`
-	Requirement    string                 `json:"requirement"`
-	Fix            string                 `json:"fix"`
-	WhyThisMatters string                 `json:"why_this_matters"`
-	Provenance     string                 `json:"provenance"`
-	Expected       *contractspkg.Evidence `json:"expected,omitempty"`
-	Observed       *contractspkg.Evidence `json:"observed,omitempty"`
-	DesignFixable  bool                   `json:"design_fixable"`
+	ID             string                  `json:"id"`
+	RuleID         string                  `json:"rule_id"`
+	ContractID     string                  `json:"contract_id"`
+	ContractSource string                  `json:"contract_source"`
+	Severity       string                  `json:"severity"`
+	Message        string                  `json:"message"`
+	ComponentRef   string                  `json:"component_ref"`
+	Net            string                  `json:"net"`
+	Pin            string                  `json:"pin"`
+	Requirement    string                  `json:"requirement"`
+	Fix            string                  `json:"fix"`
+	WhyThisMatters string                  `json:"why_this_matters"`
+	Provenance     string                  `json:"provenance"`
+	Expected       *contractspkg.Evidence  `json:"expected,omitempty"`
+	Observed       *contractspkg.Evidence  `json:"observed,omitempty"`
+	Citations      []contractspkg.Citation `json:"citations,omitempty"`
+	DesignFixable  bool                    `json:"design_fixable"`
 }
 
 func kicadFixturePath(t *testing.T, name string) string {
@@ -1933,4 +1956,184 @@ func topologyNetlist() string {
       (node (ref "U2") (pin "4"))
       (node (ref "U3") (pin "4")))))
 `
+}
+
+func TestScan_MPU6050SDAOnI2CSCL(t *testing.T) {
+	sda := requireBuiltinPinSignal(t, "MPU-6050", "SDA")
+	stdout, err := runScanCommand(t, t.TempDir(), writePinFunctionNetlist(t, "MPU-6050", []pinFunctionNode{
+		{Pin: sda.Name, Name: sda.Name, Net: "I2C_SCL"},
+	}), "--format", "json", "--out", "report.json")
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 2 {
+		t.Fatalf("expected exit code 2, got %v\n%s", err, stdout)
+	}
+	scan := mustScanCI(t, stdout)
+	finding := requireCIFinding(t, scan, "pin_function_mismatch")
+	if finding.Severity != "ERROR" || finding.ComponentRef != "U1" || finding.Pin != sda.Name {
+		t.Fatalf("expected U1 %s mismatch, got %+v", sda.Name, finding)
+	}
+	if finding.Expected == nil || finding.Expected.Text != "SDA" {
+		t.Fatalf("expected signal SDA, got %+v", finding.Expected)
+	}
+	if finding.Observed == nil || finding.Observed.Text != "I2C_SCL" {
+		t.Fatalf("expected observed net I2C_SCL, got %+v", finding.Observed)
+	}
+	if !citationMatches(finding.Citations, sda.Citation) {
+		t.Fatalf("expected datasheet citation %+v, got %+v", sda.Citation, finding.Citations)
+	}
+	if !strings.Contains(finding.Provenance, sda.Citation.Datasheet) {
+		t.Fatalf("expected provenance to cite %q, got %q", sda.Citation.Datasheet, finding.Provenance)
+	}
+}
+
+func TestScan_MPU6050MatchingBusNetsDoNotMismatchOrShort(t *testing.T) {
+	sda := requireBuiltinPinSignal(t, "MPU-6050", "SDA")
+	scl := requireBuiltinPinSignal(t, "MPU-6050", "SCL")
+	stdout, err := runScanCommand(t, t.TempDir(), writePinFunctionNetlist(t, "MPU-6050", []pinFunctionNode{
+		{Pin: sda.Name, Name: sda.Name, Net: "I2C_SDA"},
+		{Pin: scl.Name, Name: scl.Name, Net: "I2C_SCL"},
+	}), "--format", "json", "--out", "report.json")
+	if err != nil {
+		t.Fatalf("expected matching bus nets to stay clean, got %v\n%s", err, stdout)
+	}
+	scan := mustScanCI(t, stdout)
+	if hasCIRule(scan, "pin_function_mismatch") || hasCIRule(scan, "pin_bus_short") {
+		t.Fatalf("expected no bus pin findings, got %+v", scan.Findings)
+	}
+	if scan.Coverage.Proved.Count < 1 || !containsScanRule(scan.Coverage.Proved.RuleIDs, "pin_function_mismatch") {
+		t.Fatalf("expected the bus check to be proved, got %+v", scan.Coverage.Proved)
+	}
+}
+
+func TestScan_ESP32GPIOOnI2CNetIsNotChecked(t *testing.T) {
+	pin, reason := esp32I2CNotCheckedPin(t)
+	stdout, err := runScanCommand(t, t.TempDir(), writePinFunctionNetlist(t, "ESP32-WROOM-32", []pinFunctionNode{
+		{Pin: pin, Name: pin, Net: "I2C_SDA"},
+	}), "--format", "json", "--out", "report.json")
+	if err != nil {
+		t.Fatalf("expected ESP32 GPIO on I2C_SDA to avoid a pin-function error, got %v\n%s", err, stdout)
+	}
+	scan := mustScanCI(t, stdout)
+	if hasCIRule(scan, "pin_function_mismatch") || hasCIRule(scan, "pin_bus_short") {
+		t.Fatalf("expected no bus pin findings for a GPIO, got %+v", scan.Findings)
+	}
+	if !coverageHas(scan, "U1", pin, "I2C_SDA", reason) {
+		t.Fatalf("expected ESP32 I2C connection under not_checked, got %+v", scan.Coverage.NotChecked)
+	}
+	for _, ruleID := range scan.Coverage.Proved.RuleIDs {
+		if ruleID == "pin_function_mismatch" || ruleID == "pin_bus_short" {
+			t.Fatalf("expected the I2C connection not to be proved, got %+v", scan.Coverage.Proved)
+		}
+	}
+}
+
+type pinFunctionNode struct {
+	Pin  string
+	Name string
+	Net  string
+}
+
+func writePinFunctionNetlist(t *testing.T, mpn string, nodes []pinFunctionNode) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "pins.net")
+	var pins, nets strings.Builder
+	for i, node := range nodes {
+		fmt.Fprintf(&pins, "        (pin (num %q) (name %q) (type \"bidirectional\"))\n", node.Pin, node.Name)
+		fmt.Fprintf(&nets, "    (net (code %q) (name %q) (class \"Default\")\n      (node (ref \"U1\") (pin %q) (pinfunction %q) (pintype \"bidirectional\")))\n",
+			fmt.Sprintf("%d", i+1), node.Net, node.Pin, node.Name)
+	}
+	writeScanTestFile(t, path, fmt.Sprintf(`(export (version "E")
+  (design
+    (source "pins.kicad_sch")
+    (date "2026-05-05T00:00:00+0000")
+    (tool "Eeschema")
+    (sheet (number "1") (name "/") (tstamps "/")))
+  (components
+    (comp (ref "U1")
+      (value %q)
+      (fields
+        (field (name "MPN") %q))
+      (libsource (lib "Device") (part %q))))
+  (libparts
+    (libpart (lib "Device") (part %q)
+      (pins
+%s)))
+  (libraries)
+  (nets
+%s))
+`, mpn, mpn, mpn, mpn, pins.String(), nets.String()))
+	return path
+}
+
+func requireBuiltinPinSignal(t *testing.T, mpn string, signal string) contractspkg.PinFunction {
+	t.Helper()
+	match := contractspkg.MatchPart(ir.Part{MPN: mpn, Value: mpn}, contractspkg.BuiltinContracts())
+	if !match.Matched {
+		t.Fatalf("expected built-in part %s", mpn)
+	}
+	for _, fn := range match.Contract.PinFunctions {
+		if fn.Kind == contractspkg.PinFunctionBus && strings.EqualFold(fn.Signal, signal) {
+			if fn.Citation.Datasheet == "" || fn.Citation.Revision == "" || (fn.Citation.Table == "" && fn.Citation.Section == "") {
+				t.Fatalf("%s %s is missing a datasheet citation: %+v", mpn, signal, fn)
+			}
+			return fn
+		}
+	}
+	t.Fatalf("%s has no cited dedicated %s pin", mpn, signal)
+	return contractspkg.PinFunction{}
+}
+
+func esp32I2CNotCheckedPin(t *testing.T) (string, string) {
+	t.Helper()
+	match := contractspkg.MatchPart(ir.Part{MPN: "ESP32-WROOM-32", Value: "ESP32-WROOM-32"}, contractspkg.BuiltinContracts())
+	if !match.Matched {
+		t.Fatal("expected ESP32-WROOM-32")
+	}
+	for _, fn := range match.Contract.PinFunctions {
+		if fn.Kind == contractspkg.PinFunctionBus && (strings.EqualFold(fn.Signal, "SDA") || strings.EqualFold(fn.Signal, "SCL")) {
+			t.Fatalf("ESP32 I2C must stay gpio_candidate, got %+v", fn)
+		}
+	}
+	for _, fn := range match.Contract.PinFunctions {
+		if fn.Kind == contractspkg.PinFunctionGPIOCandidate && fn.Name != "" {
+			return fn.Name, "gpio_candidate"
+		}
+	}
+	return "IO21", "no_pin_function"
+}
+
+func mustScanCI(t *testing.T, stdout string) scanCIOutput {
+	t.Helper()
+	var scan scanCIOutput
+	if err := json.Unmarshal([]byte(stdout), &scan); err != nil {
+		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout)
+	}
+	return scan
+}
+
+func hasCIRule(scan scanCIOutput, ruleID string) bool {
+	for _, finding := range scan.Findings {
+		if finding.RuleID == ruleID {
+			return true
+		}
+	}
+	return false
+}
+
+func citationMatches(got []contractspkg.Citation, want contractspkg.Citation) bool {
+	for _, citation := range got {
+		if citation.Datasheet == want.Datasheet && citation.Revision == want.Revision && citation.Table == want.Table && citation.Section == want.Section {
+			return true
+		}
+	}
+	return false
+}
+
+func coverageHas(scan scanCIOutput, ref string, pin string, net string, reason string) bool {
+	for _, item := range scan.Coverage.NotChecked {
+		if item.Ref == ref && item.Pin == pin && item.Net == net && item.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
