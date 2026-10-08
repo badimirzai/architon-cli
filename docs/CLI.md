@@ -6,6 +6,8 @@
 `rv graph` emits stable GraphIR JSON for Studio and other renderers.
 `rv export` writes the Studio report and GraphIR under `.architon/studio/`.
 `rv report` generates a static offline HTML report for CI artifacts and sharing.
+`rv contracts draft` writes a reviewable contracts draft from a netlist. That draft is not a verification result.
+`rv connections propose` writes a reviewable connection proposal from built-in pin functions and the netlist. That proposal is not a scan result.
 
 Core commands:
 
@@ -16,6 +18,8 @@ rv mcp                        Serve one MCP tool, verify, over stdio. See docs/m
 rv graph <path>               Emit stable architecture GraphIR JSON
 rv export <path>              Write Studio report and GraphIR under .architon/studio/
 rv report <path>              Generate a static offline HTML report
+rv contracts draft <path>     Write .architon/contracts.draft.yaml from a netlist
+rv connections propose <path> Write .architon/connections.proposal.yaml from pin functions
 rv contracts validate <path>  Validate a custom contracts.yaml schema only
 rv parts list                 List built-in deterministic contract parts
 rv parts show <mpn>           Show one built-in contract part, including cited pin functions
@@ -56,6 +60,8 @@ rv export .
 rv report . --format html --out architon-report.html
 rv scan . --contracts i2c_pullup_policy.yaml --verbose
 rv scan . --format github
+rv contracts draft .
+rv connections propose .
 rv parts list
 rv parts show ESP32-WROOM-32
 ```
