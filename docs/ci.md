@@ -62,7 +62,7 @@ Architon Studio imports two files from the hardware project. It does not read `r
 
 Exit codes match `rv scan`. Exit `2` still writes both files. Exit `3` writes nothing new when the pipeline fails before a report exists. Upload both files as one artifact named `architon-studio`. Use `if: always()` so the artifact is kept when violations fail the export step.
 
-The workflow below runs the [container image](CLI.md#container-image), so the job installs neither Go nor KiCad. GitHub's Ubuntu runners already have Docker. `--user` lets the container write to the checkout, and `--network none` keeps the export offline. Use `ghcr.io/badimirzai/architon:v0.15.0` in place of `ghcr.io/badimirzai/architon` to pin a release. If the KiCad project is in a subfolder, mount that folder: `-v "$GITHUB_WORKSPACE/hardware":/project`, and update the artifact paths to match.
+The workflow below runs the [container image](CLI.md#container-image), so the job installs neither Go nor KiCad. GitHub's Ubuntu runners already have Docker. `--user` lets the container write to the checkout, and `--network none` keeps the export offline. Use `ghcr.io/badimirzai/architon:v0.15.0` in place of `ghcr.io/badimirzai/architon` to pin a release. If the KiCad project is in a subfolder, mount that folder: `-v "$GITHUB_WORKSPACE/hardware":/project`, and update the artifact paths to match. For a repository workflow, copy [`dist/github/architon.yaml`](../dist/github/architon.yaml). [Hardware repository workflow](#hardware-repository-workflow) describes that file.
 
 ```yaml
 name: Architon Studio
@@ -101,9 +101,19 @@ jobs:
 
 This example is for a hardware project that contains a discoverable BOM, netlist, or root KiCad schematic. It is separate from the `--format github` workflow above. If the job installs `rv` with Go instead, `rv export .` writes the same two files.
 
+## Hardware repository workflow
+
+Copy [`dist/github/architon.yaml`](../dist/github/architon.yaml) to `.github/workflows/architon.yaml` in the hardware repository. That file is the workflow those repositories run. [`.github/workflows/architon-example.yml`](../.github/workflows/architon-example.yml) stays here: it compiles `rv` from this source tree and scans fixtures.
+
+The copied workflow runs on pull requests and on pushes to `main`. It checks out the repository and runs `rv export .` in `ghcr.io/badimirzai/architon:v0.17.0`, with the checkout mounted at `/project`. The published image supplies `rv`. `RV_SOURCE_REVISION` is the commit SHA. When the report summary has no source revision, `rv` writes it to `summary.source_revision`. An empty value omits the field.
+
+The job records the `rv export` code, uploads the Studio files, and then exits with that code, so exit `2` fails the check. The upload step uses `if: always()` and still publishes `.architon/studio/report.json` and `.architon/studio/graph.json` as the `architon-studio` artifact when that exit code is `1` or `2`. On a pull request, the workflow comments the exit code and `https://studio.architon.io/?github=owner/repo&ref=<sha>`. Owner, repository, and SHA come from the GitHub environment. Pushes to `main` upload the artifact and skip the comment. The workflow token has `contents: read`. The comment job adds `pull-requests: write`, and that job runs on `pull_request` only.
+
+Update the image pin in `dist/github/architon.yaml` when a release is cut.
+
 ## Testing This Source Repository
 
-This repository is the `rv` source tree, not a KiCad project, so `rv scan .` and `rv export .` are expected to exit `3` here. Do not add `rv export .` to this repository's own CI. The checked-in example workflow uses deterministic fixtures instead:
+This repository is the `rv` source tree, not a KiCad project, so `rv scan .` and `rv export .` are expected to exit `3` here. This repository's CI leaves `dist/github/architon.yaml` unused. The checked-in example workflow uses deterministic fixtures instead:
 
 - `internal/importers/kicad/testdata/bom_minimal.csv` must scan cleanly.
 - `testdata/esp32_overvoltage/netlist.net` with `testdata/esp32_overvoltage/meta.yaml` must emit a GitHub error annotation and exit `2`.
