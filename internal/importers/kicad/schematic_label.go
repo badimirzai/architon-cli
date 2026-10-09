@@ -16,7 +16,8 @@ type NetLabelPin struct {
 	Pin string
 }
 
-// NetLabelEntry is one accepted join. Both pins already exist on a schematic.
+// NetLabelEntry is one accepted join. Each named pin already exists on a schematic.
+// A blank pin is ignored, so a candidate choice can name one pin.
 type NetLabelEntry struct {
 	ID   string
 	Net  string
@@ -86,7 +87,12 @@ func planNetLabelEntry(sheets []*parsedSheet, entry NetLabelEntry, planned map[*
 		return fmt.Errorf("accepted entry %s has no net", strings.TrimSpace(entry.ID))
 	}
 	seen := map[*placedPin]struct{}{}
+	named := 0
 	for _, end := range entry.Pins {
+		if strings.TrimSpace(end.Ref) == "" && strings.TrimSpace(end.Pin) == "" {
+			continue
+		}
+		named++
 		pin, err := findPlacedPin(sheets, end.Ref, end.Pin)
 		if err != nil {
 			return err
@@ -114,6 +120,9 @@ func planNetLabelEntry(sheets []*parsedSheet, entry NetLabelEntry, planned map[*
 		default:
 			return fmt.Errorf("pin %s %s not found", end.Ref, end.Pin)
 		}
+	}
+	if named == 0 {
+		return fmt.Errorf("accepted entry %s needs a pin", strings.TrimSpace(entry.ID))
 	}
 	return nil
 }
