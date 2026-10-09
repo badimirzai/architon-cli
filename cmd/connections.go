@@ -68,40 +68,8 @@ conflict count.`,
 // runConnectionsPropose resolves a scan input, imports it, and writes a connection proposal.
 // Import stops at DesignIR. The rule engine is not called.
 func runConnectionsPropose(cmd *cobra.Command, inputPath string, force bool) error {
-	resolved, err := resolveScanInput(inputPath, "", "")
+	proposalPath, document, err := saveConnectionProposal(inputPath, force)
 	if err != nil {
-		return fatalError(err)
-	}
-	design, err := importResolvedScanInput(resolved, "")
-	if err != nil {
-		return userError(err)
-	}
-	proposalPath, err := connectionsProposalPath(resolved)
-	if err != nil {
-		return fatalError(err)
-	}
-	if filepath.Base(proposalPath) != connectionsProposalFileName {
-		return fatalError(fmt.Errorf("refusing to write %s", proposalPath))
-	}
-	if !force {
-		info, statErr := os.Stat(proposalPath)
-		switch {
-		case statErr == nil:
-			if info.IsDir() {
-				return fatalError(fmt.Errorf("%s is a directory", proposalPath))
-			}
-			return &ExitError{
-				Code: 3,
-				Err:  fmt.Errorf("connections proposal already exists: %s", proposalPath),
-			}
-		case os.IsNotExist(statErr):
-		default:
-			return fatalError(fmt.Errorf("stat connections proposal: %w", statErr))
-		}
-	}
-
-	document := contractspkg.ProposeConnections(design)
-	if err := writeConnectionsProposal(proposalPath, []byte(document.YAML), force); err != nil {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), proposalPath)
@@ -109,6 +77,62 @@ func runConnectionsPropose(cmd *cobra.Command, inputPath string, force bool) err
 	fmt.Fprintf(cmd.OutOrStdout(), "needs_choice: %d\n", document.NeedsChoice)
 	fmt.Fprintf(cmd.OutOrStdout(), "conflict: %d\n", document.Conflict)
 	return nil
+}
+
+// buildConnectionProposal imports a scan input and builds a connection proposal.
+// It does not write a file and does not call the rule engine.
+func buildConnectionProposal(inputPath string) (contractspkg.ConnectionProposal, string, error) {
+	resolved, err := resolveScanInput(inputPath, "", "")
+	if err != nil {
+		return contractspkg.ConnectionProposal{}, "", fatalError(err)
+	}
+	design, err := importResolvedScanInput(resolved, "")
+	if err != nil {
+		return contractspkg.ConnectionProposal{}, "", userError(err)
+	}
+	proposalPath, err := connectionsProposalPath(resolved)
+	if err != nil {
+		return contractspkg.ConnectionProposal{}, "", fatalError(err)
+	}
+	if filepath.Base(proposalPath) != connectionsProposalFileName {
+		return contractspkg.ConnectionProposal{}, "", fatalError(fmt.Errorf("refusing to write %s", proposalPath))
+	}
+	return contractspkg.ProposeConnections(design), proposalPath, nil
+}
+
+func saveConnectionProposal(inputPath string, force bool) (string, contractspkg.ConnectionProposal, error) {
+	document, proposalPath, err := buildConnectionProposal(inputPath)
+	if err != nil {
+		return "", contractspkg.ConnectionProposal{}, err
+	}
+	if err := guardConnectionProposal(proposalPath, force); err != nil {
+		return "", contractspkg.ConnectionProposal{}, err
+	}
+	if err := writeConnectionsProposal(proposalPath, []byte(document.YAML), force); err != nil {
+		return "", contractspkg.ConnectionProposal{}, err
+	}
+	return proposalPath, document, nil
+}
+
+func guardConnectionProposal(proposalPath string, force bool) error {
+	if force {
+		return nil
+	}
+	info, statErr := os.Stat(proposalPath)
+	switch {
+	case statErr == nil:
+		if info.IsDir() {
+			return fatalError(fmt.Errorf("%s is a directory", proposalPath))
+		}
+		return &ExitError{
+			Code: 3,
+			Err:  fmt.Errorf("connections proposal already exists: %s", proposalPath),
+		}
+	case os.IsNotExist(statErr):
+		return nil
+	default:
+		return fatalError(fmt.Errorf("stat connections proposal: %w", statErr))
+	}
 }
 
 // connectionsProposalPath is .architon/connections.proposal.yaml under the resolved project.

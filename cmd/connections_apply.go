@@ -30,10 +30,16 @@ does not draw wires, and does not edit a .kicad_pcb.
 
 Only an entry whose status is accepted is applied. decided, needs_choice, and conflict are left
 untouched. A decided entry is not accepted until a person or a later tool changes that status.
+A needs_choice entry is skipped.
 
-For each accepted entry, both pins must already exist. A missing pin or a pin already on a different
-net exits 3 and writes nothing. A pin already on the proposal net is left as it is. An unconnected
-pin gets one net label at that pin. The symbol is not moved.
+To accept a needs_choice entry, set its status to accepted and set pin to one name or number
+copied from that entry's candidates. Leave the candidates list on the entry. A pin that is not
+in the list exits 3 and writes nothing.
+
+An accepted pair names two pins. A candidate choice names one. Each of those pins must already
+exist. A missing pin or a pin already on a different net exits 3 and writes nothing. A pin
+already on the proposal net is left as it is. An unconnected pin gets one net label at that pin.
+The symbol is not moved.
 
 Every accepted entry is applied, or none are. On failure the schematic bytes are restored.
 
@@ -48,35 +54,57 @@ pass or fail. Run rv scan or the verify tool to see the verdict.`,
 // runConnectionsApply adds net labels for accepted proposal entries.
 // It does not import a netlist, call the rule engine, or invoke a model.
 func runConnectionsApply(cmd *cobra.Command, inputPath string) error {
+	files, ids, err := applyConnectionLabels(inputPath)
+	if err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	for _, path := range files {
+		fmt.Fprintln(out, path)
+	}
+	for _, id := range ids {
+		fmt.Fprintln(out, id)
+	}
+	fmt.Fprintln(out, connectionsApplyNextStep)
+	return nil
+}
+
+// applyConnectionLabels adds net labels for accepted proposal entries.
+// files are the schematic paths whose bytes changed. ids are the accepted entry ids.
+// A needs_choice entry is skipped. A candidate pin outside that entry's list returns
+// an error before any schematic is written.
+func applyConnectionLabels(inputPath string) ([]string, []string, error) {
 	root, err := connectionsApplyRoot(inputPath)
 	if err != nil {
-		return fatalError(err)
+		return nil, nil, fatalError(err)
 	}
 	proposalPath := filepath.Join(root, ".architon", connectionsProposalFileName)
 	data, err := readConnectionsProposal(proposalPath)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	entries, err := acceptedNetLabelEntries(data)
 	if err != nil {
-		return fatalError(err)
+		return nil, nil, fatalError(err)
 	}
-	out := cmd.OutOrStdout()
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ids = append(ids, entry.ID)
+	}
 	if len(entries) == 0 {
-		fmt.Fprintln(out, connectionsApplyNextStep)
-		return nil
+		return []string{}, []string{}, nil
 	}
 
 	files, err := readProjectSchematics(root)
 	if err != nil {
-		return fatalError(err)
+		return nil, nil, fatalError(err)
 	}
 	changed, err := kicad.AddNetLabels(files, entries)
 	if err != nil {
-		return fatalError(err)
+		return nil, nil, fatalError(err)
 	}
 	if err := writeChangedSchematics(changed, files); err != nil {
-		return fatalError(err)
+		return nil, nil, fatalError(err)
 	}
 
 	paths := make([]string, 0, len(changed))
@@ -84,14 +112,7 @@ func runConnectionsApply(cmd *cobra.Command, inputPath string) error {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	for _, path := range paths {
-		fmt.Fprintln(out, path)
-	}
-	for _, entry := range entries {
-		fmt.Fprintln(out, entry.ID)
-	}
-	fmt.Fprintln(out, connectionsApplyNextStep)
-	return nil
+	return paths, ids, nil
 }
 
 func connectionsApplyRoot(inputPath string) (string, error) {
@@ -150,10 +171,18 @@ type connectionProposalApplyDoc struct {
 }
 
 type connectionProposalApplyEntry struct {
-	ID     yamlText                      `yaml:"id"`
-	Status yamlText                      `yaml:"status"`
-	Net    yamlText                      `yaml:"net"`
-	Parts  []connectionProposalApplyPart `yaml:"parts"`
+	ID         yamlText                           `yaml:"id"`
+	Status     yamlText                           `yaml:"status"`
+	Net        yamlText                           `yaml:"net"`
+	Ref        yamlText                           `yaml:"ref"`
+	Pin        yamlText                           `yaml:"pin"`
+	Parts      []connectionProposalApplyPart      `yaml:"parts"`
+	Candidates []connectionProposalApplyCandidate `yaml:"candidates"`
+}
+
+type connectionProposalApplyCandidate struct {
+	Pins   []yamlText `yaml:"pins"`
+	Number yamlText   `yaml:"number"`
 }
 
 type connectionProposalApplyPart struct {
@@ -171,33 +200,115 @@ func acceptedNetLabelEntries(data []byte) ([]kicad.NetLabelEntry, error) {
 		if strings.TrimSpace(string(entry.Status)) != "accepted" {
 			continue
 		}
-		id := strings.TrimSpace(string(entry.ID))
-		net := strings.TrimSpace(string(entry.Net))
-		if id == "" {
-			return nil, errors.New("accepted connection is missing an id")
+		label, err := acceptedLabelEntry(entry)
+		if err != nil {
+			return nil, err
 		}
-		if net == "" || strings.Trim(net, "/") == "" {
-			return nil, fmt.Errorf("accepted entry %s has no net", id)
-		}
-		if len(entry.Parts) != 2 {
-			return nil, fmt.Errorf("accepted entry %s needs two parts", id)
-		}
-		var pins [2]kicad.NetLabelPin
-		for i, part := range entry.Parts {
-			pins[i] = kicad.NetLabelPin{
-				Ref: strings.TrimSpace(string(part.Ref)),
-				Pin: strings.TrimSpace(string(part.Pin)),
-			}
-			if pins[i].Ref == "" || pins[i].Pin == "" {
-				return nil, fmt.Errorf("accepted entry %s needs two parts", id)
-			}
-		}
-		if pins[0].Ref == pins[1].Ref {
-			return nil, fmt.Errorf("accepted entry %s needs two parts", id)
-		}
-		out = append(out, kicad.NetLabelEntry{ID: id, Net: net, Pins: pins})
+		out = append(out, label)
 	}
 	return out, nil
+}
+
+func acceptedLabelEntry(entry connectionProposalApplyEntry) (kicad.NetLabelEntry, error) {
+	if len(entry.Candidates) > 0 {
+		return acceptedChoiceEntry(entry)
+	}
+	return acceptedPairEntry(entry)
+}
+
+func acceptedPairEntry(entry connectionProposalApplyEntry) (kicad.NetLabelEntry, error) {
+	id := strings.TrimSpace(string(entry.ID))
+	net := strings.TrimSpace(string(entry.Net))
+	if id == "" {
+		return kicad.NetLabelEntry{}, errors.New("accepted connection is missing an id")
+	}
+	if net == "" || strings.Trim(net, "/") == "" {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s has no net", id)
+	}
+	if len(entry.Parts) != 2 {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s needs two parts", id)
+	}
+	var pins [2]kicad.NetLabelPin
+	for i, part := range entry.Parts {
+		pins[i] = kicad.NetLabelPin{
+			Ref: strings.TrimSpace(string(part.Ref)),
+			Pin: strings.TrimSpace(string(part.Pin)),
+		}
+		if pins[i].Ref == "" || pins[i].Pin == "" {
+			return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s needs two parts", id)
+		}
+	}
+	if pins[0].Ref == pins[1].Ref {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s needs two parts", id)
+	}
+	return kicad.NetLabelEntry{ID: id, Net: net, Pins: pins}, nil
+}
+
+// acceptedChoiceEntry applies one pin copied from that entry's candidates.
+// Any other pin is rejected before a schematic is written.
+func acceptedChoiceEntry(entry connectionProposalApplyEntry) (kicad.NetLabelEntry, error) {
+	id := strings.TrimSpace(string(entry.ID))
+	if id == "" {
+		return kicad.NetLabelEntry{}, errors.New("accepted connection is missing an id")
+	}
+	net := strings.TrimSpace(string(entry.Net))
+	if net == "" || strings.Trim(net, "/") == "" {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s has no net", id)
+	}
+	allowed := candidateTokens(entry.Candidates)
+	pin := strings.TrimSpace(string(entry.Pin))
+	ref := strings.TrimSpace(string(entry.Ref))
+	if pin != "" {
+		if _, ok := allowed[pin]; !ok {
+			return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s pin %s is not in candidates", id, pin)
+		}
+	}
+	for _, part := range entry.Parts {
+		partPin := strings.TrimSpace(string(part.Pin))
+		if partPin == "" {
+			continue
+		}
+		if _, ok := allowed[partPin]; !ok {
+			return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s pin %s is not in candidates", id, partPin)
+		}
+		if pin == "" {
+			pin = partPin
+		} else if partPin != pin {
+			return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s accepts one pin from candidates", id)
+		}
+		if ref == "" {
+			ref = strings.TrimSpace(string(part.Ref))
+		}
+	}
+	if pin == "" {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s pin is not in candidates", id)
+	}
+	if _, ok := allowed[pin]; !ok {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s pin %s is not in candidates", id, pin)
+	}
+	if ref == "" {
+		return kicad.NetLabelEntry{}, fmt.Errorf("accepted entry %s needs a ref", id)
+	}
+	return kicad.NetLabelEntry{
+		ID:   id,
+		Net:  net,
+		Pins: [2]kicad.NetLabelPin{{Ref: ref, Pin: pin}},
+	}, nil
+}
+
+func candidateTokens(candidates []connectionProposalApplyCandidate) map[string]struct{} {
+	allowed := make(map[string]struct{})
+	for _, candidate := range candidates {
+		for _, pin := range candidate.Pins {
+			if token := strings.TrimSpace(string(pin)); token != "" {
+				allowed[token] = struct{}{}
+			}
+		}
+		if token := strings.TrimSpace(string(candidate.Number)); token != "" {
+			allowed[token] = struct{}{}
+		}
+	}
+	return allowed
 }
 
 func readProjectSchematics(root string) (map[string][]byte, error) {

@@ -21,12 +21,22 @@ const verifyToolDescription = "Verify a project with the same scan as `rv scan <
 	"exit_code is that scan's process result: 0 clean or info, 1 warnings, 2 violations, 3 tool or import failure. " +
 	"Call again after the project changes."
 
-const mcpInstructions = "Call verify with a project path. scan is the JSON from rv scan --format json. " +
-	"Read rule_id, severity, component_ref, net, pin, expected, observed, and design_fixable from scan.findings. " +
-	"exit_code is 0, 1, 2, or 3. Call verify again after the project changes."
+const mcpInstructions = "Call propose first. Pass write true to write .architon/connections.proposal.yaml. " +
+	"You may set a needs_choice entry to accepted only by copying a pin from that entry's candidates. " +
+	"Set that entry's pin to the copied name or number and leave candidates on the entry. " +
+	"A pin that is not in the list is rejected by apply with no file change. " +
+	"Call apply, then call verify on the same project. " +
+	"Report verify's exit_code and each finding's rule_id, severity, component_ref, net, pin, expected, observed, and design_fixable. " +
+	"A clean verify with not_checked rows is a pass of the proved checks only. Say what was not checked. " +
+	"not_checked is scan.coverage.not_checked. " +
+	"verify is the only pass. " +
+	"Do not edit the schematic except through apply."
 
-// mcpClosedWorld marks verify as closed-world: it does not reach the network.
+// mcpClosedWorld marks these tools as closed-world: they do not reach the network.
 var mcpClosedWorld = false
+
+// mcpNotDestructive marks apply as additive: it adds net labels and does not delete schematic objects.
+var mcpNotDestructive = false
 
 type verifyArgs struct {
 	ProjectPath   string `json:"project_path" jsonschema:"directory or design file to verify"`
@@ -48,12 +58,12 @@ func init() {
 func newMCPCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:           "mcp",
-		Short:         "Serve project verification as one MCP tool",
+		Short:         "Serve verify, propose, and apply over stdio",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Long: `Serve one MCP tool on stdio.
+		Long: `Serve verify, propose, and apply on stdio.
 
-The tool is verify. It runs the same scan as:
+verify runs the same scan as:
 
   rv scan <project_path> --format json
   rv scan <project_path> --format json --contracts <contracts_path>
@@ -63,15 +73,26 @@ verify arguments:
   contracts_path  Optional contracts file. When omitted, scan uses
                   .architon/contracts.yaml if that file exists.
 
-The result is JSON:
+The verify result is JSON:
   exit_code  Scan process result: 0 clean or info, 1 warnings, 2 violations,
              3 tool, import, or internal failure
   scan       The JSON object rv scan --format json prints, including findings
              with rule_id, severity, component_ref, net, pin, expected,
-             observed, and design_fixable
+             observed, and design_fixable, and coverage.not_checked
   error      Set when scan exits before writing that JSON
 
-Call verify again after the project changes.`,
+propose returns decided, needs_choice, conflict, and citations as JSON.
+It does not write a file unless write is true. write true writes
+.architon/connections.proposal.yaml. If that file exists, the write fails
+unless force is true, the same rule as rv connections propose --force.
+A needs_choice entry lists candidates and does not mark a GPIO accepted.
+
+apply reads a proposal path and adds net labels for accepted entries, the same
+label apply as rv connections apply. It returns the files changed and the ids
+applied. It does not return an exit code. A needs_choice entry is skipped.
+A pin that is not in that entry's candidates is rejected and no file changes.
+
+verify is the only pass. Call propose, then apply, then verify.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := serveMCP(cmd.Context())
@@ -106,6 +127,29 @@ func newMCPServer() *mcp.Server {
 			Title:          "Verify project",
 		},
 	}, verifyTool)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        proposeToolName,
+		Title:       "Propose connections",
+		Description: proposeToolDescription,
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:   true,
+			IdempotentHint: true,
+			OpenWorldHint:  &mcpClosedWorld,
+			Title:          "Propose connections",
+		},
+	}, proposeTool)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        applyToolName,
+		Title:       "Apply connection labels",
+		Description: applyToolDescription,
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			DestructiveHint: &mcpNotDestructive,
+			IdempotentHint:  true,
+			OpenWorldHint:   &mcpClosedWorld,
+			Title:           "Apply connection labels",
+		},
+	}, applyTool)
 	return server
 }
 
