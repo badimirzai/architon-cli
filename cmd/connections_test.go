@@ -255,6 +255,7 @@ type connectionProposalEntry struct {
 	Net        string                        `yaml:"net"`
 	Ref        string                        `yaml:"ref"`
 	MPN        string                        `yaml:"mpn"`
+	Pin        string                        `yaml:"pin,omitempty"`
 	Parts      []connectionProposalPart      `yaml:"parts"`
 	Candidates []connectionProposalCandidate `yaml:"candidates"`
 }
@@ -517,6 +518,162 @@ connections:
 	}
 }
 
+func TestV019FixtureChoiceAcceptsOnlyAListedPin(t *testing.T) {
+	dir := t.TempDir()
+	writeScanTestFile(t, filepath.Join(dir, "design.net"), i2cProposalNetlist)
+	document, _, err := buildConnectionProposal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := mustConnectionProposal(t, document.YAML)
+	var choice *connectionProposalEntry
+	for i := range doc.Connections {
+		entry := &doc.Connections[i]
+		if entry.ID == "sda-U1" && entry.Status == "needs_choice" && entry.Ref == "U1" {
+			choice = entry
+		}
+	}
+	if choice == nil || len(choice.Candidates) < 2 || len(choice.Candidates[0].Pins) == 0 {
+		t.Fatalf("MCU choice = %+v", choice)
+	}
+	listed := choice.Candidates[0].Pins[0]
+	choice.Status = "accepted"
+	choice.Pin = listed
+	raw, err := yaml.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := acceptedNetLabelEntries(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "sda-U1" || entries[0].Pins[0] != (kicad.NetLabelPin{Ref: "U1", Pin: listed}) {
+		t.Fatalf("entries = %+v", entries)
+	}
+
+	choice.Pin = "PA0"
+	raw, err = yaml.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acceptedNetLabelEntries(raw); err == nil || !strings.Contains(err.Error(), "pin PA0 is not in candidates") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAcceptedChoiceRequiresListedPin(t *testing.T) {
+	_, err := acceptedNetLabelEntries([]byte(unlistedChoiceProposal))
+	if err == nil || !strings.Contains(err.Error(), "pin SDA is not in candidates") {
+		t.Fatalf("err = %v", err)
+	}
+
+	entries, err := acceptedNetLabelEntries([]byte(listedChoiceProposal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "sda-U2" || entries[0].Net != "I2C_SDA" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if entries[0].Pins[0] != (kicad.NetLabelPin{Ref: "U2", Pin: "SDA"}) || entries[0].Pins[1] != (kicad.NetLabelPin{}) {
+		t.Fatalf("pins = %+v", entries[0].Pins)
+	}
+
+	numbered, err := acceptedNetLabelEntries([]byte(strings.Replace(listedChoiceProposal, "pin: SDA", "pin: \"1\"", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(numbered) != 1 || numbered[0].Pins[0].Pin != "1" {
+		t.Fatalf("numbered = %+v", numbered)
+	}
+
+	alias, err := acceptedNetLabelEntries([]byte(strings.Replace(listedChoiceProposal, "pin: SDA", "pin: GPIO21", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(alias) != 1 || alias[0].Pins[0].Pin != "GPIO21" {
+		t.Fatalf("alias = %+v", alias)
+	}
+
+	skipped, err := acceptedNetLabelEntries([]byte(strings.Replace(unlistedChoiceProposal, "status: accepted", "status: needs_choice", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("needs_choice was applied: %+v", skipped)
+	}
+}
+
+func TestConnectionsApplyUnlistedCandidateWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	schPath := filepath.Join(dir, "board.kicad_sch")
+	schBefore := []byte(twoSDASchematic())
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, filepath.Join(dir, ".architon", "connections.proposal.yaml"), unlistedChoiceProposal)
+
+	info, err := os.Stat(schPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := runConnectionsCommand(t, "apply", dir)
+	if err == nil {
+		t.Fatal("expected a pin outside candidates to fail")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Fatalf("expected exit 3, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "not in candidates") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	assertBytesUnchanged(t, schPath, schBefore)
+	infoAfter, err := os.Stat(schPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !infoAfter.ModTime().Equal(info.ModTime()) || infoAfter.Size() != info.Size() {
+		t.Fatal("apply rewrote the schematic")
+	}
+}
+
+func TestConnectionsApplyListedCandidateWritesLabel(t *testing.T) {
+	dir := t.TempDir()
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schPath := filepath.Join(root, "board.kicad_sch")
+	proposalPath := filepath.Join(root, ".architon", "connections.proposal.yaml")
+	schBefore := []byte(twoSDASchematic())
+	proposalBefore := []byte(listedChoiceProposal)
+	writeScanTestFile(t, schPath, string(schBefore))
+	writeScanTestFile(t, proposalPath, string(proposalBefore))
+
+	stdout, err := runConnectionsCommand(t, "apply", proposalPath)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if stdout != schPath+"\nsda-U2\nRun rv scan or the verify tool.\n" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if strings.Contains(stdout, "PASS") || strings.Contains(stdout, "FAIL") || strings.Contains(stdout, "exit") {
+		t.Fatalf("apply printed a verdict: %q", stdout)
+	}
+	got, err := os.ReadFile(schPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(schBefore, got) || !strings.Contains(string(got), "(label \"I2C_SDA\"") {
+		t.Fatalf("listed pin was not labeled:\n%s", got)
+	}
+	if strings.Contains(string(got), "(wire") || strings.Contains(string(got), "(no_connect") {
+		t.Fatal("apply added a wire or no-connect")
+	}
+	assertBytesUnchanged(t, proposalPath, proposalBefore)
+}
+
 func assertOnlyNetLabelsInserted(t *testing.T, before string, after string, positions ...string) {
 	t.Helper()
 	idx := strings.LastIndex(before, ")")
@@ -700,6 +857,32 @@ connections:
           revision: "1.8"
           table: "5-1 Pin description"
           section: "5.1 Pin-out"
+`
+
+const listedChoiceProposal = `# A decided entry is not a scan result, and a needs_choice entry is not accepted.
+connections:
+  - id: sda-U2
+    status: accepted
+    signal: SDA
+    net: I2C_SDA
+    ref: U2
+    pin: SDA
+    candidates:
+      - pins: [SDA, GPIO21]
+        number: "1"
+`
+
+const unlistedChoiceProposal = `# A decided entry is not a scan result, and a needs_choice entry is not accepted.
+connections:
+  - id: sda-U2
+    status: accepted
+    signal: SDA
+    net: I2C_SDA
+    ref: U2
+    pin: SDA
+    candidates:
+      - pins: [IO21, GPIO21]
+        number: "33"
 `
 
 const undecidedConnectionsProposal = `# A decided entry is not a scan result, and a needs_choice entry is not accepted.

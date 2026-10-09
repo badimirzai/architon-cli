@@ -41,10 +41,19 @@ func TestMCPVerify_AgentLoopFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(listed.Tools) != 1 || listed.Tools[0].Name != verifyToolName {
-		t.Fatalf("expected one %q tool, got %+v", verifyToolName, listed.Tools)
+	if len(listed.Tools) != 3 {
+		t.Fatalf("expected verify, propose, and apply, got %+v", listed.Tools)
 	}
-	assertVerifyInputSchema(t, listed.Tools[0])
+	byName := map[string]*mcp.Tool{}
+	for _, tool := range listed.Tools {
+		byName[tool.Name] = tool
+	}
+	for _, name := range []string{verifyToolName, proposeToolName, applyToolName} {
+		if byName[name] == nil {
+			t.Fatalf("missing %s in %+v", name, listed.Tools)
+		}
+	}
+	assertVerifyInputSchema(t, byName[verifyToolName])
 
 	broken := examplePath(t, filepath.Join("agent-loop", "broken"))
 	fixed := examplePath(t, filepath.Join("agent-loop", "fixed"))
@@ -59,6 +68,9 @@ func TestMCPVerify_AgentLoopFixtures(t *testing.T) {
 	}
 	assertSameScanJSON(t, brokenTool.Scan, brokenCLI)
 	assertBrokenFixtureFindings(t, brokenTool.Scan)
+	if !strings.Contains(string(brokenTool.Scan), `"not_checked"`) {
+		t.Fatal("verify result dropped not_checked")
+	}
 
 	contractsPath := filepath.Join(broken, ".architon", "contracts.yaml")
 	brokenExplicit := callVerify(t, ctx, session, broken, contractsPath)
