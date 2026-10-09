@@ -152,7 +152,7 @@ exit code: 2
 
 ## Ask an agent to verify a design
 
-`rv mcp` lets Cursor or Claude call the same check as `rv scan <path> --format json`. The tool is `verify`. It returns `exit_code` and the scan JSON. It does not draw a schematic, edit the board, or route a PCB.
+`rv mcp` lets Cursor or Claude call `verify`, `propose`, and `apply`. `verify` is the same check as `rv scan <path> --format json` and the only pass. It returns `exit_code` and the scan JSON. `propose` and `apply` do not. The server does not draw a schematic, route a PCB, or edit the board except when `apply` adds net labels for an accepted entry.
 
 Build the binary, then open this repo in Cursor. `.cursor/mcp.json` points at `${workspaceFolder}/bin/rv`, so the path is not tied to one machine:
 
@@ -195,13 +195,13 @@ rv contracts validate      Validate contracts schema
 rv parts list              List built-in contract parts
 rv parts show <mpn>        Show one built-in contract part, including cited pin functions
 rv init                    Create starter specs and metadata
-rv mcp                     Serve the verify tool for Cursor and Claude
+rv mcp                     Serve verify, propose, and apply for Cursor and Claude
 rv version                 Show installed version
 ```
 Detailed CLI examples, scan behavior, import modes, rail inference, and advanced flags are documented in:
 
 - [docs/CLI.md](docs/CLI.md)
-- [docs/mcp.md](docs/mcp.md) — local MCP server: what `verify` checks, and Cursor and Claude setup
+- [docs/mcp.md](docs/mcp.md) — local MCP server: `verify`, `propose`, and `apply`, and Cursor and Claude setup
 - [docs/contracts.md](docs/contracts.md) — contracts, connection proposals, and the [scan loop](docs/contracts.md#scan-loop) for `rv scan . --format json`
 - [docs/ci.md](docs/ci.md) — GitHub Actions and the hardware workflow to copy
 - [docs/graph-ir.md](docs/graph-ir.md)
