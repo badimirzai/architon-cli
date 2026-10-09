@@ -213,9 +213,11 @@ The real ESP32 choice continues with every cited `gpio_candidate`. When the dedi
 
 The command does not scan, does not call a model, and does not draw wires. It does not edit a `.kicad_pcb`. It does not move a symbol, and it does not add a no-connect or a new symbol.
 
-`decided` is not `accepted`. A person or a later tool changes that status. `needs_choice` and `conflict` are never applied.
+`decided` is not `accepted`. A person or a later tool changes that status. `needs_choice` and `conflict` are never applied. A `needs_choice` entry in the file is skipped.
 
-For one accepted entry, both pins must already be on a schematic. The pin is matched by reference and by pin name or pin number. A missing pin, a pin already on a different net, or a pin with a no-connect exits 3 and writes nothing. A pin already on the proposal net is left as it is. An unconnected pin gets one local label at that pin's connection point. The label uses the form saved by KiCad 9 (`version 20250114`): `(label "NAME" (at x y 0) ...)`.
+To accept a `needs_choice` entry, set its status to `accepted` and set `pin` to one name or number copied from that entry's `candidates`. Leave the `candidates` list on the entry. Apply adds one net label for that pin. A pin that is not in the list exits 3 and writes nothing.
+
+An accepted pair names two pins. A candidate choice names one. Each of those pins must already be on a schematic. The pin is matched by reference and by pin name or pin number. A missing pin, a pin already on a different net, or a pin with a no-connect exits 3 and writes nothing. A pin already on the proposal net is left as it is. An unconnected pin gets one local label at that pin's connection point. The label uses the form saved by KiCad 9 (`version 20250114`): `(label "NAME" (at x y 0) ...)`.
 
 Every accepted entry is applied, or none are. On failure the schematic bytes are restored.
 
